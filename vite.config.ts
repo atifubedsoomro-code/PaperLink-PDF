@@ -46,6 +46,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,webp,woff,woff2}'],
+          navigateFallbackDenylist: [/^\/google[a-z0-9]+\.html$/i],
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           runtimeCaching: [
             {
