@@ -27,6 +27,7 @@ import { EmailShareModal } from './components/EmailShareModal';
 import { HistoryDashboard } from './components/HistoryDashboard';
 import { BatchProcessingPanel } from './components/BatchProcessingPanel';
 import { PdfToolsPanel, PdfToolTab } from './components/PdfToolsPanel';
+import { ImageToolsPanel, ImageToolTab } from './components/ImageToolsPanel';
 import { TypewriterWelcome } from './components/TypewriterWelcome';
 import { TypewriterButton } from './components/TypewriterButton';
 import { AuthGateModal } from './components/AuthGateModal';
@@ -132,6 +133,7 @@ export default function App() {
   // Navigation State: supports /privacy & /terms direct routes as well as SPA views
   const [activeView, setActiveView] = useState<AppView>(readInitialView);
   const [activePdfTool, setActivePdfTool] = useState<PdfToolTab>('pdf-to-word');
+  const [activeImageTool, setActiveImageTool] = useState<ImageToolTab>('bg-remove');
 
   // Linear 5-Step Cover Studio Workflow
   const [currentStep, setCurrentStep] = useState<Step>(1);
@@ -910,6 +912,10 @@ export default function App() {
               setActivePdfTool(tool);
               navigateView('tools');
             }}
+            onOpenImageTool={(tool) => {
+              setActiveImageTool(tool);
+              navigateView('image-tools');
+            }}
             onOpenLegal={(page) => navigateView(page)}
           />
         </main>
@@ -932,6 +938,16 @@ export default function App() {
               activeTool={activePdfTool}
               onToolChange={setActivePdfTool}
               onSendPdfToCoverStudio={handleReceivePdfFromTools}
+            />
+          ) : activeView === 'image-tools' ? (
+            <ImageToolsPanel
+              activeTool={activeImageTool}
+              onToolChange={setActiveImageTool}
+              onUseAsCoverLogo={(dataUrl) => {
+                setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
+                navigateView('studio');
+                setCurrentStep(3);
+              }}
             />
           ) : activeView === 'batch' ? (
             <BatchProcessingPanel

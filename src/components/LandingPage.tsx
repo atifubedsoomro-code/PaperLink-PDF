@@ -14,14 +14,24 @@ import {
   QrCode,
   Scissors,
   ShieldCheck,
+  Edit3,
+  Lock,
+  FileImage,
+  Eraser,
+  Maximize2,
+  RefreshCw,
+  Crop,
+  Sliders,
 } from 'lucide-react';
 import heroStudioImg from '../assets/images/hero_qr_studio_1794726300193.jpg';
 import { AppView } from './Navbar';
 import { PdfToolTab } from './PdfToolsPanel';
+import { ImageToolTab } from './ImageToolsPanel';
 
 interface LandingPageProps {
   onNavigate: (view: AppView) => void;
   onOpenPdfTool: (tool: PdfToolTab) => void;
+  onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenLegal?: (page: 'privacy' | 'terms') => void;
 }
 
@@ -30,6 +40,7 @@ const EASE_OUT_QUINT = [0.22, 1, 0.36, 1] as const;
 export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigate,
   onOpenPdfTool,
+  onOpenImageTool,
   onOpenLegal,
 }) => {
   const [activeFlowIndex, setActiveFlowIndex] = useState(0);
@@ -81,7 +92,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={() => onOpenPdfTool('pdf-to-word')}
                   className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-zinc-400 dark:hover:border-zinc-700 hover:text-zinc-950 dark:hover:text-white text-zinc-800 dark:text-zinc-300 font-semibold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
                 >
-                  <span>Launch PDF & Word Tools</span>
+                  <span>PDF &amp; Word Tools</span>
+                </motion.button>
+
+                <motion.button
+                  type="button"
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => onOpenImageTool('bg-remove')}
+                  className="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-yellow-400 text-zinc-800 dark:text-zinc-300 font-semibold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                >
+                  <span>Designer Image Studio</span>
                 </motion.button>
               </div>
 
@@ -273,10 +294,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <Layers className="w-5 h-5 text-amber-600 dark:text-yellow-400" />
                   </div>
                 <h3 className="text-xl font-bold text-zinc-950 dark:text-white mb-2">
-                  Convert, Split, Sign &amp; Organize Without Leaving Your Browser
+                  Convert, Edit, Protect &amp; Organize Without Leaving Your Browser
                 </h3>
                 <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed max-w-2xl">
-                  Prepare files before generating covers or run standalone office tasks: turn PDFs into editable Word files, convert Word or image packs to PDF, merge, split/extract, rotate/delete pages, compress heavy scans, and apply signatures locally.
+                  Prepare files before generating covers or run standalone office tasks: turn PDFs into editable Word files, convert Word or image packs to PDF, add resizeable text or pictures in the visual PDF editor, lock files with AES-256 passwords, merge, split, rotate/delete pages, compress heavy scans, and apply signatures locally.
                 </p>
                 </div>
                 <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-400">
@@ -286,7 +307,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     onClick={() => onOpenPdfTool('pdf-merge')}
                     className="text-amber-700 dark:text-yellow-400 hover:underline font-semibold inline-flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Open 8-tool utility suite</span>
+                    <span>Open 11-tool PDF utility suite</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -310,7 +331,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Included Document Tools
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-bold text-zinc-950 dark:text-white tracking-tight">
-                  Eight everyday PDF utilities, ready to run locally.
+                  Eleven everyday PDF utilities, ready to run locally.
                 </h2>
               </div>
               <button
@@ -381,6 +402,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   cta: 'Sign Document',
                   icon: PenTool,
                 },
+                {
+                  id: 'pdf-edit' as PdfToolTab,
+                  title: 'PDF Editor',
+                  desc: 'Add resizeable text, resizeable pictures, highlights, whiteout boxes, ink drawings, and stamps.',
+                  cta: 'Edit PDF',
+                  icon: Edit3,
+                },
+                {
+                  id: 'pdf-protect' as PdfToolTab,
+                  title: 'Protect PDF',
+                  desc: 'Lock PDFs with AES-256 passwords and print/copy rules, or unlock encrypted PDFs locally.',
+                  cta: 'Protect / Unlock',
+                  icon: Lock,
+                },
+                {
+                  id: 'pdf-to-image' as PdfToolTab,
+                  title: 'PDF to Image',
+                  desc: 'Render PDF pages at up to 3× print DPI into lossless PNG, JPG, or WebP assets + ZIP.',
+                  cta: 'Render Pages',
+                  icon: FileImage,
+                },
               ].map((tool, idx) => {
                 const Icon = tool.icon;
                 return (
@@ -418,8 +460,131 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* 4. MECHANISM: FIVE-STEP STUDIO FLOW */}
+        {/* 3B. GRAPHIC DESIGNER IMAGE STUDIO */}
         <section className="border-t border-zinc-200 dark:border-zinc-900 bg-zinc-100/70 dark:bg-[#0b0b0e] py-16 lg:py-20 transition-colors">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <motion.div
+              className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10"
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+              transition={{ duration: 0.45, ease: EASE_OUT_QUINT }}
+            >
+              <div>
+                <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider mb-2 font-semibold">
+                  Built For Graphic Designers
+                </p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-zinc-950 dark:text-white tracking-tight">
+                  Eight image tools for cutouts, resizing, format prep &amp; print assets.
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('image-tools')}
+                className="text-sm font-semibold text-amber-700 dark:text-yellow-400 hover:underline inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <span>Open Image Tools</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                {
+                  id: 'bg-remove' as ImageToolTab,
+                  title: 'Background Remover',
+                  desc: 'Strip backgrounds via AI segmentation or eyedropper color-key with split comparison & shadow.',
+                  cta: 'Remove Background',
+                  icon: Eraser,
+                },
+                {
+                  id: 'bulk-bg-remove' as ImageToolTab,
+                  title: 'Bulk BG Remover',
+                  desc: 'Queue product shots or brand marks together and download all clean cutouts inside one ZIP.',
+                  cta: 'Run Bulk Cutout',
+                  icon: Layers,
+                },
+                {
+                  id: 'pdf-to-image' as ImageToolTab,
+                  title: 'PDF to Image',
+                  desc: 'Render multi-page flyers or decks into sharp PNG, JPG, or WebP files at up to 3× DPI.',
+                  cta: 'Export PDF Pages',
+                  icon: FileImage,
+                },
+                {
+                  id: 'resize' as ImageToolTab,
+                  title: 'Image Resize',
+                  desc: 'Scale in batch with locked aspect ratios, Instagram/YouTube/A4 presets, and contain/cover fit.',
+                  cta: 'Resize Images',
+                  icon: Maximize2,
+                },
+                {
+                  id: 'convert' as ImageToolTab,
+                  title: 'Change Format',
+                  desc: 'Convert PNG, JPG, WebP, 24-bit BMP, and multi-resolution ICO Favicons locally.',
+                  cta: 'Convert Format',
+                  icon: RefreshCw,
+                },
+                {
+                  id: 'crop' as ImageToolTab,
+                  title: 'Crop & Rotate',
+                  desc: 'Frame exact social aspect ratios (1:1, 4:5, 16:9), rotate 90°, and flip horizontally/vertically.',
+                  cta: 'Crop Asset',
+                  icon: Crop,
+                },
+                {
+                  id: 'compress' as ImageToolTab,
+                  title: 'Image Compress',
+                  desc: 'Optimize heavy PNG/JPG banners to lightweight WebP/JPG with per-file byte savings.',
+                  cta: 'Compress Files',
+                  icon: Minimize2,
+                },
+                {
+                  id: 'filters' as ImageToolTab,
+                  title: 'Filters & Hex Palette',
+                  desc: 'Adjust exposure, contrast, sharpness, and auto-extract top 6 brand hex color swatches.',
+                  cta: 'Grade & Extract',
+                  icon: Sliders,
+                },
+              ].map((tool, idx) => {
+                const Icon = tool.icon;
+                return (
+                  <motion.button
+                    key={tool.id}
+                    type="button"
+                    initial={{ opacity: 0, y: 18 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.2 }}
+                    transition={{ duration: 0.4, delay: idx * 0.04, ease: EASE_OUT_QUINT }}
+                    whileHover={{ y: -4 }}
+                    whileTap={{ scale: 0.99 }}
+                    onClick={() => onOpenImageTool(tool.id)}
+                    className="group text-left p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] hover:border-yellow-400 transition-colors cursor-pointer flex flex-col justify-between gap-4 shadow-xs hover:shadow-md"
+                  >
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30 flex items-center justify-center mb-3.5">
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-base font-bold text-zinc-950 dark:text-white group-hover:text-amber-600 dark:group-hover:text-yellow-400 transition-colors">
+                        {tool.title}
+                      </h3>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
+                        {tool.desc}
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-amber-700 dark:text-yellow-400 inline-flex items-center gap-1">
+                      <span>{tool.cta}</span>
+                      <ArrowRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-1" />
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* 4. MECHANISM: FIVE-STEP STUDIO FLOW */}
+        <section className="border-t border-zinc-200 dark:border-zinc-900 py-16 lg:py-20 transition-colors">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
               <motion.div
@@ -541,6 +706,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 className="hover:text-zinc-950 dark:hover:text-white transition-colors cursor-pointer"
               >
                 PDF Tools
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenImageTool('bg-remove')}
+                className="hover:text-zinc-950 dark:hover:text-white transition-colors cursor-pointer"
+              >
+                Image Tools
               </button>
               <button
                 type="button"

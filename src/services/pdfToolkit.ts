@@ -1098,3 +1098,398 @@ export async function signAndStampPdf(
     pageCount: totalPages,
   };
 }
+
+// ==========================================
+// Tool 9: Interactive Visual PDF Editor
+// ==========================================
+
+export type PdfEditorFont = 'helvetica' | 'times' | 'courier';
+export type PdfShapeKind = 'redact' | 'highlight' | 'outline';
+
+export interface PdfEditBase {
+  id: string;
+  pageNumber: number; // 1-based
+  xFraction: number; // 0..1
+  yFraction: number; // 0..1
+  widthFraction: number; // 0.04..0.96
+  heightFraction: number; // 0.03..0.96
+}
+
+export interface PdfTextEditElement extends PdfEditBase {
+  kind: 'text';
+  text: string;
+  fontSize: number; // PDF points (e.g. 16)
+  fontFamily: PdfEditorFont;
+  bold: boolean;
+  italic: boolean;
+  color: string; // hex
+  backgroundColor: string; // 'transparent' or hex
+  align: 'left' | 'center' | 'right';
+}
+
+export interface PdfImageEditElement extends PdfEditBase {
+  kind: 'image';
+  dataUrl: string; // PNG or JPEG data URL
+  opacity: number; // 0.1..1
+  label: string;
+}
+
+export interface PdfShapeEditElement extends PdfEditBase {
+  kind: 'shape';
+  shapeKind: PdfShapeKind;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
+export interface PdfStampEditElement extends PdfEditBase {
+  kind: 'stamp';
+  text: string;
+  color: string;
+}
+
+export type PdfEditElement =
+  | PdfTextEditElement
+  | PdfImageEditElement
+  | PdfShapeEditElement
+  | PdfStampEditElement;
+
+export interface PdfEditResult {
+  blob: Blob;
+  bytes: Uint8Array;
+  fileName: string;
+  pageCount: number;
+  editCount: number;
+}
+
+function hexToRgbTuple(hex: string): [number, number, number] {
+  const cleaned = hex.replace('#', '');
+  const full = cleaned.length === 3 ? cleaned.split('').map((c) => c + c).join('') : cleaned;
+  const num = parseInt(full, 16);
+  if (isNaN(num)) return [0.06, 0.09, 0.16];
+  return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
+}
+
+function hasNonWinAnsiChars(text: string): boolean {
+  const normalized = text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u2026/g, '...')
+    .replace(/[\u2022\u25CF\u00B7]/g, '*')
+    .replace(/\u00A0/g, ' ');
+  return /[^\x09\x0A\x0D\x20-\xFF]/.test(normalized);
+}
+
+function isRtlScript(text: string): boolean {
+  return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\u0590-\u05FF]/.test(text);
+}
+
+function renderTextBoxToPngBytes(
+  el: PdfTextEditElement,
+  boxWidthPt: number,
+  boxHeightPt: number
+): Uint8Array {
+  const dpiScale = 3;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(24, Math.round(boxWidthPt * dpiScale));
+  canvas.height = Math.max(24, Math.round(boxHeightPt * dpiScale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new Uint8Array();
+
+  ctx.scale(dpiScale, dpiScale);
+
+  if (el.backgroundColor && el.backgroundColor !== 'transparent') {
+    ctx.fillStyle = el.backgroundColor;
+    ctx.fillRect(0, 0, boxWidthPt, boxHeightPt);
+  }
+
+  const fontName =
+    el.fontFamily === 'times'
+      ? 'Georgia, "Times New Roman", serif'
+      : el.fontFamily === 'courier'
+      ? '"Courier New", monospace'
+      : '"DM Sans", "Plus Jakarta Sans", Arial, sans-serif';
+
+  ctx.font = `${el.italic ? 'italic ' : ''}${el.bold ? 'bold ' : ''}${el.fontSize}px ${fontName}`;
+  ctx.fillStyle = el.color || '#09090b';
+  ctx.textBaseline = 'top';
+  if (isRtlScript(el.text)) {
+    ctx.direction = 'rtl';
+  }
+
+  const pad = 4;
+  const maxW = Math.max(10, boxWidthPt - pad * 2);
+  const lineHeight = el.fontSize * 1.25;
+  const rawParagraphs = el.text.split(/\r?\n/);
+  const wrapped: string[] = [];
+
+  for (const para of rawParagraphs) {
+    if (!para) {
+      wrapped.push('');
+      continue;
+    }
+    const words = para.split(/\s+/);
+    let line = '';
+    for (const w of words) {
+      const candidate = line ? `${line} ${w}` : w;
+      if (ctx.measureText(candidate).width > maxW && line) {
+        wrapped.push(line);
+        line = w;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) wrapped.push(line);
+  }
+
+  let y = pad;
+  for (const line of wrapped) {
+    if (y + el.fontSize > boxHeightPt) break;
+    const measuredW = ctx.measureText(line).width;
+    let x = pad;
+    if (el.align === 'center') {
+      x = Math.max(pad, (boxWidthPt - measuredW) / 2);
+    } else if (el.align === 'right' || isRtlScript(line)) {
+      x = Math.max(pad, boxWidthPt - pad - measuredW);
+    }
+    ctx.fillText(line, x, y);
+    y += lineHeight;
+  }
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const binStr = atob(dataUrl.split(',')[1]);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) {
+    bytes[i] = binStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Tool 9: Apply resizeable text boxes, pictures, shapes/redactions, and stamps to a PDF.
+ */
+export async function applyPdfEdits(
+  file: File,
+  elements: PdfEditElement[],
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfEditResult> {
+  if (elements.length === 0) {
+    throw new Error('Add at least one text block, picture, shape, or stamp before exporting.');
+  }
+
+  onProgress?.(12, 'Loading PDF document...');
+  const buffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+  const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+  pdfDoc.setProducer('PaperLink');
+  pdfDoc.setCreator('PaperLink');
+
+  const fontCache: Record<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>> = {};
+  const getStdFont = async (family: PdfEditorFont, bold: boolean, italic: boolean) => {
+    const key = `${family}-${bold ? 'b' : 'r'}-${italic ? 'i' : 'n'}`;
+    if (fontCache[key]) return fontCache[key];
+
+    let std = StandardFonts.Helvetica;
+    if (family === 'helvetica') {
+      std =
+        bold && italic
+          ? StandardFonts.HelveticaBoldOblique
+          : bold
+          ? StandardFonts.HelveticaBold
+          : italic
+          ? StandardFonts.HelveticaOblique
+          : StandardFonts.Helvetica;
+    } else if (family === 'times') {
+      std =
+        bold && italic
+          ? StandardFonts.TimesRomanBoldItalic
+          : bold
+          ? StandardFonts.TimesRomanBold
+          : italic
+          ? StandardFonts.TimesRomanItalic
+          : StandardFonts.TimesRoman;
+    } else {
+      std =
+        bold && italic
+          ? StandardFonts.CourierBoldOblique
+          : bold
+          ? StandardFonts.CourierBold
+          : italic
+          ? StandardFonts.CourierOblique
+          : StandardFonts.Courier;
+    }
+    fontCache[key] = await pdfDoc.embedFont(std);
+    return fontCache[key];
+  };
+
+  const pages = pdfDoc.getPages();
+  for (let idx = 0; idx < elements.length; idx++) {
+    const el = elements[idx];
+    onProgress?.(
+      18 + Math.round(((idx + 1) / elements.length) * 68),
+      `Applying edit ${idx + 1} of ${elements.length}...`
+    );
+
+    const pageIdx = Math.min(pages.length - 1, Math.max(0, el.pageNumber - 1));
+    const page = pages[pageIdx];
+    const { width: pageW, height: pageH } = page.getSize();
+
+    const boxW = Math.max(16, el.widthFraction * pageW);
+    const boxH = Math.max(14, el.heightFraction * pageH);
+    const pdfX = Math.max(0, Math.min(pageW - boxW, el.xFraction * pageW));
+    const pdfTopY = Math.max(0, el.yFraction * pageH);
+    const pdfBottomY = Math.max(0, pageH - pdfTopY - boxH);
+
+    if (el.kind === 'shape') {
+      const [fr, fg, fb] = hexToRgbTuple(el.fillColor);
+      const [sr, sg, sb] = hexToRgbTuple(el.strokeColor);
+      if (el.shapeKind === 'outline') {
+        page.drawRectangle({
+          x: pdfX,
+          y: pdfBottomY,
+          width: boxW,
+          height: boxH,
+          borderColor: rgb(sr, sg, sb),
+          borderWidth: Math.max(1, el.strokeWidth || 2),
+          borderOpacity: el.opacity,
+        });
+      } else {
+        page.drawRectangle({
+          x: pdfX,
+          y: pdfBottomY,
+          width: boxW,
+          height: boxH,
+          color: rgb(fr, fg, fb),
+          opacity: el.opacity,
+        });
+      }
+    } else if (el.kind === 'image') {
+      const imgBytes = await fetch(el.dataUrl).then((r) => r.arrayBuffer());
+      const isJpg = el.dataUrl.startsWith('data:image/jpeg') || el.dataUrl.startsWith('data:image/jpg');
+      const embedded = isJpg
+        ? await pdfDoc.embedJpg(new Uint8Array(imgBytes))
+        : await pdfDoc.embedPng(new Uint8Array(imgBytes));
+      page.drawImage(embedded, {
+        x: pdfX,
+        y: pdfBottomY,
+        width: boxW,
+        height: boxH,
+        opacity: Math.min(1, Math.max(0.1, el.opacity)),
+      });
+    } else if (el.kind === 'stamp') {
+      const [r, g, b] = hexToRgbTuple(el.color || '#dc2626');
+      const borderW = Math.max(2, Math.min(4, boxH * 0.08));
+      page.drawRectangle({
+        x: pdfX,
+        y: pdfBottomY,
+        width: boxW,
+        height: boxH,
+        borderColor: rgb(r, g, b),
+        borderWidth: borderW,
+        color: rgb(1, 1, 1),
+        opacity: 0.9,
+      });
+      const stampFont = await getStdFont('helvetica', true, false);
+      const label = sanitizeWinAnsi(el.text || 'APPROVED').toUpperCase();
+      let stampSize = Math.max(10, Math.min(boxH * 0.52, 28));
+      while (stampSize > 8 && stampFont.widthOfTextAtSize(label, stampSize) > boxW - 12) {
+        stampSize -= 1;
+      }
+      const tw = stampFont.widthOfTextAtSize(label, stampSize);
+      page.drawText(label, {
+        x: pdfX + Math.max(4, (boxW - tw) / 2),
+        y: pdfBottomY + Math.max(4, (boxH - stampSize * 0.72) / 2),
+        size: stampSize,
+        font: stampFont,
+        color: rgb(r, g, b),
+      });
+    } else if (el.kind === 'text') {
+      if (!el.text.trim()) continue;
+      if (hasNonWinAnsiChars(el.text)) {
+        const pngBytes = renderTextBoxToPngBytes(el, boxW, boxH);
+        if (pngBytes.byteLength > 0) {
+          const embedded = await pdfDoc.embedPng(pngBytes);
+          page.drawImage(embedded, {
+            x: pdfX,
+            y: pdfBottomY,
+            width: boxW,
+            height: boxH,
+          });
+        }
+      } else {
+        if (el.backgroundColor && el.backgroundColor !== 'transparent') {
+          const [br, bg, bb] = hexToRgbTuple(el.backgroundColor);
+          page.drawRectangle({
+            x: pdfX,
+            y: pdfBottomY,
+            width: boxW,
+            height: boxH,
+            color: rgb(br, bg, bb),
+          });
+        }
+        const font = await getStdFont(el.fontFamily, el.bold, el.italic);
+        const [tr, tg, tb] = hexToRgbTuple(el.color || '#09090b');
+        const pad = 4;
+        const maxW = Math.max(10, boxW - pad * 2);
+        const lineHeight = el.fontSize * 1.25;
+        const paragraphs = sanitizeWinAnsi(el.text).split(/\r?\n/);
+        const lines: string[] = [];
+
+        for (const para of paragraphs) {
+          if (!para.trim()) {
+            lines.push('');
+            continue;
+          }
+          const words = para.split(/\s+/);
+          let current = '';
+          for (const word of words) {
+            const candidate = current ? `${current} ${word}` : word;
+            if (font.widthOfTextAtSize(candidate, el.fontSize) > maxW && current) {
+              lines.push(current);
+              current = word;
+            } else {
+              current = candidate;
+            }
+          }
+          if (current) lines.push(current);
+        }
+
+        let cursorY = pageH - pdfTopY - pad - el.fontSize * 0.85;
+        for (const line of lines) {
+          if (cursorY < pdfBottomY + 2) break;
+          const lineW = font.widthOfTextAtSize(line, el.fontSize);
+          let textX = pdfX + pad;
+          if (el.align === 'center') {
+            textX = pdfX + Math.max(pad, (boxW - lineW) / 2);
+          } else if (el.align === 'right') {
+            textX = pdfX + Math.max(pad, boxW - pad - lineW);
+          }
+          page.drawText(line, {
+            x: textX,
+            y: cursorY,
+            size: el.fontSize,
+            font,
+            color: rgb(tr, tg, tb),
+          });
+          cursorY -= lineHeight;
+        }
+      }
+    }
+  }
+
+  onProgress?.(92, 'Saving edited PDF...');
+  const bytes = await pdfDoc.save({ useObjectStreams: true });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'Edited PDF ready');
+
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${baseName(file.name)}_edited.pdf`,
+    pageCount: pages.length,
+    editCount: elements.length,
+  };
+}
+

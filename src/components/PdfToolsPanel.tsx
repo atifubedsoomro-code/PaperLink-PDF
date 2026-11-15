@@ -19,6 +19,9 @@ import {
   Sparkles,
   Plus,
   RotateCcw,
+  Edit3,
+  Lock,
+  FileImage,
 } from 'lucide-react';
 import {
   PdfToWordMode,
@@ -46,16 +49,22 @@ import {
   signAndStampPdf,
 } from '../services/pdfToolkit';
 import { renderPdfPages } from '../services/documentParser';
+import { PdfEditorTool } from './PdfEditorTool';
+import { PdfProtectTool } from './PdfProtectTool';
+import { PdfToImageTool } from './PdfToImageTool';
 
 export type PdfToolTab =
   | 'pdf-to-word'
   | 'word-to-pdf'
+  | 'pdf-to-image'
   | 'pdf-merge'
   | 'pdf-compress'
   | 'pdf-split'
   | 'image-to-pdf'
   | 'pdf-organize'
-  | 'pdf-sign';
+  | 'pdf-sign'
+  | 'pdf-edit'
+  | 'pdf-protect';
 
 interface PdfToolsPanelProps {
   activeTool: PdfToolTab;
@@ -83,12 +92,15 @@ function triggerBlobDownload(blob: Blob, fileName: string) {
 const TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'pdf-to-word', label: 'PDF to Word', icon: FileType2 },
   { id: 'word-to-pdf', label: 'Word to PDF', icon: FileText },
+  { id: 'pdf-to-image', label: 'PDF to Image', icon: FileImage },
   { id: 'pdf-merge', label: 'PDF Merge', icon: Layers },
   { id: 'pdf-compress', label: 'Compress', icon: Minimize2 },
   { id: 'pdf-split', label: 'Split / Extract', icon: Scissors },
   { id: 'image-to-pdf', label: 'Images to PDF', icon: ImageIcon },
   { id: 'pdf-organize', label: 'Rotate & Delete', icon: RotateCw },
   { id: 'pdf-sign', label: 'Sign & Stamp', icon: PenTool },
+  { id: 'pdf-edit', label: 'Edit PDF', icon: Edit3 },
+  { id: 'pdf-protect', label: 'Protect PDF', icon: Lock },
 ];
 
 export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
@@ -473,14 +485,14 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header & 8-Tool Selector */}
+      {/* Header & 11-Tool Selector */}
       <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight">
-            PaperLink Local PDF & Word Toolkit
+            PaperLink Local PDF &amp; Word Toolkit
           </h1>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            8 private tools executing locally in your browser without server uploads — send any result straight into Cover Studio.
+            11 private tools executing locally in your browser without server uploads — send any result straight into Cover Studio.
           </p>
         </div>
 
@@ -1900,6 +1912,38 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* TOOL 9: PDF EDITOR */}
+      {activeTool === 'pdf-edit' && (
+        <PdfEditorTool
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+        />
+      )}
+
+      {/* TOOL 10: PDF PASSWORD PROTECTION */}
+      {activeTool === 'pdf-protect' && (
+        <PdfProtectTool
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+        />
+      )}
+
+      {/* TOOL 11: PDF TO IMAGE */}
+      {activeTool === 'pdf-to-image' && (
+        <PdfToImageTool
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+        />
       )}
     </div>
   );

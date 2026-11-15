@@ -65,7 +65,7 @@ const TUTORIAL_STEPS = [
     subtitle: '1:1 aligned print PDF & instant triggers',
     description:
       'As soon as Drive upload completes, click Download Updated PDF right from the upload confirmation card, the fixed Steps Sidebar, or Step 5 Export to save your combined cover + document PDF.',
-    tip: 'All 8 utilities—PDF to Word, Word to PDF, Merge, Compress, Split, Images to PDF, Organize, and Sign & Stamp—run locally in the PDF Tools tab.',
+    tip: 'All 11 PDF tools (including PDF to Image, Edit PDF, and Protect PDF) plus the dedicated 8-tool Image Studio for graphic designers run locally in your browser.',
     icon: Download,
     actionView: 'tools' as AppView,
     actionLabel: 'Explore PDF Tools',
