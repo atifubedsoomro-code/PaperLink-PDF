@@ -1,0 +1,104 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedInVerified() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
+    }
+
+    function isOwnerEmail(email) {
+      return isSignedInVerified() && email == request.auth.token.email;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidSavedDoc(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'fileName', 'fileSize', 'fileType',
+          'driveFileId', 'driveLink', 'coverData', 'createdAt', 'userEmail'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'fileName', 'fileSize', 'fileType',
+          'driveFileId', 'driveLink', 'coverData', 'createdAt', 'userEmail', 'sentEmails'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 300
+        && data.fileName is string && data.fileName.size() <= 255
+        && data.fileSize is number && data.fileSize >= 0
+        && data.fileType is string && data.fileType.size() <= 24
+        && data.driveFileId is string && data.driveFileId.size() <= 256
+        && data.driveLink is string && data.driveLink.size() <= 1000
+        && data.coverData is map
+        && data.createdAt is number && data.createdAt > 0
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && (!('sentEmails' in data) || (data.sentEmails is list && data.sentEmails.size() <= 50));
+    }
+
+    function isValidBrandKit(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'themeId', 'primaryColor', 'accentColor', 'font', 'createdAt', 'userEmail'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'organization', 'preparedBy', 'logoUrl', 'logoSize', 'logoPosition',
+          'themeId', 'primaryColor', 'accentColor', 'font', 'qrPosition', 'createdAt', 'userEmail'
+        ])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 120
+        && data.themeId is string && data.themeId.size() <= 80
+        && data.primaryColor is string && data.primaryColor.size() <= 32
+        && data.accentColor is string && data.accentColor.size() <= 32
+        && data.font is string && data.font.size() <= 40
+        && data.createdAt is number && data.createdAt > 0
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && (!('organization' in data) || (data.organization is string && data.organization.size() <= 200))
+        && (!('preparedBy' in data) || (data.preparedBy is string && data.preparedBy.size() <= 160))
+        && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 500000))
+        && (!('logoSize' in data) || (data.logoSize is string && data.logoSize.size() <= 16))
+        && (!('logoPosition' in data) || (data.logoPosition is string && data.logoPosition.size() <= 24))
+        && (!('qrPosition' in data) || (data.qrPosition is string && data.qrPosition.size() <= 24));
+    }
+
+    match /documents/{docId} {
+      allow get: if isValidId(docId) && isOwnerEmail(existing().userEmail);
+      allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
+      allow create: if isValidId(docId) && isValidSavedDoc(incoming()) && incoming().id == docId;
+      allow update: if isValidId(docId)
+        && isOwnerEmail(existing().userEmail)
+        && isValidSavedDoc(incoming())
+        && incoming().userEmail == existing().userEmail
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(docId) && isOwnerEmail(existing().userEmail);
+    }
+
+    match /brandKits/{kitId} {
+      allow get: if isValidId(kitId) && isOwnerEmail(existing().userEmail);
+      allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
+      allow create: if isValidId(kitId) && isValidBrandKit(incoming()) && incoming().id == kitId;
+      allow update: if isValidId(kitId)
+        && isOwnerEmail(existing().userEmail)
+        && isValidBrandKit(incoming())
+        && incoming().userEmail == existing().userEmail
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(kitId) && isOwnerEmail(existing().userEmail);
+    }
+  }
+}

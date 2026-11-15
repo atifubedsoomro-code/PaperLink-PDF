@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "SavedDocRecord": {
+      "title": "SavedDocRecord",
+      "description": "Metadata and cover configuration for a document synced to Google Drive with a PaperLink QR cover.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 300 },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "fileSize": { "type": "number" },
+        "fileType": { "type": "string", "maxLength": 24 },
+        "driveFileId": { "type": "string", "maxLength": 256 },
+        "driveLink": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "number" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "required": ["id", "title", "fileName", "driveFileId", "driveLink", "createdAt", "userEmail"]
+    },
+    "BrandKitPreset": {
+      "title": "BrandKitPreset",
+      "description": "Saved organizational cover styling preset (organization, author, logo, theme, colors, font).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "organization": { "type": "string", "maxLength": 200 },
+        "preparedBy": { "type": "string", "maxLength": 160 },
+        "themeId": { "type": "string", "maxLength": 80 },
+        "primaryColor": { "type": "string", "maxLength": 32 },
+        "accentColor": { "type": "string", "maxLength": 32 },
+        "font": { "type": "string", "maxLength": 40 },
+        "qrPosition": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "number" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "required": ["id", "name", "themeId", "primaryColor", "accentColor", "font", "createdAt", "userEmail"]
+    }
+  },
+  "firestore": {
+    "/documents/{docId}": {
+      "schema": { "$ref": "#/entities/SavedDocRecord" },
+      "description": "User-owned synced document library records."
+    },
+    "/brandKits/{kitId}": {
+      "schema": { "$ref": "#/entities/BrandKitPreset" },
+      "description": "User-owned reusable brand kit cover presets."
+    }
+  }
+}

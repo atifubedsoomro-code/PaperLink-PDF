@@ -1,0 +1,6 @@
+{
+  "name": "PaperLink - Smart Cover Studio & PDF Suite",
+  "description": "Bridge printed documents to live Google Drive links with custom QR cover pages, Word-to-PDF auto conversion, and a full client-side PDF toolkit.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

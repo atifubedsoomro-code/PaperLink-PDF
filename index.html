@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        function isExtensionError(text) {
+          return (
+            text.indexOf('chrome-extension://') !== -1 ||
+            text.indexOf('moz-extension://') !== -1 ||
+            text.indexOf('Window message "chrome: call method" timed out') !== -1
+          );
+        }
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            try {
+              var r = event.reason;
+              var text = String((r && (r.stack || r.message)) || r || '');
+              if (isExtensionError(text)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+              }
+            } catch (e) {}
+          },
+          true
+        );
+        window.addEventListener(
+          'error',
+          function (event) {
+            try {
+              var src = String(event.filename || (event.error && event.error.stack) || event.message || '');
+              if (isExtensionError(src)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+              }
+            } catch (e) {}
+          },
+          true
+        );
+      })();
+    </script>
+    <title>PaperLink — Smart QR Cover Studio, Drive Sync & PDF Suite</title>
+    <meta
+      name="description"
+      content="Design print-ready document cover pages linked to public Google Drive QR codes, auto-convert Word files, merge, split, compress, rotate, and sign PDFs directly in your browser."
+    />
+    <meta property="og:title" content="PaperLink — Smart QR Cover Studio, Drive Sync & PDF Suite" />
+    <meta
+      property="og:description"
+      content="Bridge printed paper and live Google Drive documents with custom QR cover pages plus an offline-ready PDF & Word toolkit."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PaperLink" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600;700&family=Merriweather:wght@400;700&family=Montserrat:wght@600;700;800&family=Oswald:wght@500;600;700&family=Playfair+Display:wght@600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('paperlink_theme_mode') || localStorage.getItem('qrdrive_theme_mode') || 'dark';
+          if (mode === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+          var sz = localStorage.getItem('paperlink_text_size') || localStorage.getItem('qrdrive_text_size') || 'medium';
+          document.documentElement.style.fontSize =
+            sz === 'small' ? '14px' : sz === 'large' ? '18px' : '16px';
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-zinc-50 text-zinc-900 dark:bg-[#09090b] dark:text-zinc-100 antialiased">
+    <div id="root"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
