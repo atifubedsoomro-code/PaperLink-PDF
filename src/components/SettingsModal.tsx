@@ -150,7 +150,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="w-full py-2.5 px-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 hover:border-yellow-400 text-zinc-900 dark:text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <GraduationCap className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
-              <span>Launch Step-by-Step App Tutorial</span>
+              <span>Replay Cover Studio Spotlight Guide</span>
             </button>
           </div>
         </div>

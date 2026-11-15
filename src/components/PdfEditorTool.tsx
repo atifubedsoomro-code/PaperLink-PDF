@@ -43,6 +43,7 @@ interface PdfEditorToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -76,6 +77,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
   onProgress,
   isWorking,
   setIsWorking,
+  onTaskComplete,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const picInputRef = useRef<HTMLInputElement>(null);
@@ -433,6 +435,11 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
         onProgress({ percent, status })
       );
       setEditResult(res);
+      onTaskComplete?.({
+        headline: 'PDF Edits Applied Successfully',
+        subtext: `${elements.length} element${elements.length === 1 ? '' : 's'} baked cleanly into ${res.fileName}`,
+        statusLabel: 'PDF Editor Complete',
+      });
     } catch (err: any) {
       onError(err?.message || 'Failed to apply edits to PDF.');
     } finally {

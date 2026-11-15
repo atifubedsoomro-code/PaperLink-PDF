@@ -22,6 +22,7 @@ interface PdfToImageToolProps {
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
   onSendImageToTool?: (file: File, targetTool: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'filters') => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -47,6 +48,7 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
   isWorking,
   setIsWorking,
   onSendImageToTool,
+  onTaskComplete,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -86,6 +88,13 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
         (percent, status) => onProgress({ percent, status })
       );
       setResult(res);
+      onTaskComplete?.({
+        headline: `Rendered ${res.pages.length} PDF Page${res.pages.length === 1 ? '' : 's'} to ${res.format.toUpperCase()}`,
+        subtext: res.zipBlob
+          ? `Ready for individual save or ${res.pages.length}-image ZIP download`
+          : `Ready for instant download or Image Studio editing`,
+        statusLabel: 'PDF to Image Complete',
+      });
     } catch (err: any) {
       onError(err?.message || 'Failed to render PDF pages as images.');
     } finally {

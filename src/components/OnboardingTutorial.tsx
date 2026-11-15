@@ -1,138 +1,355 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   X,
   UploadCloud,
-  Layout,
-  Palette,
-  HardDrive,
+  LayoutGrid,
+  Eye,
   Download,
-  Layers,
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
-  QrCode,
 } from 'lucide-react';
-import { AppView } from './Navbar';
 
 interface OnboardingTutorialProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigateView?: (view: AppView) => void;
+  onSelectStudioStep?: (step: 1 | 2 | 3 | 4 | 5) => void;
 }
 
-const TUTORIAL_STEPS = [
+interface TourStepConfig {
+  id: string;
+  stepNum: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  selectors: string[];
+  studioStep?: 1 | 2 | 3 | 4 | 5;
+  preferredSide: 'right' | 'left' | 'bottom' | 'top';
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const STUDIO_TOUR_STEPS: TourStepConfig[] = [
   {
+    id: 'upload',
     stepNum: '01',
-    title: 'Upload Your Source Document',
-    subtitle: 'PDF, Word (.docx), or plain text',
+    title: 'Upload Your Source Document First',
+    subtitle: 'Required Starting Point',
     description:
-      'Start inside Cover Studio by dropping any PDF, Word (.docx), or text file. PaperLink parses pages, auto-converts Word/text docs to PDF, and extracts titles automatically.',
-    tip: 'Uploaded a 3-page PDF? Your final merged document automatically becomes 4 pages with Page 1 as your new QR Cover.',
+      'Uploading a PDF, Word (.docx), or text file here is mandatory before designing your cover. PaperLink automatically counts pages and extracts your document title.',
+    selectors: ['[data-tour-target="studio-upload"]'],
+    studioStep: 1,
+    preferredSide: 'bottom',
     icon: UploadCloud,
-    actionView: 'studio' as AppView,
-    actionLabel: 'Go to Cover Studio',
   },
   {
+    id: 'sidebar',
     stepNum: '02',
-    title: 'Pick a Visual or Plain Cover Theme',
-    subtitle: '22 architectural & ink-friendly plain styles',
+    title: 'Follow the 5 Studio Steps Here',
+    subtitle: 'Always-Visible Workflow Sidebar',
     description:
-      'Use the fixed right-side Steps Sidebar anytime to step between stages. Choose rich photo-backed headers or pick Plain category sheets tailored for clean black-and-white laser printing.',
-    tip: 'Switch themes as often as you like—the pinned preview updates live on screen.',
-    icon: Layout,
+      'Jump cleanly between 01 Upload, 02 Theme, 03 Customize Colors/Logo/QR, 04 Drive QR Sync, and 05 Export PDF right from this fixed navigation panel.',
+    selectors: ['[data-tour-target="studio-sidebar"]', '[data-tour-target="studio-steps-mobile"]'],
+    preferredSide: 'left',
+    icon: LayoutGrid,
   },
   {
+    id: 'preview',
     stepNum: '03',
-    title: 'Customize Colors, Logo & QR Placement',
-    subtitle: 'Fonts, optional metadata, and branding',
+    title: 'Inspect Your 1:1 Print Cover Preview',
+    subtitle: 'Live Multi-Page Sheet',
     description:
-      'Dial in presets or individual hex colors, swap display typography, upload an optional organization logo, and place the QR block at bottom-left, bottom-center, or bottom-right.',
-    tip: 'Leave any field blank to keep the printed cover minimal—only fields you fill appear on paper.',
-    icon: Palette,
+      'See how your Cover Page (Page 1) pairs with every page of your uploaded file. Changes to theme, fonts, QR position, or logo appear here immediately and export identically.',
+    selectors: ['[data-tour-target="studio-preview"]'],
+    preferredSide: 'left',
+    icon: Eye,
   },
   {
+    id: 'download',
     stepNum: '04',
-    title: 'Upload to Google Drive & Bind Public QR',
-    subtitle: 'Live shareable link encoded into Page 1',
+    title: 'Quick Download & Action Controls',
+    subtitle: 'One-Click PDF Export',
     description:
-      'Click Upload & Create Public QR in Step 4. Your source document streams straight into your connected Google Drive with public viewer access enabled and binds immediately to your cover QR code.',
-    tip: 'You can also paste an existing Google Drive link directly without re-uploading.',
-    icon: HardDrive,
-  },
-  {
-    stepNum: '05',
-    title: 'Download Updated Merged PDF & Share',
-    subtitle: '1:1 aligned print PDF & instant triggers',
-    description:
-      'As soon as Drive upload completes, click Download Updated PDF right from the upload confirmation card, the fixed Steps Sidebar, or Step 5 Export to save your combined cover + document PDF.',
-    tip: 'All 11 PDF tools (including PDF to Image, Edit PDF, and Protect PDF) plus the dedicated 8-tool Image Studio for graphic designers run locally in your browser.',
+      'Once your file is uploaded and linked to Google Drive in Step 4, click Download Updated PDF here or in Step 5 to save your complete Cover + Document packet.',
+    selectors: ['[data-tour-target="studio-sidebar-download"]', '[data-tour-target="studio-sidebar"]'],
+    preferredSide: 'left',
     icon: Download,
-    actionView: 'tools' as AppView,
-    actionLabel: 'Explore PDF Tools',
   },
 ];
+
+interface HighlightRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
 
 export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
   isOpen,
   onClose,
-  onNavigateView,
+  onSelectStudioStep,
 }) => {
   const [stepIdx, setStepIdx] = useState(0);
+  const [targetRect, setTargetRect] = useState<HighlightRect | null>(null);
+  const [viewport, setViewport] = useState<{ w: number; h: number }>({
+    w: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    h: typeof window !== 'undefined' ? window.innerHeight : 800,
+  });
 
-  if (!isOpen) return null;
+  const currentStep = STUDIO_TOUR_STEPS[stepIdx];
 
-  const current = TUTORIAL_STEPS[stepIdx];
-  const Icon = current.icon;
-  const isLast = stepIdx === TUTORIAL_STEPS.length - 1;
+  const findVisibleTarget = useCallback((selectors: string[]): HTMLElement | null => {
+    if (typeof document === 'undefined') return null;
+    for (const sel of selectors) {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 12 && r.height > 12) return el;
+    }
+    return null;
+  }, []);
 
-  const handleFinish = () => {
-    setStepIdx(0);
-    onClose();
-  };
+  const measureTarget = useCallback(() => {
+    if (!isOpen || !currentStep) return;
+    setViewport({ w: window.innerWidth, h: window.innerHeight });
+
+    const el = findVisibleTarget(currentStep.selectors);
+    if (!el) {
+      setTargetRect(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const pad = 8;
+    setTargetRect({
+      top: Math.max(4, r.top - pad),
+      left: Math.max(4, r.left - pad),
+      width: Math.min(window.innerWidth - 8, r.width + pad * 2),
+      height: Math.min(window.innerHeight - 8, r.height + pad * 2),
+    });
+  }, [isOpen, currentStep, findVisibleTarget]);
+
+  // Reset to step 0 whenever opened cleanly
+  useEffect(() => {
+    if (isOpen) {
+      setStepIdx(0);
+    }
+  }, [isOpen]);
+
+  // Ensure appropriate Studio step is shown & scroll target smoothly into view
+  useEffect(() => {
+    if (!isOpen || !currentStep) return;
+    if (currentStep.studioStep && onSelectStudioStep) {
+      onSelectStudioStep(currentStep.studioStep);
+    }
+
+    const scrollTimer = setTimeout(() => {
+      const el = findVisibleTarget(currentStep.selectors);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.top < 72 || r.bottom > window.innerHeight - 40) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }
+      }
+      measureTarget();
+    }, 80);
+
+    const settleTimer = setTimeout(measureTarget, 320);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(settleTimer);
+    };
+  }, [isOpen, stepIdx, currentStep, onSelectStudioStep, findVisibleTarget, measureTarget]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    measureTarget();
+    window.addEventListener('resize', measureTarget);
+    window.addEventListener('scroll', measureTarget, true);
+    return () => {
+      window.removeEventListener('resize', measureTarget);
+      window.removeEventListener('scroll', measureTarget, true);
+    };
+  }, [isOpen, measureTarget]);
+
+  if (!isOpen || !currentStep) return null;
+
+  const Icon = currentStep.icon;
+  const isLast = stepIdx === STUDIO_TOUR_STEPS.length - 1;
+
+  // Calculate anchored popover coordinates near the highlighted target
+  const cardWidth = Math.min(360, viewport.w - 24);
+  const estimatedCardHeight = 250;
+  const gap = 14;
+
+  let popoverTop = Math.round((viewport.h - estimatedCardHeight) / 2);
+  let popoverLeft = Math.round((viewport.w - cardWidth) / 2);
+
+  if (targetRect) {
+    const canRight = targetRect.left + targetRect.width + gap + cardWidth <= viewport.w - 12;
+    const canLeft = targetRect.left - gap - cardWidth >= 12;
+    const canBottom = targetRect.top + targetRect.height + gap + estimatedCardHeight <= viewport.h - 12;
+    const canTop = targetRect.top - gap - estimatedCardHeight >= 12;
+
+    const place = (side: 'right' | 'left' | 'bottom' | 'top'): boolean => {
+      if (side === 'right' && canRight) {
+        popoverLeft = targetRect.left + targetRect.width + gap;
+        popoverTop = targetRect.top + Math.min(24, targetRect.height * 0.15);
+        return true;
+      }
+      if (side === 'left' && canLeft) {
+        popoverLeft = targetRect.left - cardWidth - gap;
+        popoverTop = targetRect.top + Math.min(24, targetRect.height * 0.15);
+        return true;
+      }
+      if (side === 'bottom' && canBottom) {
+        popoverLeft = targetRect.left;
+        popoverTop = targetRect.top + targetRect.height + gap;
+        return true;
+      }
+      if (side === 'top' && canTop) {
+        popoverLeft = targetRect.left;
+        popoverTop = targetRect.top - estimatedCardHeight - gap;
+        return true;
+      }
+      return false;
+    };
+
+    const order: ('right' | 'left' | 'bottom' | 'top')[] = [
+      currentStep.preferredSide,
+      'bottom',
+      'left',
+      'right',
+      'top',
+    ];
+    let placed = false;
+    for (const side of order) {
+      if (place(side)) {
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      popoverLeft = Math.round((viewport.w - cardWidth) / 2);
+      popoverTop = Math.max(16, viewport.h - estimatedCardHeight - 20);
+    }
+
+    popoverLeft = Math.max(12, Math.min(viewport.w - cardWidth - 12, popoverLeft));
+    popoverTop = Math.max(12, Math.min(viewport.h - estimatedCardHeight - 12, popoverTop));
+  }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 dark:bg-black/85 backdrop-blur-sm overflow-y-auto"
+      className="fixed inset-0 z-50"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="tutorial-heading"
+      aria-labelledby="studio-tour-heading"
     >
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-yellow-500/35 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-6">
-        {/* Top Bar */}
-        <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center font-bold">
-              <QrCode className="w-4 h-4 stroke-[2.5]" />
-            </div>
-            <div>
-              <h2 id="tutorial-heading" className="text-sm font-bold text-zinc-900 dark:text-white">
-                Quick Start Walkthrough
-              </h2>
-              <p className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
-                Step {stepIdx + 1} of {TUTORIAL_STEPS.length}
-              </p>
-            </div>
+      {/* SVG Spotlight Overlay with Illuminated Cutout */}
+      <svg
+        className="fixed inset-0 w-full h-full pointer-events-auto"
+        onClick={onClose}
+        aria-hidden="true"
+      >
+        <defs>
+          <mask id="paperlink-spotlight-mask">
+            <rect width="100%" height="100%" fill="white" />
+            {targetRect && (
+              <rect
+                x={targetRect.left}
+                y={targetRect.top}
+                width={targetRect.width}
+                height={targetRect.height}
+                rx={16}
+                fill="black"
+              />
+            )}
+          </mask>
+        </defs>
+        <rect
+          width="100%"
+          height="100%"
+          fill="rgba(9, 9, 11, 0.72)"
+          mask="url(#paperlink-spotlight-mask)"
+        />
+      </svg>
+
+      {/* Crisp Yellow Ring Around Exact Highlighted Portion */}
+      {targetRect && (
+        <div
+          aria-hidden="true"
+          className="fixed pointer-events-none rounded-2xl border-2 border-yellow-400 shadow-[0_0_0_4px_rgba(250,204,21,0.22)] transition-all duration-300 ease-out"
+          style={{
+            top: targetRect.top,
+            left: targetRect.left,
+            width: targetRect.width,
+            height: targetRect.height,
+          }}
+        />
+      )}
+
+      {/* Contextual Floating Popover Positioned Next to the Highlighted Section */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          top: popoverTop,
+          left: popoverLeft,
+          width: cardWidth,
+        }}
+        className="fixed z-50 bg-white dark:bg-[#121215] border-2 border-yellow-400 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-out"
+      >
+        {/* Progress Header */}
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 bg-zinc-50 dark:bg-zinc-950">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-lg bg-yellow-400 text-black flex items-center justify-center font-mono text-xs font-extrabold">
+              {currentStep.stepNum}
+            </span>
+            <span className="text-[11px] font-mono font-bold text-zinc-600 dark:text-zinc-400 tabular-nums">
+              Cover Studio Guide · {stepIdx + 1} / {STUDIO_TOUR_STEPS.length}
+            </span>
           </div>
 
           <button
             type="button"
-            onClick={handleFinish}
-            className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white px-2.5 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer inline-flex items-center gap-1"
+            onClick={onClose}
+            aria-label="Skip studio tour"
+            className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-white inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 cursor-pointer transition-colors"
           >
             <span>Skip</span>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Progress Track */}
-        <div className="px-5 pt-4">
-          <div className="grid grid-cols-5 gap-1.5">
-            {TUTORIAL_STEPS.map((st, idx) => (
+        {/* Body */}
+        <div className="p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-yellow-400/15 border border-yellow-400/35 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
+              <Icon className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-700 dark:text-yellow-400">
+                {currentStep.subtitle}
+              </p>
+              <h2
+                id="studio-tour-heading"
+                className="text-sm font-extrabold text-zinc-900 dark:text-white leading-snug mt-0.5"
+              >
+                {currentStep.title}
+              </h2>
+            </div>
+          </div>
+
+          <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+            {currentStep.description}
+          </p>
+
+          {/* Step Dots */}
+          <div className="grid grid-cols-4 gap-1.5 pt-1">
+            {STUDIO_TOUR_STEPS.map((st, idx) => (
               <button
-                key={st.stepNum}
+                key={st.id}
                 type="button"
                 onClick={() => setStepIdx(idx)}
-                aria-label={`Jump to step ${idx + 1}`}
+                aria-label={`Highlight step ${idx + 1}`}
                 className={`h-1.5 rounded-full transition-colors cursor-pointer ${
                   idx <= stepIdx ? 'bg-yellow-400' : 'bg-zinc-200 dark:bg-zinc-800'
                 }`}
@@ -141,77 +358,34 @@ export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
           </div>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-yellow-400/15 border border-yellow-500/30 text-amber-600 dark:text-yellow-400 flex items-center justify-center shrink-0">
-              <Icon className="w-6 h-6" />
-            </div>
-            <div>
-              <span className="text-[11px] font-mono font-bold text-amber-600 dark:text-yellow-400 uppercase tracking-wider">
-                Step {current.stepNum} · {current.subtitle}
-              </span>
-              <h3 className="text-lg font-extrabold text-zinc-900 dark:text-white leading-tight mt-0.5">
-                {current.title}
-              </h3>
-            </div>
-          </div>
-
-          <p className="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">
-            {current.description}
-          </p>
-
-          <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-700 dark:text-zinc-300 flex items-start gap-2.5">
-            <Layers className="w-4 h-4 text-amber-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-            <span>{current.tip}</span>
-          </div>
-
-          {current.actionView && onNavigateView && (
-            <button
-              type="button"
-              onClick={() => {
-                onNavigateView(current.actionView!);
-                handleFinish();
-              }}
-              className="text-xs font-bold text-amber-700 dark:text-yellow-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
-            >
-              <span>{current.actionLabel}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Footer Navigation */}
-        <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-zinc-50/70 dark:bg-zinc-950/60">
+        {/* Navigation Controls */}
+        <div className="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setStepIdx((i) => Math.max(0, i - 1))}
             disabled={stepIdx === 0}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-700 dark:text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Previous</span>
+            <span>Back</span>
           </button>
 
           {isLast ? (
             <button
               type="button"
-              onClick={() => {
-                if (onNavigateView) onNavigateView('studio');
-                handleFinish();
-              }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer transition-colors"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer transition-colors"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Finish & Open Studio</span>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Got It, Start Uploading</span>
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => setStepIdx((i) => Math.min(TUTORIAL_STEPS.length - 1, i + 1))}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer transition-colors"
+              onClick={() => setStepIdx((i) => Math.min(STUDIO_TOUR_STEPS.length - 1, i + 1))}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer transition-colors"
             >
-              <span>Next Step</span>
+              <span>Next Highlight</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}

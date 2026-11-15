@@ -27,6 +27,7 @@ interface PdfProtectToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -64,6 +65,7 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
   onProgress,
   isWorking,
   setIsWorking,
+  onTaskComplete,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'lock' | 'unlock'>('lock');
@@ -147,6 +149,11 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
         (percent, status) => onProgress({ percent, status })
       );
       setProtectResult(res);
+      onTaskComplete?.({
+        headline: `PDF Protected with ${algorithm} Encryption`,
+        subtext: `${res.fileName} is locked and ready for private download`,
+        statusLabel: 'PDF Security Complete',
+      });
     } catch (err: any) {
       onError(err?.message || 'Failed to encrypt PDF.');
     } finally {
@@ -165,6 +172,11 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
         onProgress({ percent, status })
       );
       setUnlockResult(res);
+      onTaskComplete?.({
+        headline: 'PDF Password Protection Removed',
+        subtext: `${res.fileName} unlocked cleanly in your browser`,
+        statusLabel: 'PDF Decrypt Complete',
+      });
     } catch (err: any) {
       onError(err?.message || 'Failed to unlock PDF.');
     } finally {

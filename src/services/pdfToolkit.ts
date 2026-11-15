@@ -701,17 +701,42 @@ export async function mergeMultiplePdfs(
 }
 
 /**
- * Tool 4: Real PDF Compressor
+ * Estimate approximate compressed PDF size for live compression slider feedback.
+ */
+export function estimateCompressedPdfSize(
+  originalBytes: number,
+  qualityPercent: number,
+  level: CompressionLevel
+): { estimatedBytes: number; reductionPct: number } {
+  if (originalBytes <= 0) return { estimatedBytes: 0, reductionPct: 0 };
+  const clampedQ = Math.max(15, Math.min(100, qualityPercent));
+  if (clampedQ >= 96 || (level === 'lossless' && clampedQ >= 95)) {
+    const est = Math.round(originalBytes * 0.88);
+    return { estimatedBytes: est, reductionPct: 12 };
+  }
+  // Smooth calibrated curve across 15%..95%: ~18% of original at 15% -> ~72% at 95%
+  const ratio = 0.16 + Math.pow((clampedQ - 15) / 80, 1.15) * 0.56;
+  const est = Math.max(4096, Math.min(originalBytes, Math.round(originalBytes * ratio)));
+  const reductionPct = Math.max(5, Math.round(((originalBytes - est) / originalBytes) * 100));
+  return { estimatedBytes: est, reductionPct };
+}
+
+/**
+ * Tool 4: Real PDF Compressor (Supports both discrete profiles and continuous slider %)
  */
 export async function compressPdfFile(
   file: File,
   level: CompressionLevel,
-  onProgress?: (percent: number, status: string) => void
+  onProgress?: (percent: number, status: string) => void,
+  qualityPercent?: number
 ): Promise<PdfCompressResult> {
   const originalBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
   const originalSize = file.size;
 
-  if (level === 'lossless') {
+  const isLosslessRun =
+    typeof qualityPercent === 'number' ? qualityPercent >= 96 : level === 'lossless';
+
+  if (isLosslessRun) {
     onProgress?.(35, 'Optimizing PDF object streams lossless...');
     const src = await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
     src.setTitle('');
@@ -747,8 +772,19 @@ export async function compressPdfFile(
   const pdf = await pdfjsLib.getDocument({ data: originalBuffer, useSystemFonts: true }).promise;
   const pageCount: number = pdf.numPages;
 
-  const targetScale = level === 'balanced' ? 1.35 : 1.0;
-  const jpegQuality = level === 'balanced' ? 0.72 : 0.48;
+  const sliderQ = typeof qualityPercent === 'number' ? Math.max(15, Math.min(95, qualityPercent)) : null;
+  const targetScale =
+    sliderQ !== null
+      ? Number((0.75 + ((sliderQ - 15) / 80) * 1.05).toFixed(2))
+      : level === 'balanced'
+      ? 1.35
+      : 1.0;
+  const jpegQuality =
+    sliderQ !== null
+      ? Number(Math.max(0.24, Math.min(0.92, sliderQ / 100)).toFixed(2))
+      : level === 'balanced'
+      ? 0.72
+      : 0.48;
 
   const outPdf = await PDFDocument.create();
   outPdf.setProducer('PaperLink');

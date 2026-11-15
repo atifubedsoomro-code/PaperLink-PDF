@@ -83,8 +83,7 @@ interface FooterAction {
   loading?: boolean;
 }
 
-const TUTORIAL_KEY_PREFIX = 'paperlink_tutorial_seen_';
-const LEGACY_TUTORIAL_KEY_PREFIX = 'qrdrive_tutorial_seen_';
+const STUDIO_TOUR_SEEN_KEY = 'paperlink_studio_tour_seen_v1';
 
 function readInitialView(): AppView {
   if (typeof window === 'undefined') return 'home';
@@ -126,9 +125,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
-  // Tracks first-time user login so tutorial opens automatically after welcome animation
-  const pendingTutorialUidRef = useRef<string | null>(null);
-  const manualSignInActiveRef = useRef(false);
+  // Tracks first-time entry into Cover Studio so spotlight tutorial triggers only there
+  const studioTourCheckedRef = useRef(false);
 
   // Navigation State: supports /privacy & /terms direct routes as well as SPA views
   const [activeView, setActiveView] = useState<AppView>(readInitialView);
@@ -138,15 +136,33 @@ export default function App() {
   // Linear 5-Step Cover Studio Workflow
   const [currentStep, setCurrentStep] = useState<Step>(1);
 
-  // Full-screen typewriter greeting on login / logout / upload success
+  // Full-screen auto-hiding typewriter feedback (4-6s) across login / logout / upload / every tool task
   const [typewriterConfig, setTypewriterConfig] = useState<{
     isOpen: boolean;
-    mode: 'login' | 'logout' | 'upload-success';
+    mode: 'login' | 'logout' | 'upload-success' | 'task-complete';
     targetUrl?: string;
+    headline?: string;
+    subtext?: string;
+    statusLabel?: string;
+    durationMs?: number;
   }>({
     isOpen: false,
     mode: 'login',
   });
+
+  const triggerTaskTypewriter = useCallback(
+    (info: { headline: string; subtext: string; statusLabel?: string }) => {
+      setTypewriterConfig({
+        isOpen: true,
+        mode: 'task-complete',
+        headline: info.headline,
+        subtext: info.subtext,
+        statusLabel: info.statusLabel,
+        durationMs: 7000,
+      });
+    },
+    []
+  );
 
   // Google Sign-In modal (only triggered by user intent, never on arrival)
   const [isAuthGateOpen, setIsAuthGateOpen] = useState(false);
@@ -293,25 +309,28 @@ export default function App() {
     };
   }, [token]);
 
-  // Helper to check if a UID is logging in for the very first time
-  const hasSeenTutorial = (uid: string) => {
+  // First-time Cover Studio contextual spotlight tour (only runs inside Cover Studio)
+  useEffect(() => {
+    if (activeView !== 'studio' || typewriterConfig.isOpen || studioTourCheckedRef.current) return;
+    studioTourCheckedRef.current = true;
     try {
-      return (
-        localStorage.getItem(`${TUTORIAL_KEY_PREFIX}${uid}`) === '1' ||
-        localStorage.getItem(`${LEGACY_TUTORIAL_KEY_PREFIX}${uid}`) === '1'
-      );
-    } catch {
-      return false;
-    }
-  };
-
-  const markTutorialSeen = (uid: string) => {
-    try {
-      localStorage.setItem(`${TUTORIAL_KEY_PREFIX}${uid}`, '1');
+      const seen = localStorage.getItem(STUDIO_TOUR_SEEN_KEY) === '1';
+      if (!seen) {
+        const timer = setTimeout(() => {
+          try {
+            localStorage.setItem(STUDIO_TOUR_SEEN_KEY, '1');
+          } catch {
+            // ignore storage errors
+          }
+          setCurrentStep(1);
+          setIsTutorialOpen(true);
+        }, 350);
+        return () => clearTimeout(timer);
+      }
     } catch {
       // ignore storage errors
     }
-  };
+  }, [activeView, typewriterConfig.isOpen]);
 
   // Initialize auth
   useEffect(() => {
@@ -324,12 +343,6 @@ export default function App() {
           setCoverData((prev) =>
             prev.preparedBy ? prev : { ...prev, preparedBy: authenticatedUser.displayName || '' }
           );
-        }
-
-        // Trigger step-by-step tutorial on a returning/auto-authenticated user's first visit
-        if (!manualSignInActiveRef.current && !hasSeenTutorial(authenticatedUser.uid)) {
-          markTutorialSeen(authenticatedUser.uid);
-          setIsTutorialOpen(true);
         }
       },
       () => {
@@ -437,7 +450,6 @@ export default function App() {
   const handleLogin = async () => {
     setIsLoggingIn(true);
     setAuthErrorMsg(null);
-    manualSignInActiveRef.current = true;
     try {
       const res = await googleSignIn({ forceConsent });
       if (res) {
@@ -455,13 +467,10 @@ export default function App() {
           }));
         }
 
-        if (!hasSeenTutorial(res.user.uid)) {
-          pendingTutorialUidRef.current = res.user.uid;
-        }
-
         setTypewriterConfig({
           isOpen: true,
           mode: 'login',
+          durationMs: 6500,
         });
       }
     } catch (err: any) {
@@ -469,7 +478,6 @@ export default function App() {
       setAuthErrorMsg(err?.message || 'Sign-in could not complete. Enable popups and try again.');
     } finally {
       setIsLoggingIn(false);
-      manualSignInActiveRef.current = false;
     }
   };
 
@@ -481,16 +489,12 @@ export default function App() {
     setTypewriterConfig({
       isOpen: true,
       mode: 'logout',
+      durationMs: 6500,
     });
   };
 
   const handleTypewriterComplete = () => {
     setTypewriterConfig((prev) => ({ ...prev, isOpen: false }));
-    if (pendingTutorialUidRef.current) {
-      markTutorialSeen(pendingTutorialUidRef.current);
-      pendingTutorialUidRef.current = null;
-      setIsTutorialOpen(true);
-    }
   };
 
   const handleUploadToDrive = async () => {
@@ -595,6 +599,7 @@ export default function App() {
         isOpen: true,
         mode: 'upload-success',
         targetUrl: result.webViewLink,
+        durationMs: 7500,
       });
 
       setCurrentStep(5);
@@ -645,6 +650,7 @@ export default function App() {
       isOpen: true,
       mode: 'upload-success',
       targetUrl: link,
+      durationMs: 7500,
     });
 
     setCurrentStep(5);
@@ -730,6 +736,11 @@ export default function App() {
       confetti({ particleCount: 60, spread: 70, origin: { y: 0.7 } });
       setDownloadSuccessMsg('Document with QR Cover downloaded successfully.');
       setTimeout(() => setDownloadSuccessMsg(null), 3500);
+      triggerTaskTypewriter({
+        headline: 'Cover + Document PDF Ready',
+        subtext: `${safeFilename}_with_QR_Cover.pdf (${totalPages} pages) downloaded successfully.`,
+        statusLabel: 'Cover Studio Export Complete',
+      });
     } catch (err: any) {
       console.error('Download error:', err);
       setDownloadErrorMsg(err.message || 'Failed to generate PDF');
@@ -836,12 +847,12 @@ export default function App() {
       {typewriterConfig.isOpen && (
         <TypewriterWelcome
           mode={typewriterConfig.mode}
+          headline={typewriterConfig.headline}
+          subtext={typewriterConfig.subtext}
+          statusLabel={typewriterConfig.statusLabel}
           targetUrl={typewriterConfig.targetUrl}
+          durationMs={typewriterConfig.durationMs ?? 7000}
           onComplete={handleTypewriterComplete}
-          onDownloadUpdatedPdf={
-            typewriterConfig.mode === 'upload-success' ? handleDirectDownloadMergedPdf : undefined
-          }
-          isDownloadingPdf={isDownloading}
         />
       )}
 
@@ -860,13 +871,18 @@ export default function App() {
         onChangeThemeMode={setThemeMode}
         textSize={textSize}
         onChangeTextSize={setTextSize}
-        onStartTutorial={() => setIsTutorialOpen(true)}
+        onStartTutorial={() => {
+          setIsSettingsOpen(false);
+          navigateView('studio');
+          setCurrentStep(1);
+          setTimeout(() => setIsTutorialOpen(true), 120);
+        }}
       />
 
       <OnboardingTutorial
         isOpen={isTutorialOpen}
         onClose={() => setIsTutorialOpen(false)}
-        onNavigateView={(view) => navigateView(view)}
+        onSelectStudioStep={(step) => setCurrentStep(step)}
       />
 
       <Navbar
@@ -938,6 +954,7 @@ export default function App() {
               activeTool={activePdfTool}
               onToolChange={setActivePdfTool}
               onSendPdfToCoverStudio={handleReceivePdfFromTools}
+              onTaskComplete={triggerTaskTypewriter}
             />
           ) : activeView === 'image-tools' ? (
             <ImageToolsPanel
@@ -948,6 +965,7 @@ export default function App() {
                 navigateView('studio');
                 setCurrentStep(3);
               }}
+              onTaskComplete={triggerTaskTypewriter}
             />
           ) : activeView === 'batch' ? (
             <BatchProcessingPanel
@@ -989,7 +1007,10 @@ export default function App() {
               {/* Left Editor Column */}
               <div className="lg:col-span-6 space-y-5 min-w-0">
                 {/* Mobile Step Progress Bar (Desktop uses Fixed Right Sidebar) */}
-                <div className="lg:hidden bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5">
+                <div
+                  data-tour-target="studio-steps-mobile"
+                  className="lg:hidden bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5"
+                >
                   <div className="grid grid-cols-5 gap-1.5">
                     {STEPS_NAV.map((step) => {
                       const isActive = currentStep === step.num;
@@ -1039,13 +1060,15 @@ export default function App() {
                 </div>
 
                 {currentStep === 1 && (
-                  <DocumentUploader
-                    currentDoc={currentDoc}
-                    onDocumentParsed={handleDocumentParsed}
-                    isLoading={isLoadingDoc}
-                    setIsLoading={setIsLoadingDoc}
-                    onSwitchToBatch={() => navigateView('batch')}
-                  />
+                  <div data-tour-target="studio-upload">
+                    <DocumentUploader
+                      currentDoc={currentDoc}
+                      onDocumentParsed={handleDocumentParsed}
+                      isLoading={isLoadingDoc}
+                      setIsLoading={setIsLoadingDoc}
+                      onSwitchToBatch={() => navigateView('batch')}
+                    />
+                  </div>
                 )}
 
                 {currentStep === 2 && (
@@ -1161,7 +1184,10 @@ export default function App() {
               </div>
 
               {/* Sticky Scaled Paper Preview Column */}
-              <div className="lg:col-span-6 lg:sticky lg:top-20 lg:h-[calc(100vh-6.5rem)] min-w-0">
+              <div
+                data-tour-target="studio-preview"
+                className="lg:col-span-6 lg:sticky lg:top-20 lg:h-[calc(100vh-6.5rem)] min-w-0"
+              >
                 <div className="h-full min-h-0 flex flex-col p-3.5 bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm dark:shadow-none">
                   <CoverPreview
                     coverData={coverData}
@@ -1181,6 +1207,7 @@ export default function App() {
       {/* FIXED RIGHT-SIDE STEPS SIDEBAR (Desktop lg+ Studio Mode) */}
       {activeView === 'studio' && (
         <aside
+          data-tour-target="studio-sidebar"
           aria-label="Cover Studio steps sidebar"
           className="no-print hidden lg:flex lg:flex-col lg:fixed lg:top-16 lg:right-0 lg:bottom-0 lg:w-72 z-30 border-l border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#0c0c0f]/95 backdrop-blur-md p-4 justify-between gap-4 overflow-y-auto transition-colors"
         >
@@ -1264,7 +1291,10 @@ export default function App() {
             </nav>
 
             {/* Quick Status & Instant Download Updated PDF Trigger on Drive Upload */}
-            <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2.5">
+            <div
+              data-tour-target="studio-sidebar-download"
+              className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2.5"
+            >
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-zinc-500 dark:text-zinc-400 font-semibold">Output Pages</span>
                 <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">

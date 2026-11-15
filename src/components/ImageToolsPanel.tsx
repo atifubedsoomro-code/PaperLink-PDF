@@ -60,6 +60,7 @@ interface ImageToolsPanelProps {
   activeTool: ImageToolTab;
   onToolChange: (tool: ImageToolTab) => void;
   onUseAsCoverLogo?: (dataUrl: string) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 interface BulkBgItem {
@@ -122,6 +123,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   activeTool,
   onToolChange,
   onUseAsCoverLogo,
+  onTaskComplete,
 }) => {
   const [isWorking, setIsWorking] = useState(false);
   const [progress, setProgress] = useState<{ percent: number; status: string } | null>(null);
@@ -218,6 +220,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         (percent, status) => setProgress({ percent, status })
       );
       setBgResult(res);
+      onTaskComplete?.({
+        headline: 'Background Removed Successfully',
+        subtext: `${res.fileName} (${res.width}×${res.height}px) is ready for download.`,
+        statusLabel: 'Image Cutout Ready',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to remove background.');
     } finally {
@@ -311,6 +318,13 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         percent: 100,
         status: `Processed ${completedForZip.length} of ${snapshot.length} image(s).`,
       });
+      if (completedForZip.length > 0) {
+        onTaskComplete?.({
+          headline: `Bulk Cutout Finished (${completedForZip.length} Images)`,
+          subtext: 'All clean cutouts are packed into a ZIP archive ready to download.',
+          statusLabel: 'Bulk BG Remover Complete',
+        });
+      }
     } finally {
       setIsWorking(false);
     }
@@ -396,6 +410,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         setResizeZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
       }
       setProgress({ percent: 100, status: `Resized ${out.length} image(s) cleanly.` });
+      onTaskComplete?.({
+        headline: `Resized ${out.length} Image${out.length === 1 ? '' : 's'} Cleanly`,
+        subtext: `Scaled to ${resizeW}×${resizeH}px (${resizeFit}) and ready to save.`,
+        statusLabel: 'Image Resize Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Resize failed.');
     } finally {
@@ -452,6 +471,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         setConvertZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
       }
       setProgress({ percent: 100, status: `Converted ${out.length} image(s) to .${convertFormat}.` });
+      onTaskComplete?.({
+        headline: `Converted ${out.length} File${out.length === 1 ? '' : 's'} to .${convertFormat.toUpperCase()}`,
+        subtext: 'Your reformatted graphics are ready for download.',
+        statusLabel: 'Format Conversion Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Conversion failed.');
     } finally {
@@ -475,6 +499,39 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   const [cropFlipV, setCropFlipV] = useState<boolean>(false);
   const [cropFmt, setCropFmt] = useState<'png' | 'jpg' | 'webp'>('png');
   const [cropResult, setCropResult] = useState<ProcessedImageResult | null>(null);
+  const [cropTransformedUrl, setCropTransformedUrl] = useState<string | null>(null);
+
+  // Keep live Crop Frame preview matched pixel-for-pixel with rotate/flip transforms
+  useEffect(() => {
+    if (!cropOrigUrl || (cropRotate === 0 && !cropFlipH && !cropFlipV)) {
+      setCropTransformedUrl(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const swap = cropRotate === 90 || cropRotate === 270;
+      const rotW = swap ? img.naturalHeight : img.naturalWidth;
+      const rotH = swap ? img.naturalWidth : img.naturalHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, rotW);
+      canvas.height = Math.max(1, rotH);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.save();
+      ctx.translate(rotW / 2, rotH / 2);
+      ctx.rotate((cropRotate * Math.PI) / 180);
+      ctx.scale(cropFlipH ? -1 : 1, cropFlipV ? -1 : 1);
+      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      ctx.restore();
+      setCropTransformedUrl(canvas.toDataURL('image/png'));
+    };
+    img.src = cropOrigUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [cropOrigUrl, cropRotate, cropFlipH, cropFlipV]);
 
   const handleLoadCropFile = async (file: File) => {
     resetFeedback();
@@ -548,6 +605,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         quality: 0.94,
       });
       setCropResult(res);
+      onTaskComplete?.({
+        headline: 'Image Cropped & Exported',
+        subtext: `Saved ${res.fileName} (${res.width}×${res.height}px) ready to download.`,
+        statusLabel: 'Crop & Rotate Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to crop image.');
     } finally {
@@ -604,6 +666,14 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         setCompZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
       }
       setProgress({ percent: 100, status: `Compressed ${out.length} image(s).` });
+      const totalOrig = out.reduce((acc, r) => acc + r.originalSizeBytes, 0);
+      const totalFinal = out.reduce((acc, r) => acc + r.sizeBytes, 0);
+      const savedPct = Math.max(0, Math.round(((totalOrig - totalFinal) / Math.max(1, totalOrig)) * 100));
+      onTaskComplete?.({
+        headline: `Compressed ${out.length} Image${out.length === 1 ? '' : 's'}`,
+        subtext: `${formatBytes(totalOrig)} → ${formatBytes(totalFinal)} (${savedPct}% smaller).`,
+        statusLabel: 'Image Compression Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Compression failed.');
     } finally {
@@ -646,6 +716,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
     try {
       const res = await applyImageFilters(filterFile, filters, filterFormat, 0.94);
       setFilterResult(res);
+      onTaskComplete?.({
+        headline: 'Graded Image Rendered',
+        subtext: `${res.fileName} (${formatBytes(res.sizeBytes)}) is ready for download.`,
+        statusLabel: 'Color Grade Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to apply image filters.');
     } finally {
@@ -1493,6 +1568,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           isWorking={isWorking}
           setIsWorking={setIsWorking}
           onSendImageToTool={sendFileToImageTool}
+          onTaskComplete={onTaskComplete}
         />
       )}
 
@@ -2189,24 +2265,19 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               <div className="h-[380px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950 flex items-center justify-center p-4 overflow-hidden">
                 <div className="relative inline-block max-h-full max-w-full">
                   <img
-                    src={cropOrigUrl}
+                    src={cropTransformedUrl || cropOrigUrl}
                     alt="Crop frame"
-                    style={{
-                      transform: `rotate(${cropRotate}deg) scaleX(${cropFlipH ? -1 : 1}) scaleY(${cropFlipV ? -1 : 1})`,
-                    }}
-                    className="max-h-[340px] max-w-full object-contain transition-transform duration-150"
+                    className="max-h-[340px] max-w-full object-contain block select-none"
                   />
-                  {cropRotate === 0 && !cropFlipH && !cropFlipV && (
-                    <div
-                      style={{
-                        left: `${cropX * 100}%`,
-                        top: `${cropY * 100}%`,
-                        width: `${cropW * 100}%`,
-                        height: `${cropH * 100}%`,
-                      }}
-                      className="absolute border-2 border-yellow-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.48)] pointer-events-none"
-                    />
-                  )}
+                  <div
+                    style={{
+                      left: `${cropX * 100}%`,
+                      top: `${cropY * 100}%`,
+                      width: `${cropW * 100}%`,
+                      height: `${cropH * 100}%`,
+                    }}
+                    className="absolute border-2 border-yellow-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.48)] pointer-events-none"
+                  />
                 </div>
               </div>
             ) : (
@@ -2303,6 +2374,11 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   onChange={(e) => setCompQuality(parseFloat(e.target.value))}
                   className="w-full accent-yellow-400 cursor-pointer"
                 />
+                <div className="flex justify-between text-[10px] text-zinc-400 mt-1">
+                  <span>Smallest Size (20%)</span>
+                  <span>Balanced (76%)</span>
+                  <span>Sharpest (95%)</span>
+                </div>
               </div>
 
               <div>
@@ -2331,6 +2407,36 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   ))}
                 </div>
               </div>
+
+              {compFiles.length > 0 && (() => {
+                const origBytes = compFiles.reduce((acc, f) => acc + f.size, 0);
+                const fmtFactor = compFormat === 'webp' ? 0.56 : compFormat === 'jpg' ? 0.68 : 0.92;
+                const widthFactor = !compMaxWidth ? 1 : compMaxWidth <= 800 ? 0.45 : compMaxWidth <= 1280 ? 0.65 : 0.85;
+                const qFactor = compFormat === 'png' ? 0.95 : 0.35 + ((compQuality - 0.2) / 0.75) * 0.65;
+                const estBytes = Math.max(
+                  Math.round(origBytes * 0.12),
+                  Math.min(origBytes, Math.round(origBytes * fmtFactor * widthFactor * qFactor))
+                );
+                const estPct = Math.max(4, Math.min(88, Math.round(((origBytes - estBytes) / Math.max(1, origBytes)) * 100)));
+                return (
+                  <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-zinc-600 dark:text-zinc-400">
+                        Live Approximate Output
+                      </span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {formatBytes(origBytes)} → ~{formatBytes(estBytes)} (~{estPct}% smaller)
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                      <div
+                        className="h-full bg-yellow-400 transition-all duration-150"
+                        style={{ width: `${Math.max(12, 100 - estPct)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <button

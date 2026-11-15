@@ -47,6 +47,7 @@ import {
   inspectPdfThumbnails,
   transformPdfPages,
   signAndStampPdf,
+  estimateCompressedPdfSize,
 } from '../services/pdfToolkit';
 import { renderPdfPages } from '../services/documentParser';
 import { PdfEditorTool } from './PdfEditorTool';
@@ -70,6 +71,7 @@ interface PdfToolsPanelProps {
   activeTool: PdfToolTab;
   onToolChange: (tool: PdfToolTab) => void;
   onSendPdfToCoverStudio: (file: File) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -107,6 +109,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   activeTool,
   onToolChange,
   onSendPdfToCoverStudio,
+  onTaskComplete,
 }) => {
   // Common feedback states
   const [isWorking, setIsWorking] = useState(false);
@@ -135,6 +138,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   const compressInputRef = useRef<HTMLInputElement>(null);
   const [compressFile, setCompressFile] = useState<File | null>(null);
   const [compressLevel, setCompressLevel] = useState<CompressionLevel>('balanced');
+  const [compressQualityPct, setCompressQualityPct] = useState<number>(70);
   const [compressResult, setCompressResult] = useState<PdfCompressResult | null>(null);
 
   // 5. PDF Split
@@ -194,6 +198,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setP2wResult(res);
+      onTaskComplete?.({
+        headline: 'PDF Converted to Word (.docx)',
+        subtext: `${res.fileName} (${res.pageCount} pages) ready for download`,
+        statusLabel: 'PDF to Word Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to convert PDF to Word.');
     } finally {
@@ -211,6 +220,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setW2pResult(res);
+      onTaskComplete?.({
+        headline: 'Word Converted to Paginated PDF',
+        subtext: `${res.fileName} (${res.pageCount} pages) ready to save or add QR cover`,
+        statusLabel: 'Word to PDF Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to convert Word file to PDF.');
     } finally {
@@ -263,6 +277,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setMergeResult(res);
+      onTaskComplete?.({
+        headline: `Merged ${res.totalPages} Pages Into Single PDF`,
+        subtext: `${res.fileName} is ready for download or Cover Studio`,
+        statusLabel: 'PDF Merge Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to merge PDFs.');
     } finally {
@@ -276,10 +295,24 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
     setCompressResult(null);
     setIsWorking(true);
     try {
-      const res = await compressPdfFile(compressFile, compressLevel, (percent, status) =>
-        setProgress({ percent, status })
+      const res = await compressPdfFile(
+        compressFile,
+        compressLevel,
+        (percent, status) => setProgress({ percent, status }),
+        compressQualityPct
       );
       setCompressResult(res);
+      const savedPct = Math.max(
+        0,
+        Math.round(((res.originalSize - res.compressedSize) / Math.max(1, res.originalSize)) * 100)
+      );
+      onTaskComplete?.({
+        headline: 'PDF Compressed Successfully',
+        subtext: res.keptOriginalBecauseSmaller
+          ? `Already tightly packed — original ${formatBytes(res.originalSize)} preserved`
+          : `Reduced by ${savedPct}% (${formatBytes(res.originalSize)} -> ${formatBytes(res.compressedSize)})`,
+        statusLabel: 'PDF Compression Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to compress PDF.');
     } finally {
@@ -311,6 +344,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setSplitResult(res);
+      onTaskComplete?.({
+        headline: `Extracted ${res.files.length} PDF File${res.files.length === 1 ? '' : 's'}`,
+        subtext: 'Your split PDF files are ready for instant download',
+        statusLabel: 'PDF Split Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to split PDF.');
     } finally {
@@ -354,6 +392,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setImgResult(res);
+      onTaskComplete?.({
+        headline: `Built ${res.pageCount}-Page PDF From Images`,
+        subtext: `${res.fileName} is ready to download or open in Cover Studio`,
+        statusLabel: 'Images to PDF Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to build PDF from images.');
     } finally {
@@ -391,6 +434,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setOrgResult(res);
+      onTaskComplete?.({
+        headline: `Rebuilt ${res.pageCount}-Page PDF Document`,
+        subtext: 'Page rotations and deletions applied cleanly',
+        statusLabel: 'PDF Organize Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to rebuild PDF pages.');
     } finally {
@@ -476,6 +524,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         (percent, status) => setProgress({ percent, status })
       );
       setSignResult(res);
+      onTaskComplete?.({
+        headline: 'Signature Applied to PDF',
+        subtext: `${res.fileName} is signed and ready for download`,
+        statusLabel: 'PDF Signature Complete',
+      });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to stamp signature onto PDF.');
     } finally {
@@ -1098,20 +1151,23 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block">
-                Compression Profile
+                Compression Profile &amp; Strength Slider
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {[
-                  { id: 'lossless' as CompressionLevel, title: 'Lossless Clean', desc: 'Preserves vector text via object streams.' },
-                  { id: 'balanced' as CompressionLevel, title: 'Balanced (144 DPI)', desc: 'Ideal for email sharing with clear readability.' },
-                  { id: 'maximum' as CompressionLevel, title: 'Compact (100 DPI)', desc: 'Smallest size for large scanned packets.' },
+                  { id: 'lossless' as CompressionLevel, pct: 100, title: 'Lossless Clean', desc: 'Preserves vector text via object streams.' },
+                  { id: 'balanced' as CompressionLevel, pct: 70, title: 'Balanced (144 DPI)', desc: 'Ideal for email sharing with clear readability.' },
+                  { id: 'maximum' as CompressionLevel, pct: 35, title: 'Compact (100 DPI)', desc: 'Smallest size for large scanned packets.' },
                 ].map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setCompressLevel(opt.id)}
+                    onClick={() => {
+                      setCompressLevel(opt.id);
+                      setCompressQualityPct(opt.pct);
+                    }}
                     className={`p-3 rounded-xl border text-left cursor-pointer transition-colors ${
                       compressLevel === opt.id
                         ? 'border-yellow-400 bg-yellow-400/15 text-zinc-950 dark:text-white'
@@ -1122,6 +1178,69 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     <p className="text-[11px] opacity-80 mt-1">{opt.desc}</p>
                   </button>
                 ))}
+              </div>
+
+              {/* Continuous Compression Strength Slider + Live Approximate Size Reducer */}
+              <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    Compression Quality &amp; DPI Slider
+                  </span>
+                  <span className="font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
+                    {compressQualityPct >= 96 ? '100% (Lossless)' : `${compressQualityPct}% Quality`}
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min={15}
+                  max={100}
+                  step={1}
+                  value={compressQualityPct}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setCompressQualityPct(val);
+                    setCompressLevel(val >= 96 ? 'lossless' : val >= 55 ? 'balanced' : 'maximum');
+                  }}
+                  aria-label="PDF compression strength slider"
+                  className="w-full accent-yellow-400 cursor-pointer"
+                />
+
+                <div className="flex justify-between text-[10px] font-mono text-zinc-500">
+                  <span>Max Size Reduction (15%)</span>
+                  <span>Balanced (70%)</span>
+                  <span>Lossless Vector (100%)</span>
+                </div>
+
+                {compressFile && (() => {
+                  const est = estimateCompressedPdfSize(
+                    compressFile.size,
+                    compressQualityPct,
+                    compressLevel
+                  );
+                  const remainingPct = Math.max(5, Math.min(100, 100 - est.reductionPct));
+                  return (
+                    <div className="pt-2.5 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-zinc-500 dark:text-zinc-400">
+                          Approx. Estimated Output
+                        </span>
+                        <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">
+                          ~{formatBytes(est.estimatedBytes)}{' '}
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            (~{est.reductionPct}% smaller)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 dark:bg-yellow-400 transition-all duration-150"
+                          style={{ width: `${remainingPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1922,6 +2041,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           onProgress={setProgress}
           isWorking={isWorking}
           setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
         />
       )}
 
@@ -1933,6 +2053,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           onProgress={setProgress}
           isWorking={isWorking}
           setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
         />
       )}
 
@@ -1943,6 +2064,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           onProgress={setProgress}
           isWorking={isWorking}
           setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
         />
       )}
     </div>
