@@ -3,7 +3,7 @@ import { User } from 'firebase/auth';
 import { QrCode, LogOut, Menu, X, Settings } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
-export type AppView = 'home' | 'studio' | 'tools' | 'image-tools' | 'batch' | 'library' | 'privacy' | 'terms';
+export type AppView = 'home' | 'studio' | 'tools' | 'image-tools' | 'privacy' | 'terms';
 
 interface NavbarProps {
   user: User | null;
@@ -21,8 +21,6 @@ const NAV_ITEMS: { id: AppView; label: string }[] = [
   { id: 'studio', label: 'Cover Studio' },
   { id: 'tools', label: 'PDF Tools' },
   { id: 'image-tools', label: 'Image Tools' },
-  { id: 'batch', label: 'Batch' },
-  { id: 'library', label: 'Library' },
 ];
 
 export const Navbar: React.FC<NavbarProps> = ({

@@ -34,7 +34,7 @@ import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
 
 interface LandingPageProps {
-  onNavigate: (view: AppView) => void;
+  onNavigate: (view: AppView | 'batch' | 'library') => void;
   onOpenPdfTool: (tool: PdfToolTab) => void;
   onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenLegal?: (page: 'privacy' | 'terms') => void;
@@ -174,80 +174,105 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </motion.div>
 
-            {/* Right Interactive "Animated Documentation" Card */}
+            {/* Right Interactive "Animated Documentation" Card with Neon Lighting */}
             <motion.div
-              className="lg:col-span-6"
+              className="lg:col-span-6 relative group"
               initial={{ opacity: 0, y: 14, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.08, ease: EASE_OUT_QUINT }}
+              transition={{ duration: 0.55, delay: 0.08, ease: EASE_OUT_QUINT }}
             >
-              <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111115] shadow-xl overflow-hidden">
-                {/* Documentation Chrome Header */}
-                <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#0d0d10] flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <QrCode className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
-                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                      Animated Documentation · How PaperLink Works
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsAutoPlaying((p) => !p)}
-                    aria-label={isAutoPlaying ? 'Pause walkthrough' : 'Play walkthrough'}
-                    className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 hover:border-yellow-400 inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    {isAutoPlaying ? (
-                      <>
-                        <Pause className="w-3 h-3 text-amber-600 dark:text-yellow-400" />
-                        <span>Auto</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3 h-3 text-amber-600 dark:text-yellow-400" />
-                        <span>Paused</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+              {/* Ambient Breathing Neon Backlight Halo */}
+              <motion.div
+                aria-hidden="true"
+                animate={{
+                  opacity: [0.55, 0.9, 0.55],
+                  scale: [0.98, 1.02, 0.98],
+                }}
+                transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
+                className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl"
+              />
 
-                {/* Clickable 3-Stage Tabs */}
-                <div className="grid grid-cols-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/60">
-                  {ANIMATED_DOCS_SLIDES.map((slide, idx) => {
-                    const active = idx === docStage;
-                    return (
-                      <button
-                        key={slide.id}
-                        type="button"
-                        onClick={() => {
-                          setDocStage(idx);
-                          setIsAutoPlaying(false);
-                        }}
-                        className={`relative px-3 py-2.5 text-left transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-white dark:bg-[#141418] text-zinc-950 dark:text-white'
-                            : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`text-[10px] font-mono font-bold ${
-                              active ? 'text-amber-600 dark:text-yellow-400' : 'text-zinc-400'
-                            }`}
-                          >
-                            {slide.stepNum}
-                          </span>
-                          <span className="text-xs font-bold truncate">{slide.tabLabel}</span>
-                        </div>
-                        {active && (
-                          <motion.div
-                            layoutId="docTabActiveBar"
-                            className="absolute bottom-0 left-0 right-0 h-0.5 bg-yellow-400"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* Animated Neon Rim Container */}
+              <div className="relative p-[1.5px] rounded-2xl bg-gradient-to-br from-yellow-400/80 via-cyan-400/45 to-amber-500/80 shadow-[0_0_28px_rgba(250,204,21,0.28),0_0_54px_rgba(34,211,238,0.16)] dark:shadow-[0_0_36px_rgba(250,204,21,0.34),0_0_68px_rgba(34,211,238,0.22)]">
+                {/* Traveling Top Neon Laser Accent */}
+                <motion.div
+                  aria-hidden="true"
+                  animate={{ x: ['-35%', '135%'] }}
+                  transition={{ repeat: Infinity, duration: 6.8, ease: 'easeInOut' }}
+                  className="pointer-events-none absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] z-20"
+                />
+
+                <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#0d0d12]/95 backdrop-blur-xl overflow-hidden">
+                  {/* Documentation Chrome Header */}
+                  <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/90 dark:bg-[#09090d]/95 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400 shadow-[0_0_10px_#facc15]" />
+                      </span>
+                      <QrCode className="w-4 h-4 text-amber-600 dark:text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" />
+                      <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-200">
+                        Animated Documentation · How PaperLink Works
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAutoPlaying((p) => !p)}
+                      aria-label={isAutoPlaying ? 'Pause walkthrough' : 'Play walkthrough'}
+                      className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 hover:border-yellow-400 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      {isAutoPlaying ? (
+                        <>
+                          <Pause className="w-3 h-3 text-amber-600 dark:text-yellow-400" />
+                          <span>Auto</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3 h-3 text-amber-600 dark:text-yellow-400" />
+                          <span>Paused</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Clickable 3-Stage Tabs */}
+                  <div className="grid grid-cols-3 border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/60 dark:bg-zinc-950/70">
+                    {ANIMATED_DOCS_SLIDES.map((slide, idx) => {
+                      const active = idx === docStage;
+                      return (
+                        <button
+                          key={slide.id}
+                          type="button"
+                          onClick={() => {
+                            setDocStage(idx);
+                            setIsAutoPlaying(false);
+                          }}
+                          className={`relative px-3 py-2.5 text-left transition-colors cursor-pointer ${
+                            active
+                              ? 'bg-white dark:bg-[#13131a] text-zinc-950 dark:text-white'
+                              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`text-[10px] font-mono font-bold ${
+                                active ? 'text-amber-600 dark:text-yellow-400' : 'text-zinc-400'
+                              }`}
+                            >
+                              {slide.stepNum}
+                            </span>
+                            <span className="text-xs font-bold truncate">{slide.tabLabel}</span>
+                          </div>
+                          {active && (
+                            <motion.div
+                              layoutId="docTabActiveBar"
+                              className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-yellow-400 via-cyan-400 to-yellow-400 shadow-[0_0_12px_rgba(250,204,21,0.9)]"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
 
                 {/* Animated Interactive Visual Canvas */}
                 <div className="p-5 sm:p-6 min-h-[305px] flex flex-col justify-between gap-5">
@@ -423,6 +448,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
                 </div>
               </div>
             </motion.div>

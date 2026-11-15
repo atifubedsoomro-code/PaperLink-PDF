@@ -70,9 +70,12 @@ import {
   Layers,
   AlertCircle,
   Loader2,
+  Files,
+  FolderOpen,
 } from 'lucide-react';
 
 type Step = 1 | 2 | 3 | 4 | 5;
+type StudioSection = 'editor' | 'batch' | 'library';
 
 interface FooterAction {
   text: string;
@@ -130,6 +133,7 @@ export default function App() {
 
   // Navigation State: supports /privacy & /terms direct routes as well as SPA views
   const [activeView, setActiveView] = useState<AppView>(readInitialView);
+  const [studioSection, setStudioSection] = useState<StudioSection>('editor');
   const [activePdfTool, setActivePdfTool] = useState<PdfToolTab>('pdf-to-word');
   const [activeImageTool, setActiveImageTool] = useState<ImageToolTab>('bg-remove');
 
@@ -240,10 +244,22 @@ export default function App() {
   const [savedDocs, setSavedDocs] = useState<SavedDocRecord[]>([]);
   const [brandKits, setBrandKits] = useState<BrandKitPreset[]>([]);
 
-  // Route switcher syncing /privacy & /terms URLs
-  const navigateView = useCallback((view: AppView) => {
+  // Route switcher syncing /privacy & /terms URLs and nesting Batch/Library inside Cover Studio
+  const navigateView = useCallback((view: AppView | 'batch' | 'library') => {
     setAuthErrorMsg(null);
-    setActiveView(view);
+    if (view === 'batch') {
+      setActiveView('studio');
+      setStudioSection('batch');
+    } else if (view === 'library') {
+      setActiveView('studio');
+      setStudioSection('library');
+    } else {
+      setActiveView(view);
+      if (view === 'studio') {
+        setStudioSection('editor');
+      }
+    }
+
     if (typeof window !== 'undefined') {
       const targetPath = view === 'privacy' ? '/privacy' : view === 'terms' ? '/terms' : '/';
       try {
@@ -309,9 +325,9 @@ export default function App() {
     };
   }, [token]);
 
-  // First-time Cover Studio contextual spotlight tour (only runs inside Cover Studio)
+  // First-time Cover Studio contextual spotlight tour (only runs inside Cover Studio editor)
   useEffect(() => {
-    if (activeView !== 'studio' || typewriterConfig.isOpen || studioTourCheckedRef.current) return;
+    if (activeView !== 'studio' || studioSection !== 'editor' || typewriterConfig.isOpen || studioTourCheckedRef.current) return;
     studioTourCheckedRef.current = true;
     try {
       const seen = localStorage.getItem(STUDIO_TOUR_SEEN_KEY) === '1';
@@ -330,7 +346,7 @@ export default function App() {
     } catch {
       // ignore storage errors
     }
-  }, [activeView, typewriterConfig.isOpen]);
+  }, [activeView, studioSection, typewriterConfig.isOpen]);
 
   // Initialize auth
   useEffect(() => {
@@ -674,6 +690,7 @@ export default function App() {
   };
 
   const handleReceivePdfFromTools = async (file: File) => {
+    setStudioSection('editor');
     navigateView('studio');
     setIsLoadingDoc(true);
     try {
@@ -757,6 +774,7 @@ export default function App() {
       webViewLink: docRecord.driveLink,
       publicPermissionGranted: true,
     });
+    setStudioSection('editor');
     navigateView('studio');
     setCurrentStep(5);
   };
@@ -873,6 +891,7 @@ export default function App() {
         onChangeTextSize={setTextSize}
         onStartTutorial={() => {
           setIsSettingsOpen(false);
+          setStudioSection('editor');
           navigateView('studio');
           setCurrentStep(1);
           setTimeout(() => setIsTutorialOpen(true), 120);
@@ -962,50 +981,107 @@ export default function App() {
               onToolChange={setActiveImageTool}
               onUseAsCoverLogo={(dataUrl) => {
                 setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
+                setStudioSection('editor');
                 navigateView('studio');
                 setCurrentStep(3);
               }}
               onTaskComplete={triggerTaskTypewriter}
             />
-          ) : activeView === 'batch' ? (
-            <BatchProcessingPanel
-              batchItems={batchItems}
-              setBatchItems={setBatchItems}
-              currentCoverTheme={coverData}
-              accessToken={token}
-              userEmail={user?.email || undefined}
-              onRequireAuth={(needsConsent) => {
-                if (needsConsent) setForceConsent(true);
-                setAuthGateAction(
-                  needsConsent
-                    ? 'Reconnect Google Drive With File Permissions'
-                    : 'Upload Batch Documents to Google Drive'
-                );
-                setIsAuthGateOpen(true);
-              }}
-              onShareDoc={(title, link, qrUrl) => {
-                setEmailShareTarget({ title, link, qrUrl });
-                setIsEmailModalOpen(true);
-              }}
-            />
-          ) : activeView === 'library' ? (
-            <HistoryDashboard
-              documents={savedDocs}
-              onSelectDocument={handleSelectFromLibrary}
-              onRefresh={refreshDocuments}
-              onOpenEmailShare={(doc) => {
-                setEmailShareTarget({
-                  title: doc.title,
-                  link: doc.driveLink,
-                });
-                setIsEmailModalOpen(true);
-              }}
-            />
           ) : (
-            /* COVER STUDIO 2-COLUMN WORKFLOW (WITH FIXED RIGHT STEPS SIDEBAR ON DESKTOP) */
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Left Editor Column */}
-              <div className="lg:col-span-6 space-y-5 min-w-0">
+            /* COVER STUDIO WORKSPACE: SINGLE COVER + BATCH PROCESSOR + DOCUMENT LIBRARY */
+            <div className="space-y-5">
+              {/* Top Integrated Cover Studio Feature Switcher */}
+              <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-700 dark:text-yellow-400">
+                    Cover Studio Workspace
+                  </p>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                    Design a single QR cover, process a batch folder, or reload saved covers from Library.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5 bg-zinc-100 dark:bg-zinc-950 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setStudioSection('editor')}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      studioSection === 'editor'
+                        ? 'bg-yellow-400 text-black shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    <Layout className="w-3.5 h-3.5" />
+                    <span>Cover Editor</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudioSection('batch')}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      studioSection === 'batch'
+                        ? 'bg-yellow-400 text-black shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    <Files className="w-3.5 h-3.5" />
+                    <span>Batch ({batchItems.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStudioSection('library')}
+                    className={`px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      studioSection === 'library'
+                        ? 'bg-yellow-400 text-black shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>Library ({savedDocs.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {studioSection === 'batch' ? (
+                <BatchProcessingPanel
+                  batchItems={batchItems}
+                  setBatchItems={setBatchItems}
+                  currentCoverTheme={coverData}
+                  accessToken={token}
+                  userEmail={user?.email || undefined}
+                  onRequireAuth={(needsConsent) => {
+                    if (needsConsent) setForceConsent(true);
+                    setAuthGateAction(
+                      needsConsent
+                        ? 'Reconnect Google Drive With File Permissions'
+                        : 'Upload Batch Documents to Google Drive'
+                    );
+                    setIsAuthGateOpen(true);
+                  }}
+                  onShareDoc={(title, link, qrUrl) => {
+                    setEmailShareTarget({ title, link, qrUrl });
+                    setIsEmailModalOpen(true);
+                  }}
+                />
+              ) : studioSection === 'library' ? (
+                <HistoryDashboard
+                  documents={savedDocs}
+                  onSelectDocument={handleSelectFromLibrary}
+                  onRefresh={refreshDocuments}
+                  onOpenEmailShare={(doc) => {
+                    setEmailShareTarget({
+                      title: doc.title,
+                      link: doc.driveLink,
+                    });
+                    setIsEmailModalOpen(true);
+                  }}
+                />
+              ) : (
+                /* 2-COLUMN COVER EDITOR + LIVE PREVIEW */
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Left Editor Column */}
+                  <div className="lg:col-span-6 space-y-5 min-w-0">
                 {/* Mobile Step Progress Bar (Desktop uses Fixed Right Sidebar) */}
                 <div
                   data-tour-target="studio-steps-mobile"
@@ -1066,7 +1142,7 @@ export default function App() {
                       onDocumentParsed={handleDocumentParsed}
                       isLoading={isLoadingDoc}
                       setIsLoading={setIsLoadingDoc}
-                      onSwitchToBatch={() => navigateView('batch')}
+                      onSwitchToBatch={() => setStudioSection('batch')}
                     />
                   </div>
                 )}
@@ -1199,6 +1275,8 @@ export default function App() {
                   />
                 </div>
               </div>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -1226,10 +1304,42 @@ export default function App() {
               </span>
             </div>
 
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-bold">
+                Studio Extensions
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setStudioSection('batch')}
+                  className={`px-2.5 py-2 rounded-xl border text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    studioSection === 'batch'
+                      ? 'border-yellow-400 bg-yellow-400 text-black'
+                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-zinc-700 dark:text-zinc-300 hover:border-yellow-400/60'
+                  }`}
+                >
+                  <Files className="w-3.5 h-3.5" />
+                  <span>Batch ({batchItems.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioSection('library')}
+                  className={`px-2.5 py-2 rounded-xl border text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    studioSection === 'library'
+                      ? 'border-yellow-400 bg-yellow-400 text-black'
+                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-zinc-700 dark:text-zinc-300 hover:border-yellow-400/60'
+                  }`}
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Library ({savedDocs.length})</span>
+                </button>
+              </div>
+            </div>
+
             <nav className="space-y-2" aria-label="Workflow steps">
               {STEPS_NAV.map((step) => {
                 const Icon = step.icon;
-                const isActive = currentStep === step.num;
+                const isActive = studioSection === 'editor' && currentStep === step.num;
                 const isCompleted =
                   currentStep > step.num ||
                   (step.num === 1 && !!currentDoc) ||
@@ -1241,7 +1351,10 @@ export default function App() {
                     key={step.num}
                     type="button"
                     disabled={!canOpen}
-                    onClick={() => setCurrentStep(step.num as Step)}
+                    onClick={() => {
+                      setStudioSection('editor');
+                      setCurrentStep(step.num as Step);
+                    }}
                     aria-current={isActive ? 'step' : undefined}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors cursor-pointer disabled:cursor-not-allowed ${
                       isActive
@@ -1372,8 +1485,8 @@ export default function App() {
         </aside>
       )}
 
-      {/* Mobile Fixed Back / Next Bar (Hidden on lg+ where Fixed Right Sidebar handles navigation) */}
-      {activeView === 'studio' && (
+      {/* Mobile Fixed Back / Next Bar (Hidden on lg+ or when Batch/Library active) */}
+      {activeView === 'studio' && studioSection === 'editor' && (
         <div className="no-print lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
             {footer.back ? (
