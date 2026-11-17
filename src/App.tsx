@@ -33,6 +33,7 @@ import { TypewriterButton } from './components/TypewriterButton';
 import { AuthGateModal } from './components/AuthGateModal';
 import { SettingsModal, ThemeMode, TextSizePreset } from './components/SettingsModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
+import { PaperLinkChatbot } from './components/PaperLinkChatbot';
 import { COVER_THEMES } from './constants/themes';
 import { parseUploadedDocument } from './services/documentParser';
 import {
@@ -1543,6 +1544,26 @@ export default function App() {
         qrDataUrl={emailShareTarget?.qrUrl || qrDataUrl}
         onEmailSentSuccess={() => {
           refreshDocuments();
+        }}
+      />
+
+      <PaperLinkChatbot
+        activeView={activeView}
+        onNavigateView={navigateView}
+        onOpenPdfTool={(tool) => {
+          setActivePdfTool(tool);
+          navigateView('tools');
+        }}
+        onOpenImageTool={(tool) => {
+          setActiveImageTool(tool);
+          navigateView('image-tools');
+        }}
+        onOpenDocInCoverStudio={handleReceivePdfFromTools}
+        onUseImageAsCoverLogo={(dataUrl) => {
+          setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
+          setStudioSection('editor');
+          navigateView('studio');
+          setCurrentStep(3);
         }}
       />
     </div>

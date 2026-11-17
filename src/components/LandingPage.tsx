@@ -944,7 +944,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Paper<span className="text-amber-600 dark:text-yellow-400">Link</span>
               </p>
               <p className="mt-1">
-                Developed with Love by the Team Terminators from Pakistan · Conversions run locally in your browser.
+                Developed by <span className="font-semibold text-zinc-800 dark:text-zinc-300">Team Terminators</span> (Pakistan) · Conversions run locally in your browser.
+              </p>
+              <p className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+                Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham
               </p>
             </div>
 
