@@ -1,13 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Bot,
+  Check,
   CheckCircle2,
+  Copy,
   Download,
   FileText,
   Image as ImageIcon,
   Info,
   Loader2,
   Maximize2,
+  Minus,
   Paperclip,
   Plus,
   Send,
@@ -22,6 +25,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AppView } from './Navbar';
 import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
+import { ChatMarkdown } from './ChatMarkdown';
 import {
   CompressionLevel,
   PdfToWordMode,
@@ -56,6 +60,8 @@ export interface PaperLinkChatbotProps {
   onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenDocInCoverStudio: (file: File) => void;
   onUseImageAsCoverLogo: (dataUrl: string) => void;
+  isMinimized?: boolean;
+  onMinimizeChange?: (minimized: boolean) => void;
 }
 
 interface ChatArtifact {
@@ -160,6 +166,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   onOpenImageTool,
   onOpenDocInCoverStudio,
   onUseImageAsCoverLogo,
+  isMinimized = false,
+  onMinimizeChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
@@ -169,12 +177,30 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [execStatus, setExecStatus] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  const handleCopyMessage = (id: string, text: string) => {
+    try {
+      void navigator.clipboard.writeText(text);
+      setCopiedMsgId(id);
+      setTimeout(() => {
+        setCopiedMsgId((curr) => (curr === id ? null : curr));
+      }, 1800);
+    } catch {
+      // ignore clipboard restrictions
+    }
+  };
+
+  const handleMinimizeToTopBar = () => {
+    setIsOpen(false);
+    onMinimizeChange?.(true);
+  };
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       role: 'model',
-      text: 'Hi! I am **PaperLink AI**, trained on every tool inside this website.\n\nAttach a PDF, Word file, or image right here and tell me what to do (for example: *"compress this PDF"*, *"convert to Word"*, *"remove the background"*, or *"open in Cover Studio"*), and I will run it directly for you.',
+      text: `Hi! I am **PaperLink AI**, trained on every tool inside this website.\n\nAttach a PDF, Word file, or image using **+** below and tell me what to do:\n- **Compress** a PDF or shrink an image\n- **Convert** PDF to Word or Word to PDF\n- **Remove backgrounds** or resize graphics\n- **Open** files directly in **Cover Studio**`,
     },
   ]);
 
@@ -822,7 +848,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       />
 
       {/* CONSTANT COMPACT BOTTOM-RIGHT "PAPER LINK AI" CARD */}
-      {!isOpen && (
+      {!isMinimized && !isOpen && (
         <div
           className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[344px]`}
           onDragOver={(e) => {
@@ -877,16 +903,28 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsOpen(true)}
-                    aria-label="Expand PaperLink AI chat"
-                    title="Expand full chat"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-cyan-400 text-[10px] font-semibold text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-                  >
-                    <Maximize2 className="w-3 h-3 text-cyan-500" />
-                    <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsOpen(true)}
+                      aria-label="Expand PaperLink AI chat"
+                      title="Expand full chat"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-cyan-400 text-[10px] font-semibold text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                    >
+                      <Maximize2 className="w-3 h-3 text-cyan-500" />
+                      <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleMinimizeToTopBar}
+                      aria-label="Minimize chatbot to top bar"
+                      title="Minimize to top bar near PaperLink logo"
+                      className="p-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-yellow-400 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer shrink-0"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Compact Attached Files Strip (if user attached via + before running) */}
@@ -964,7 +1002,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
       {/* EXPANDED NEON-LIT MULTI-TURN CHATBOT DRAWER */}
       <AnimatePresence>
-        {isOpen && (
+        {!isMinimized && isOpen && (
           <motion.div
             initial={{ opacity: 0, y: 18, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1071,8 +1109,19 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
                     <button
                       type="button"
+                      onClick={handleMinimizeToTopBar}
+                      title="Minimize to top bar near PaperLink logo"
+                      aria-label="Minimize chatbot to top bar"
+                      className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-colors"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setIsOpen(false)}
-                      aria-label="Close AI Assistant"
+                      title="Collapse to bottom-right compact bar"
+                      aria-label="Collapse AI Assistant"
                       className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-colors"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -1105,51 +1154,92 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
                   {messages.map((msg) => {
                     const isUser = msg.role === 'user';
+                    const isCopied = copiedMsgId === msg.id;
                     return (
-                      <div
+                      <motion.div
                         key={msg.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                         className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                       >
+                        {!isUser && (
+                          <div className="flex items-center justify-between w-full max-w-[92%] mb-1 px-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-4 h-4 rounded-md bg-gradient-to-br from-cyan-400 to-yellow-400 text-black flex items-center justify-center shadow-xs">
+                                <Bot className="w-2.5 h-2.5 stroke-[2.5]" />
+                              </span>
+                              <span className="text-[10px] font-bold tracking-tight text-zinc-600 dark:text-zinc-400">
+                                PaperLink AI
+                              </span>
+                            </div>
+                            {!msg.isError && msg.text && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMessage(msg.id, msg.text)}
+                                aria-label="Copy message"
+                                title="Copy response"
+                                className="inline-flex items-center gap-1 text-[10px] text-zinc-400 hover:text-cyan-500 dark:hover:text-cyan-400 transition-colors cursor-pointer"
+                              >
+                                {isCopied ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-500" />
+                                    <span className="text-emerald-500 font-semibold">Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copy</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
+
                         <div
-                          className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
+                          className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
                             isUser
-                              ? 'bg-yellow-400 text-black font-medium rounded-br-sm'
+                              ? 'bg-gradient-to-br from-yellow-400 to-amber-400 text-zinc-950 font-medium rounded-br-sm shadow-[0_2px_12px_rgba(250,204,21,0.22)]'
                               : msg.isError
                               ? 'bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-500/40 text-red-700 dark:text-red-300 rounded-bl-sm'
-                              : 'bg-zinc-100 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-bl-sm'
+                              : msg.actionBadge
+                              ? 'bg-white dark:bg-[#13131d] border border-cyan-400/35 text-zinc-800 dark:text-zinc-200 rounded-bl-sm shadow-[0_4px_18px_rgba(34,211,238,0.08)]'
+                              : 'bg-zinc-100/90 dark:bg-[#13131b] border border-zinc-200/90 dark:border-zinc-800/90 text-zinc-800 dark:text-zinc-200 rounded-bl-sm shadow-xs'
                           }`}
                         >
                           {msg.actionBadge && (
-                            <div className="mb-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
-                              <CheckCircle2 className="w-3 h-3" />
+                            <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                              <CheckCircle2 className="w-3 h-3 shrink-0" />
                               <span>{msg.actionBadge}</span>
                             </div>
                           )}
 
                           {msg.attachedNames && msg.attachedNames.length > 0 && (
-                            <div className="mb-1.5 flex flex-wrap gap-1">
+                            <div className="mb-2 flex flex-wrap gap-1">
                               {msg.attachedNames.map((n) => (
                                 <span
                                   key={n}
-                                  className="px-2 py-0.5 rounded-md bg-black/15 text-[10px] font-mono font-semibold"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/10 border border-black/10 text-[10px] font-mono font-semibold text-zinc-950"
                                 >
-                                  📎 {n}
+                                  <Paperclip className="w-2.5 h-2.5 shrink-0" />
+                                  <span className="truncate max-w-[200px]">{n}</span>
                                 </span>
                               ))}
                             </div>
                           )}
 
-                          <div>{msg.text}</div>
+                          <ChatMarkdown content={msg.text} isUser={isUser} />
 
                           {/* Executable Result Download Cards */}
                           {msg.artifacts && msg.artifacts.length > 0 && (
-                            <div className="mt-2.5 space-y-2 pt-2 border-t border-zinc-200 dark:border-zinc-700/70">
+                            <div className="mt-3 space-y-2 pt-2.5 border-t border-zinc-200/80 dark:border-zinc-800">
                               {msg.artifacts.map((art) => (
                                 <div
                                   key={art.id}
-                                  className="p-2.5 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2"
+                                  className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-200 dark:border-zinc-800 space-y-2"
                                 >
-                                  <div className="flex items-center gap-2 min-w-0">
+                                  <div className="flex items-center gap-2.5 min-w-0">
                                     {art.dataUrl ? (
                                       <img
                                         src={art.dataUrl}
@@ -1157,7 +1247,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                         className="w-9 h-9 rounded-lg object-cover border border-zinc-200 dark:border-zinc-800 shrink-0"
                                       />
                                     ) : (
-                                      <div className="w-8 h-8 rounded-lg bg-yellow-400/20 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
+                                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-yellow-400/20 to-cyan-400/20 border border-yellow-400/30 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
                                         {art.kind === 'zip' ? (
                                           <Archive className="w-4 h-4" />
                                         ) : art.kind === 'image' ? (
@@ -1181,7 +1271,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => triggerDownload(art.blob, art.fileName)}
-                                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-400 hover:brightness-105 text-black text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer shadow-xs"
                                     >
                                       <Download className="w-3 h-3" />
                                       <span>Download</span>
@@ -1220,15 +1310,15 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                             </div>
                           )}
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })}
 
                   {isBusy && (
                     <div className="flex items-start">
-                      <div className="px-3.5 py-2 rounded-2xl rounded-bl-sm bg-zinc-100 dark:bg-zinc-900 border border-cyan-400/40 text-xs text-zinc-700 dark:text-zinc-200 inline-flex items-center gap-2">
+                      <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-zinc-100 dark:bg-[#13131b] border border-cyan-400/50 text-xs text-zinc-700 dark:text-zinc-200 inline-flex items-center gap-2 shadow-[0_0_16px_rgba(34,211,238,0.12)]">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-500" />
-                        <span>{execStatus || 'Processing...'}</span>
+                        <span className="font-medium">{execStatus || 'Thinking...'}</span>
                       </div>
                     </div>
                   )}

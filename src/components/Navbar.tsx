@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
-import { QrCode, LogOut, Menu, X, Settings } from 'lucide-react';
+import { QrCode, LogOut, Menu, X, Settings, Bot } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
 export type AppView = 'home' | 'studio' | 'tools' | 'image-tools' | 'privacy' | 'terms';
@@ -14,6 +14,8 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenSettings: () => void;
   isLoggingIn: boolean;
+  isChatbotMinimized?: boolean;
+  onRestoreChatbot?: () => void;
 }
 
 const NAV_ITEMS: { id: AppView; label: string }[] = [
@@ -32,6 +34,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenSettings,
   isLoggingIn,
+  isChatbotMinimized = false,
+  onRestoreChatbot,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isConnected = !!user && hasDriveAccess;
@@ -43,20 +47,38 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="no-print sticky top-0 z-40 bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/90 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 sm:gap-6">
-        {/* Zone 1: Clean Brand Wordmark */}
-        <button
-          type="button"
-          onClick={() => handleNavClick('home')}
-          className="flex items-center gap-2.5 text-lg font-extrabold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded-lg py-1"
-        >
-          <span className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center">
-            <QrCode className="w-5 h-5 stroke-[2.5]" />
-          </span>
-          <span>
-            Paper<span className="text-amber-600 dark:text-yellow-400">Link</span>
-          </span>
-        </button>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 sm:gap-6">
+        {/* Zone 1: Brand Wordmark + Minimized PaperLink AI Dock */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleNavClick('home')}
+            className="flex items-center gap-2.5 text-lg font-extrabold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded-lg py-1"
+          >
+            <span className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center">
+              <QrCode className="w-5 h-5 stroke-[2.5]" />
+            </span>
+            <span>
+              Paper<span className="text-amber-600 dark:text-yellow-400">Link</span>
+            </span>
+          </button>
+
+          {isChatbotMinimized && (
+            <button
+              type="button"
+              onClick={onRestoreChatbot}
+              title="Restore PaperLink AI"
+              aria-label="Restore PaperLink AI"
+              className="p-[1.5px] rounded-xl bg-gradient-to-r from-cyan-400 via-yellow-400 to-blue-500 shadow-[0_0_14px_rgba(34,211,238,0.35)] hover:shadow-[0_0_20px_rgba(34,211,238,0.55)] transition-all cursor-pointer shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-[10.5px] bg-white dark:bg-[#0c0c12] text-xs font-bold text-zinc-950 dark:text-white whitespace-nowrap">
+                <Bot className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                <span className="hidden sm:inline">PaperLink AI</span>
+                <span className="sm:hidden">AI</span>
+              </span>
+            </button>
+          )}
+        </div>
 
         {/* Zone 2: Clean Typography Nav Links */}
         <nav className="hidden md:flex items-center gap-5 lg:gap-7" aria-label="Main navigation">

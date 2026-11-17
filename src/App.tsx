@@ -169,6 +169,9 @@ export default function App() {
     []
   );
 
+  // Chatbot minimize-to-top-bar state
+  const [isChatbotMinimized, setIsChatbotMinimized] = useState(false);
+
   // Google Sign-In modal (only triggered by user intent, never on arrival)
   const [isAuthGateOpen, setIsAuthGateOpen] = useState(false);
   const [authGateAction, setAuthGateAction] = useState('Continue with Google Drive');
@@ -914,6 +917,8 @@ export default function App() {
         onLogout={handleLogout}
         onOpenSettings={() => setIsSettingsOpen(true)}
         isLoggingIn={isLoggingIn}
+        isChatbotMinimized={isChatbotMinimized}
+        onRestoreChatbot={() => setIsChatbotMinimized(false)}
       />
 
       <OfflineIndicator />
@@ -1565,6 +1570,8 @@ export default function App() {
           navigateView('studio');
           setCurrentStep(3);
         }}
+        isMinimized={isChatbotMinimized}
+        onMinimizeChange={setIsChatbotMinimized}
       />
     </div>
   );
