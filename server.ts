@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { executePaperLinkChat } from './api/chat.ts';
 import type { ChatRequestBody } from './api/chat.ts';
+import { executeFeedbackSubmission } from './api/feedback.ts';
+import type { FeedbackSubmissionPayload } from './api/feedback.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +21,12 @@ async function createAppServer() {
     const body = (req.body || {}) as ChatRequestBody;
     const result = await executePaperLinkChat(body);
     res.status(result.status).json(result.payload);
+  });
+
+  app.post('/api/feedback', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as FeedbackSubmissionPayload;
+    const result = await executeFeedbackSubmission(body);
+    res.status(result.status).json(result.body);
   });
 
   if (process.env.NODE_ENV !== 'production') {

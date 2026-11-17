@@ -29,16 +29,29 @@ import {
   Sliders,
   UploadCloud,
 } from 'lucide-react';
+import { User } from 'firebase/auth';
 import { AppView } from './Navbar';
 import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
+import { FeedbackSection } from './FeedbackSection';
+import { NeonGlowMode } from './SettingsModal';
 
 interface LandingPageProps {
   onNavigate: (view: AppView | 'batch' | 'library') => void;
   onOpenPdfTool: (tool: PdfToolTab) => void;
   onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenLegal?: (page: 'privacy' | 'terms') => void;
-  neonGlowMode?: 'full' | 'subtle';
+  neonGlowMode?: NeonGlowMode;
+  user: User | null;
+  accessToken: string | null;
+  onLogin: () => void;
+  onReconnectWithConsent: () => void;
+  isLoggingIn?: boolean;
+  feedbackSheetUrl: string;
+  onChangeFeedbackSheetUrl: (url: string) => void;
+  feedbackWebhookUrl: string;
+  onChangeFeedbackWebhookUrl: (url: string) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 const EASE_OUT_QUINT = [0.22, 1, 0.36, 1] as const;
@@ -89,6 +102,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenImageTool,
   onOpenLegal,
   neonGlowMode = 'full',
+  user,
+  accessToken,
+  onLogin,
+  onReconnectWithConsent,
+  isLoggingIn = false,
+  feedbackSheetUrl,
+  onChangeFeedbackSheetUrl,
+  feedbackWebhookUrl,
+  onChangeFeedbackWebhookUrl,
+  onTaskComplete,
 }) => {
   const [docStage, setDocStage] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
@@ -946,7 +969,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* 5. QUIET FOOTER */}
+        {/* 5. ANONYMOUS COMPACT USER FEEDBACK */}
+        <FeedbackSection
+          variant="landing"
+          accessToken={accessToken}
+          sheetUrl={feedbackSheetUrl}
+          webhookUrl={feedbackWebhookUrl}
+          neonGlowMode={neonGlowMode}
+          onTaskComplete={onTaskComplete}
+        />
+
+        {/* 6. QUIET FOOTER */}
         <footer className="border-t border-zinc-200 dark:border-zinc-900 py-10">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 text-xs text-zinc-600 dark:text-zinc-500">
             <div>

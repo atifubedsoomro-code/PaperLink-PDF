@@ -35,10 +35,11 @@ const app = getApps().length > 0 ? getApp() : initializeApp(config);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Provider with required scopes: Google Drive file management & Gmail send
+// Provider with required scopes: Google Drive file management, Gmail send & Google Sheets feedback sync
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/gmail.send');
+provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 provider.setCustomParameters({
   prompt: 'select_account',
 });

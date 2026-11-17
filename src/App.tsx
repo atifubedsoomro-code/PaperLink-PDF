@@ -48,6 +48,12 @@ import { DocumentPreviewModal, PreviewTarget } from './components/DocumentPrevie
 import { COVER_THEMES } from './constants/themes';
 import { parseUploadedDocument } from './services/documentParser';
 import {
+  FEEDBACK_SHEET_URL_KEY,
+  FEEDBACK_WEBHOOK_URL_KEY,
+  readStoredSheetUrl,
+  readStoredWebhookUrl,
+} from './services/feedbackSheets';
+import {
   BrandKitPreset,
   CoverData,
   CoverTheme,
@@ -190,6 +196,8 @@ export default function App() {
   const [defaultPaperSize, setDefaultPaperSize] = useState<DefaultPaperSize>(readInitialPaperSize);
   const [defaultQrPosition, setDefaultQrPosition] = useState<DefaultQrCorner>(readInitialQrCorner);
   const [aiDefaultSpeed, setAiDefaultSpeed] = useState<AiDefaultSpeed>(readInitialAiSpeed);
+  const [feedbackSheetUrl, setFeedbackSheetUrl] = useState<string>(readStoredSheetUrl);
+  const [feedbackWebhookUrl, setFeedbackWebhookUrl] = useState<string>(readStoredWebhookUrl);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
@@ -392,10 +400,12 @@ export default function App() {
       localStorage.setItem('paperlink_default_paper_size', defaultPaperSize);
       localStorage.setItem('paperlink_default_qr_pos', defaultQrPosition);
       localStorage.setItem('paperlink_ai_speed', aiDefaultSpeed);
+      localStorage.setItem(FEEDBACK_SHEET_URL_KEY, feedbackSheetUrl);
+      localStorage.setItem(FEEDBACK_WEBHOOK_URL_KEY, feedbackWebhookUrl);
     } catch {
       // ignore storage errors
     }
-  }, [neonGlowMode, animationPace, defaultPaperSize, defaultQrPosition, aiDefaultSpeed]);
+  }, [neonGlowMode, animationPace, defaultPaperSize, defaultQrPosition, aiDefaultSpeed, feedbackSheetUrl, feedbackWebhookUrl]);
 
   const handleChangeDefaultPaperSize = (size: DefaultPaperSize) => {
     setDefaultPaperSize(size);
@@ -606,6 +616,25 @@ export default function App() {
     } catch (err: any) {
       console.error('Login error:', err);
       setAuthErrorMsg(err?.message || 'Sign-in could not complete. Enable popups and try again.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleReconnectWithSheetsConsent = async () => {
+    setIsLoggingIn(true);
+    setAuthErrorMsg(null);
+    try {
+      const res = await googleSignIn({ forceConsent: true });
+      if (res) {
+        setUser(res.user);
+        setToken(res.accessToken);
+        setTokenExpiry(getTokenExpiryInfo());
+        setForceConsent(false);
+        setUploadError(null);
+      }
+    } catch (err: any) {
+      setAuthErrorMsg(err?.message || 'Could not refresh Google permissions. Enable popups and try again.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -1064,6 +1093,16 @@ export default function App() {
             setCurrentStep(1);
             setTimeout(() => setIsTutorialOpen(true), 120);
           }}
+          user={user}
+          accessToken={token}
+          onLogin={handleLogin}
+          onReconnectWithConsent={handleReconnectWithSheetsConsent}
+          isLoggingIn={isLoggingIn}
+          feedbackSheetUrl={feedbackSheetUrl}
+          onChangeFeedbackSheetUrl={setFeedbackSheetUrl}
+          feedbackWebhookUrl={feedbackWebhookUrl}
+          onChangeFeedbackWebhookUrl={setFeedbackWebhookUrl}
+          onTaskComplete={triggerTaskTypewriter}
         />
 
       <OnboardingTutorial
@@ -1123,6 +1162,16 @@ export default function App() {
             }}
             onOpenLegal={(page) => navigateView(page)}
             neonGlowMode={neonGlowMode}
+            user={user}
+            accessToken={token}
+            onLogin={handleLogin}
+            onReconnectWithConsent={handleReconnectWithSheetsConsent}
+            isLoggingIn={isLoggingIn}
+            feedbackSheetUrl={feedbackSheetUrl}
+            onChangeFeedbackSheetUrl={setFeedbackSheetUrl}
+            feedbackWebhookUrl={feedbackWebhookUrl}
+            onChangeFeedbackWebhookUrl={setFeedbackWebhookUrl}
+            onTaskComplete={triggerTaskTypewriter}
           />
         </main>
       ) : (

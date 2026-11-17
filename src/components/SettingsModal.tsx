@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { User } from 'firebase/auth';
 import {
   X,
   Sun,
@@ -12,7 +13,9 @@ import {
   QrCode,
   Bot,
   RotateCcw,
+  MessageSquarePlus,
 } from 'lucide-react';
+import { FeedbackSection } from './FeedbackSection';
 
 export type ThemeMode = 'dark' | 'light';
 export type TextSizePreset = 'small' | 'medium' | 'large';
@@ -21,6 +24,8 @@ export type AnimationPace = 'smooth' | 'fast' | 'off';
 export type DefaultPaperSize = 'a4' | 'letter';
 export type DefaultQrCorner = 'bottom-right' | 'bottom-center' | 'bottom-left';
 export type AiDefaultSpeed = 'balanced' | 'fast';
+
+export type SettingsTab = 'preferences' | 'feedback';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -41,6 +46,16 @@ interface SettingsModalProps {
   onChangeAiDefaultSpeed: (speed: AiDefaultSpeed) => void;
   onResetPreferences: () => void;
   onStartTutorial: () => void;
+  user: User | null;
+  accessToken: string | null;
+  onLogin: () => void;
+  onReconnectWithConsent: () => void;
+  isLoggingIn?: boolean;
+  feedbackSheetUrl: string;
+  onChangeFeedbackSheetUrl: (url: string) => void;
+  feedbackWebhookUrl: string;
+  onChangeFeedbackWebhookUrl: (url: string) => void;
+  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -62,7 +77,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onChangeAiDefaultSpeed,
   onResetPreferences,
   onStartTutorial,
+  user,
+  accessToken,
+  onLogin,
+  onReconnectWithConsent,
+  isLoggingIn = false,
+  feedbackSheetUrl,
+  onChangeFeedbackSheetUrl,
+  feedbackWebhookUrl,
+  onChangeFeedbackWebhookUrl,
+  onTaskComplete,
 }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('preferences');
+
   if (!isOpen) return null;
 
   return (
@@ -75,35 +102,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden">
+      <div
+        className={`bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden transition-all ${
+          activeTab === 'feedback' ? 'max-w-2xl' : 'max-w-lg'
+        }`}
+      >
         {/* Sticky Header */}
-        <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0 bg-zinc-50/70 dark:bg-[#0c0c10]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center shrink-0">
-              <SlidersHorizontal className="w-4 h-4 stroke-[2.5]" />
+        <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/70 dark:bg-[#0c0c10] space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center shrink-0">
+                {activeTab === 'feedback' ? (
+                  <MessageSquarePlus className="w-4 h-4 stroke-[2.5]" />
+                ) : (
+                  <SlidersHorizontal className="w-4 h-4 stroke-[2.5]" />
+                )}
+              </div>
+              <div>
+                <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm">
+                  {activeTab === 'feedback' ? 'Send Feedback' : 'Workspace Preferences'}
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {activeTab === 'feedback'
+                    ? 'Share ratings, feature requests, or bug reports with Team Terminators'
+                    : 'Customize visuals, Studio defaults, AI speed, and motion'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm">
-                Workspace Preferences
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Customize visuals, Studio defaults, AI speed, and motion
-              </p>
-            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close settings"
+              className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close settings"
-            className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {/* Segmented Tab Bar */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab('preferences')}
+              className={`py-2 px-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                activeTab === 'preferences'
+                  ? 'bg-yellow-400 text-black shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Workspace Preferences</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('feedback')}
+              className={`py-2 px-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                activeTab === 'feedback'
+                  ? 'bg-yellow-400 text-black shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+              }`}
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5" />
+              <span>Feedback</span>
+            </button>
+          </div>
         </div>
 
-        {/* Scrollable Preference Sections */}
+        {/* Scrollable Content */}
         <div className="p-4 sm:p-5 space-y-5 overflow-y-auto flex-1">
+          {activeTab === 'feedback' ? (
+            <FeedbackSection
+              variant="settings"
+              accessToken={accessToken}
+              sheetUrl={feedbackSheetUrl}
+              webhookUrl={feedbackWebhookUrl}
+              neonGlowMode={neonGlowMode}
+              onTaskComplete={onTaskComplete}
+            />
+          ) : (
+            <>
           {/* 1. Color Appearance */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
@@ -351,6 +430,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Reset Defaults</span>
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>
