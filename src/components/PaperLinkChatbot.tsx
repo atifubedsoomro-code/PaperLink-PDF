@@ -719,7 +719,18 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         }),
       });
 
-      const data = await resp.json();
+      const rawText = await resp.text();
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        throw new Error(
+          resp.status === 404
+            ? 'Chat API route (/api/chat) was not found on this deployment. Please redeploy so /api/chat is published.'
+            : `Unexpected server response (HTTP ${resp.status}). Please try again.`
+        );
+      }
+
       if (!resp.ok) {
         throw new Error(data?.error || `Server error (${resp.status})`);
       }
