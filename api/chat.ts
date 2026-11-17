@@ -447,19 +447,14 @@ export async function executePaperLinkChat(
       } catch (err: any) {
         lastErr = err;
         const errStr = String(err?.message || '');
-        const shouldFallback =
-          err?.status === 503 ||
-          err?.status === 404 ||
-          errStr.includes('503') ||
-          errStr.includes('404') ||
-          errStr.includes('UNAVAILABLE') ||
-          errStr.includes('NOT_FOUND') ||
-          errStr.includes('not found') ||
-          errStr.includes('high demand');
-        if (!shouldFallback) {
+        const isInvalidKey =
+          errStr.includes('API_KEY_INVALID') ||
+          errStr.includes('API key not valid') ||
+          errStr.includes('API_KEY');
+        if (isInvalidKey) {
           throw err;
         }
-        console.warn(`Model ${candidate} unavailable/overloaded, falling back to next model...`);
+        console.warn(`Model ${candidate} failed (${err?.status || 'error'}), trying fallback model...`);
       }
     }
 
