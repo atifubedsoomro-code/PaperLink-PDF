@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
+import { MotionConfig } from 'motion/react';
 import {
   initAuth,
   googleSignIn,
@@ -31,9 +32,19 @@ import { ImageToolsPanel, ImageToolTab } from './components/ImageToolsPanel';
 import { TypewriterWelcome } from './components/TypewriterWelcome';
 import { TypewriterButton } from './components/TypewriterButton';
 import { AuthGateModal } from './components/AuthGateModal';
-import { SettingsModal, ThemeMode, TextSizePreset } from './components/SettingsModal';
+import {
+  SettingsModal,
+  ThemeMode,
+  TextSizePreset,
+  NeonGlowMode,
+  AnimationPace,
+  DefaultPaperSize,
+  DefaultQrCorner,
+  AiDefaultSpeed,
+} from './components/SettingsModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { PaperLinkChatbot } from './components/PaperLinkChatbot';
+import { DocumentPreviewModal, PreviewTarget } from './components/DocumentPreviewModal';
 import { COVER_THEMES } from './constants/themes';
 import { parseUploadedDocument } from './services/documentParser';
 import {
@@ -73,6 +84,7 @@ import {
   Loader2,
   Files,
   FolderOpen,
+  Eye,
 } from 'lucide-react';
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -116,6 +128,53 @@ function readInitialTextSize(): TextSizePreset {
   return 'medium';
 }
 
+function readInitialNeonMode(): NeonGlowMode {
+  try {
+    const val = localStorage.getItem('paperlink_neon_mode');
+    return val === 'subtle' ? 'subtle' : 'full';
+  } catch {
+    return 'full';
+  }
+}
+
+function readInitialAnimationPace(): AnimationPace {
+  try {
+    const val = localStorage.getItem('paperlink_animation_pace');
+    if (val === 'fast' || val === 'off') return val;
+  } catch {
+    // ignore
+  }
+  return 'smooth';
+}
+
+function readInitialPaperSize(): DefaultPaperSize {
+  try {
+    const val = localStorage.getItem('paperlink_default_paper_size');
+    return val === 'letter' ? 'letter' : 'a4';
+  } catch {
+    return 'a4';
+  }
+}
+
+function readInitialQrCorner(): DefaultQrCorner {
+  try {
+    const val = localStorage.getItem('paperlink_default_qr_pos');
+    if (val === 'bottom-left' || val === 'bottom-center') return val;
+  } catch {
+    // ignore
+  }
+  return 'bottom-right';
+}
+
+function readInitialAiSpeed(): AiDefaultSpeed {
+  try {
+    const val = localStorage.getItem('paperlink_ai_speed');
+    return val === 'fast' ? 'fast' : 'balanced';
+  } catch {
+    return 'balanced';
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -126,8 +185,17 @@ export default function App() {
   // Display & Workspace Preferences
   const [themeMode, setThemeMode] = useState<ThemeMode>(readInitialThemeMode);
   const [textSize, setTextSize] = useState<TextSizePreset>(readInitialTextSize);
+  const [neonGlowMode, setNeonGlowMode] = useState<NeonGlowMode>(readInitialNeonMode);
+  const [animationPace, setAnimationPace] = useState<AnimationPace>(readInitialAnimationPace);
+  const [defaultPaperSize, setDefaultPaperSize] = useState<DefaultPaperSize>(readInitialPaperSize);
+  const [defaultQrPosition, setDefaultQrPosition] = useState<DefaultQrCorner>(readInitialQrCorner);
+  const [aiDefaultSpeed, setAiDefaultSpeed] = useState<AiDefaultSpeed>(readInitialAiSpeed);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+
+  // Shared Document Preview Modal State
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [isPreparingPreview, setIsPreparingPreview] = useState(false);
 
   // Tracks first-time entry into Cover Studio so spotlight tutorial triggers only there
   const studioTourCheckedRef = useRef(false);
@@ -141,7 +209,7 @@ export default function App() {
   // Linear 5-Step Cover Studio Workflow
   const [currentStep, setCurrentStep] = useState<Step>(1);
 
-  // Full-screen auto-hiding typewriter feedback (4-6s) across login / logout / upload / every tool task
+  // Full-screen auto-hiding typewriter feedback across login / logout / upload / every tool task
   const [typewriterConfig, setTypewriterConfig] = useState<{
     isOpen: boolean;
     mode: 'login' | 'logout' | 'upload-success' | 'task-complete';
@@ -155,18 +223,24 @@ export default function App() {
     mode: 'login',
   });
 
+  const getScaledDuration = useCallback(
+    (baseMs: number) => (animationPace === 'fast' ? Math.max(3000, Math.round(baseMs * 0.5)) : baseMs),
+    [animationPace]
+  );
+
   const triggerTaskTypewriter = useCallback(
     (info: { headline: string; subtext: string; statusLabel?: string }) => {
+      if (animationPace === 'off') return;
       setTypewriterConfig({
         isOpen: true,
         mode: 'task-complete',
         headline: info.headline,
         subtext: info.subtext,
         statusLabel: info.statusLabel,
-        durationMs: 7000,
+        durationMs: getScaledDuration(7000),
       });
     },
-    []
+    [animationPace, getScaledDuration]
   );
 
   // Chatbot minimize-to-top-bar state
@@ -206,8 +280,8 @@ export default function App() {
     logoSize: 'medium',
     logoPosition: 'top-left',
     font: 'inter',
-    paperSize: 'a4',
-    qrPosition: 'bottom-right',
+    paperSize: defaultPaperSize,
+    qrPosition: defaultQrPosition,
     qrColor: '#000000',
     qrBgColor: '#ffffff',
     showLogoInQR: false,
@@ -309,6 +383,40 @@ export default function App() {
       // ignore storage errors
     }
   }, [textSize]);
+
+  // Persist expanded workspace customizations
+  useEffect(() => {
+    try {
+      localStorage.setItem('paperlink_neon_mode', neonGlowMode);
+      localStorage.setItem('paperlink_animation_pace', animationPace);
+      localStorage.setItem('paperlink_default_paper_size', defaultPaperSize);
+      localStorage.setItem('paperlink_default_qr_pos', defaultQrPosition);
+      localStorage.setItem('paperlink_ai_speed', aiDefaultSpeed);
+    } catch {
+      // ignore storage errors
+    }
+  }, [neonGlowMode, animationPace, defaultPaperSize, defaultQrPosition, aiDefaultSpeed]);
+
+  const handleChangeDefaultPaperSize = (size: DefaultPaperSize) => {
+    setDefaultPaperSize(size);
+    setCoverData((prev) => ({ ...prev, paperSize: size }));
+  };
+
+  const handleChangeDefaultQrPosition = (pos: DefaultQrCorner) => {
+    setDefaultQrPosition(pos);
+    setCoverData((prev) => ({ ...prev, qrPosition: pos }));
+  };
+
+  const handleResetPreferences = () => {
+    setThemeMode('dark');
+    setTextSize('medium');
+    setNeonGlowMode('full');
+    setAnimationPace('smooth');
+    setDefaultPaperSize('a4');
+    setDefaultQrPosition('bottom-right');
+    setAiDefaultSpeed('balanced');
+    setCoverData((prev) => ({ ...prev, paperSize: 'a4', qrPosition: 'bottom-right' }));
+  };
 
   // Refresh OAuth token expiry status periodically & on window focus
   useEffect(() => {
@@ -487,11 +595,13 @@ export default function App() {
           }));
         }
 
-        setTypewriterConfig({
-          isOpen: true,
-          mode: 'login',
-          durationMs: 6500,
-        });
+        if (animationPace !== 'off') {
+          setTypewriterConfig({
+            isOpen: true,
+            mode: 'login',
+            durationMs: getScaledDuration(6500),
+          });
+        }
       }
     } catch (err: any) {
       console.error('Login error:', err);
@@ -506,11 +616,13 @@ export default function App() {
     setUser(null);
     setToken(null);
     setTokenExpiry(getTokenExpiryInfo());
-    setTypewriterConfig({
-      isOpen: true,
-      mode: 'logout',
-      durationMs: 6500,
-    });
+    if (animationPace !== 'off') {
+      setTypewriterConfig({
+        isOpen: true,
+        mode: 'logout',
+        durationMs: getScaledDuration(6500),
+      });
+    }
   };
 
   const handleTypewriterComplete = () => {
@@ -615,12 +727,14 @@ export default function App() {
       await saveDocumentRecord(record);
       refreshDocuments();
 
-      setTypewriterConfig({
-        isOpen: true,
-        mode: 'upload-success',
-        targetUrl: result.webViewLink,
-        durationMs: 7500,
-      });
+      if (animationPace !== 'off') {
+        setTypewriterConfig({
+          isOpen: true,
+          mode: 'upload-success',
+          targetUrl: result.webViewLink,
+          durationMs: getScaledDuration(7500),
+        });
+      }
 
       setCurrentStep(5);
     } catch (err: any) {
@@ -666,12 +780,14 @@ export default function App() {
       refreshDocuments();
     }
 
-    setTypewriterConfig({
-      isOpen: true,
-      mode: 'upload-success',
-      targetUrl: link,
-      durationMs: 7500,
-    });
+    if (animationPace !== 'off') {
+      setTypewriterConfig({
+        isOpen: true,
+        mode: 'upload-success',
+        targetUrl: link,
+        durationMs: getScaledDuration(7500),
+      });
+    }
 
     setCurrentStep(5);
   };
@@ -770,6 +886,38 @@ export default function App() {
     }
   };
 
+  const handlePreviewMergedPdf = async () => {
+    if (!qrDataUrl) {
+      setDownloadErrorMsg('QR code is still preparing. Try again in a moment.');
+      return;
+    }
+
+    setIsPreparingPreview(true);
+    setDownloadErrorMsg(null);
+    try {
+      let pdfBytes: Uint8Array;
+      if (currentDoc?.pdfArrayBuffer) {
+        pdfBytes = await mergeCoverWithPdf(currentDoc.pdfArrayBuffer, coverData, qrDataUrl);
+      } else {
+        const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl);
+        pdfBytes = await coverPdf.save();
+      }
+      const safeBuffer = new Uint8Array(pdfBytes).slice().buffer;
+      const blob = new Blob([safeBuffer as ArrayBuffer], { type: 'application/pdf' });
+      const safeFilename = (coverData.title || currentDoc?.name || 'Document').replace(/[^a-zA-Z0-9_-]/g, '_');
+      setPreviewTarget({
+        title: `${coverData.title || currentDoc?.name || 'Document'} (Full Packet Preview)`,
+        fileName: `${safeFilename}_with_QR_Cover.pdf`,
+        blob,
+        subtitle: `${totalPages} pages · Cover Page + Original Pages`,
+      });
+    } catch (err: any) {
+      setDownloadErrorMsg(err?.message || 'Unable to render merged PDF preview.');
+    } finally {
+      setIsPreparingPreview(false);
+    }
+  };
+
   const handleSelectFromLibrary = (docRecord: SavedDocRecord) => {
     setCoverData(docRecord.coverData);
     setUploadResult({
@@ -794,6 +942,8 @@ export default function App() {
       organization: '',
       documentId: '',
       summary: '',
+      paperSize: defaultPaperSize,
+      qrPosition: defaultQrPosition,
     }));
     setCurrentStep(1);
   };
@@ -865,42 +1015,56 @@ export default function App() {
   })();
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-[#09090b] dark:text-white flex flex-col font-sans antialiased selection:bg-yellow-400 selection:text-black transition-colors duration-200">
-      {typewriterConfig.isOpen && (
-        <TypewriterWelcome
-          mode={typewriterConfig.mode}
-          headline={typewriterConfig.headline}
-          subtext={typewriterConfig.subtext}
-          statusLabel={typewriterConfig.statusLabel}
-          targetUrl={typewriterConfig.targetUrl}
-          durationMs={typewriterConfig.durationMs ?? 7000}
-          onComplete={handleTypewriterComplete}
+    <MotionConfig reducedMotion={animationPace === 'off' ? 'always' : 'user'}>
+      <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-[#09090b] dark:text-white flex flex-col font-sans antialiased selection:bg-yellow-400 selection:text-black transition-colors duration-200">
+        <DocumentPreviewModal target={previewTarget} onClose={() => setPreviewTarget(null)} />
+
+        {typewriterConfig.isOpen && (
+          <TypewriterWelcome
+            mode={typewriterConfig.mode}
+            headline={typewriterConfig.headline}
+            subtext={typewriterConfig.subtext}
+            statusLabel={typewriterConfig.statusLabel}
+            targetUrl={typewriterConfig.targetUrl}
+            durationMs={typewriterConfig.durationMs ?? 7000}
+            onComplete={handleTypewriterComplete}
+          />
+        )}
+
+        <AuthGateModal
+          isOpen={isAuthGateOpen}
+          onClose={() => setIsAuthGateOpen(false)}
+          onLogin={handleLogin}
+          isLoggingIn={isLoggingIn}
+          actionTitle={authGateAction}
         />
-      )}
 
-      <AuthGateModal
-        isOpen={isAuthGateOpen}
-        onClose={() => setIsAuthGateOpen(false)}
-        onLogin={handleLogin}
-        isLoggingIn={isLoggingIn}
-        actionTitle={authGateAction}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        themeMode={themeMode}
-        onChangeThemeMode={setThemeMode}
-        textSize={textSize}
-        onChangeTextSize={setTextSize}
-        onStartTutorial={() => {
-          setIsSettingsOpen(false);
-          setStudioSection('editor');
-          navigateView('studio');
-          setCurrentStep(1);
-          setTimeout(() => setIsTutorialOpen(true), 120);
-        }}
-      />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          themeMode={themeMode}
+          onChangeThemeMode={setThemeMode}
+          textSize={textSize}
+          onChangeTextSize={setTextSize}
+          neonGlowMode={neonGlowMode}
+          onChangeNeonGlowMode={setNeonGlowMode}
+          animationPace={animationPace}
+          onChangeAnimationPace={setAnimationPace}
+          defaultPaperSize={defaultPaperSize}
+          onChangeDefaultPaperSize={handleChangeDefaultPaperSize}
+          defaultQrPosition={defaultQrPosition}
+          onChangeDefaultQrPosition={handleChangeDefaultQrPosition}
+          aiDefaultSpeed={aiDefaultSpeed}
+          onChangeAiDefaultSpeed={setAiDefaultSpeed}
+          onResetPreferences={handleResetPreferences}
+          onStartTutorial={() => {
+            setIsSettingsOpen(false);
+            setStudioSection('editor');
+            navigateView('studio');
+            setCurrentStep(1);
+            setTimeout(() => setIsTutorialOpen(true), 120);
+          }}
+        />
 
       <OnboardingTutorial
         isOpen={isTutorialOpen}
@@ -958,6 +1122,7 @@ export default function App() {
               navigateView('image-tools');
             }}
             onOpenLegal={(page) => navigateView(page)}
+            neonGlowMode={neonGlowMode}
           />
         </main>
       ) : (
@@ -980,6 +1145,7 @@ export default function App() {
               onToolChange={setActivePdfTool}
               onSendPdfToCoverStudio={handleReceivePdfFromTools}
               onTaskComplete={triggerTaskTypewriter}
+              onPreviewDocument={setPreviewTarget}
             />
           ) : activeView === 'image-tools' ? (
             <ImageToolsPanel
@@ -992,6 +1158,7 @@ export default function App() {
                 setCurrentStep(3);
               }}
               onTaskComplete={triggerTaskTypewriter}
+              onPreviewDocument={setPreviewTarget}
             />
           ) : (
             /* COVER STUDIO WORKSPACE: SINGLE COVER + BATCH PROCESSOR + DOCUMENT LIBRARY */
@@ -1082,6 +1249,14 @@ export default function App() {
                     });
                     setIsEmailModalOpen(true);
                   }}
+                  onPreviewDoc={(doc) =>
+                    setPreviewTarget({
+                      title: doc.title || doc.fileName,
+                      fileName: doc.fileName,
+                      driveUrl: doc.driveLink,
+                      subtitle: 'Google Drive Document Preview',
+                    })
+                  }
                 />
               ) : (
                 /* 2-COLUMN COVER EDITOR + LIVE PREVIEW */
@@ -1149,6 +1324,17 @@ export default function App() {
                       isLoading={isLoadingDoc}
                       setIsLoading={setIsLoadingDoc}
                       onSwitchToBatch={() => setStudioSection('batch')}
+                      onPreviewDoc={
+                        currentDoc
+                          ? () =>
+                              setPreviewTarget({
+                                title: currentDoc.name,
+                                fileName: currentDoc.name,
+                                blob: currentDoc.file,
+                                subtitle: `${currentDoc.pageCount || 1} page(s) · Source Upload`,
+                              })
+                          : undefined
+                      }
                     />
                   </div>
                 )}
@@ -1221,16 +1407,29 @@ export default function App() {
                       </div>
                     )}
 
-                    <TypewriterButton
-                      onClick={handleDirectDownloadMergedPdf}
-                      disabled={isDownloading}
-                      loading={isDownloading}
-                      variant="primary"
-                      size="lg"
-                      className="w-full"
-                      icon={<Download className="w-5 h-5 stroke-[2.5]" />}
-                      text={`Download Updated PDF (${totalPages} Pages)`}
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <TypewriterButton
+                        onClick={handleDirectDownloadMergedPdf}
+                        disabled={isDownloading}
+                        loading={isDownloading}
+                        variant="primary"
+                        size="lg"
+                        className="w-full"
+                        icon={<Download className="w-5 h-5 stroke-[2.5]" />}
+                        text={`Download PDF (${totalPages} Pages)`}
+                      />
+
+                      <TypewriterButton
+                        onClick={handlePreviewMergedPdf}
+                        disabled={isPreparingPreview || !qrDataUrl}
+                        loading={isPreparingPreview}
+                        variant="dark"
+                        size="lg"
+                        className="w-full"
+                        icon={<Eye className="w-5 h-5 text-cyan-400" />}
+                        text={`Preview All ${totalPages} Pages`}
+                      />
+                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                       <TypewriterButton
@@ -1570,9 +1769,14 @@ export default function App() {
           navigateView('studio');
           setCurrentStep(3);
         }}
+        onPreviewDocument={setPreviewTarget}
+        neonGlowMode={neonGlowMode}
+        defaultSpeedMode={aiDefaultSpeed}
+        onSpeedModeChange={setAiDefaultSpeed}
         isMinimized={isChatbotMinimized}
         onMinimizeChange={setIsChatbotMinimized}
       />
-    </div>
+      </div>
+    </MotionConfig>
   );
 }

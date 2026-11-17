@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Files } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Files, Eye } from 'lucide-react';
 import { parseUploadedDocument } from '../services/documentParser';
 import { UploadedDocInfo } from '../types';
 
@@ -9,6 +9,7 @@ interface DocumentUploaderProps {
   isLoading: boolean;
   setIsLoading: (val: boolean) => void;
   onSwitchToBatch?: () => void;
+  onPreviewDoc?: () => void;
 }
 
 export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
@@ -17,6 +18,7 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
   isLoading,
   setIsLoading,
   onSwitchToBatch,
+  onPreviewDoc,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -63,7 +65,7 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {onSwitchToBatch && (
             <button
               type="button"
@@ -72,6 +74,17 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
             >
               <Files className="w-3.5 h-3.5" />
               <span>Batch Queue</span>
+            </button>
+          )}
+
+          {currentDoc && onPreviewDoc && (
+            <button
+              type="button"
+              onClick={onPreviewDoc}
+              className="inline-flex items-center gap-1.5 text-xs text-cyan-700 dark:text-cyan-300 hover:border-cyan-400 font-semibold px-3 py-1.5 rounded-lg bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-300/60 dark:border-cyan-500/40 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Preview File</span>
             </button>
           )}
 

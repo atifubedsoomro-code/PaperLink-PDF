@@ -20,12 +20,14 @@ import {
   Zap,
   Archive,
   ExternalLink,
+  Eye,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppView } from './Navbar';
 import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
 import { ChatMarkdown } from './ChatMarkdown';
+import { PreviewTarget } from './DocumentPreviewModal';
 import {
   CompressionLevel,
   PdfToWordMode,
@@ -60,6 +62,10 @@ export interface PaperLinkChatbotProps {
   onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenDocInCoverStudio: (file: File) => void;
   onUseImageAsCoverLogo: (dataUrl: string) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
+  neonGlowMode?: 'full' | 'subtle';
+  defaultSpeedMode?: 'balanced' | 'fast';
+  onSpeedModeChange?: (mode: 'balanced' | 'fast') => void;
   isMinimized?: boolean;
   onMinimizeChange?: (minimized: boolean) => void;
 }
@@ -166,18 +172,26 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   onOpenImageTool,
   onOpenDocInCoverStudio,
   onUseImageAsCoverLogo,
+  onPreviewDocument,
+  neonGlowMode = 'full',
+  defaultSpeedMode = 'balanced',
+  onSpeedModeChange,
   isMinimized = false,
   onMinimizeChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
-  const [speedMode, setSpeedMode] = useState<'balanced' | 'fast'>('balanced');
+  const [speedMode, setSpeedMode] = useState<'balanced' | 'fast'>(defaultSpeedMode);
   const [input, setInput] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const [execStatus, setExecStatus] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSpeedMode(defaultSpeedMode);
+  }, [defaultSpeedMode]);
 
   const handleCopyMessage = (id: string, text: string) => {
     try {
@@ -867,15 +881,23 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         >
           <div className="relative">
             {/* Ambient Breathing Neon Glow Halo */}
-            <motion.div
-              aria-hidden="true"
-              animate={{ opacity: [0.45, 0.8, 0.45], scale: [0.99, 1.015, 0.99] }}
-              transition={{ repeat: Infinity, duration: 6.5, ease: 'easeInOut' }}
-              className="pointer-events-none absolute -inset-1.5 rounded-3xl bg-gradient-to-r from-cyan-400/40 via-yellow-400/35 to-blue-500/40 blur-lg"
-            />
+            {neonGlowMode === 'full' && (
+              <motion.div
+                aria-hidden="true"
+                animate={{ opacity: [0.45, 0.8, 0.45], scale: [0.99, 1.015, 0.99] }}
+                transition={{ repeat: Infinity, duration: 6.5, ease: 'easeInOut' }}
+                className="pointer-events-none absolute -inset-1.5 rounded-3xl bg-gradient-to-r from-cyan-400/40 via-yellow-400/35 to-blue-500/40 blur-lg"
+              />
+            )}
 
             {/* Neon Frame Border */}
-            <div className="relative p-[1.5px] rounded-2xl bg-gradient-to-r from-cyan-400 via-yellow-400 to-blue-500 shadow-[0_0_24px_rgba(34,211,238,0.28),0_0_40px_rgba(250,204,21,0.18)]">
+            <div
+              className={`relative p-[1.5px] rounded-2xl bg-gradient-to-r from-cyan-400 via-yellow-400 to-blue-500 ${
+                neonGlowMode === 'full'
+                  ? 'shadow-[0_0_24px_rgba(34,211,238,0.28),0_0_40px_rgba(250,204,21,0.18)]'
+                  : 'shadow-lg'
+              }`}
+            >
               {/* Traveling Top Neon Laser Accent */}
               <motion.div
                 aria-hidden="true"
@@ -935,7 +957,25 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                         key={`${file.name}_${idx}`}
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-400/15 border border-yellow-400/40 text-[10px] font-mono text-zinc-900 dark:text-yellow-300 max-w-full"
                       >
-                        <span className="truncate max-w-[170px] font-bold">{file.name}</span>
+                        <span className="truncate max-w-[155px] font-bold">{file.name}</span>
+                        {onPreviewDocument && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPreviewDocument({
+                                title: file.name,
+                                fileName: file.name,
+                                blob: file,
+                                subtitle: 'Attached Input Document',
+                              })
+                            }
+                            aria-label={`Preview ${file.name}`}
+                            title="Preview document"
+                            className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => removeAttachedFile(idx)}
@@ -1021,15 +1061,23 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             }}
           >
             {/* Outer Breathing Neon Aura */}
-            <motion.div
-              aria-hidden="true"
-              animate={{ opacity: [0.6, 0.95, 0.6], scale: [0.99, 1.015, 0.99] }}
-              transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
-              className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/45 via-cyan-400/35 to-fuchsia-500/30 blur-2xl"
-            />
+            {neonGlowMode === 'full' && (
+              <motion.div
+                aria-hidden="true"
+                animate={{ opacity: [0.6, 0.95, 0.6], scale: [0.99, 1.015, 0.99] }}
+                transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
+                className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/45 via-cyan-400/35 to-fuchsia-500/30 blur-2xl"
+              />
+            )}
 
             {/* Neon Rim Frame */}
-            <div className="relative h-full p-[2px] rounded-2xl bg-gradient-to-br from-yellow-400 via-cyan-400 to-amber-500 shadow-[0_0_34px_rgba(250,204,21,0.34),0_0_64px_rgba(34,211,238,0.24)]">
+            <div
+              className={`relative h-full p-[2px] rounded-2xl bg-gradient-to-br from-yellow-400 via-cyan-400 to-amber-500 ${
+                neonGlowMode === 'full'
+                  ? 'shadow-[0_0_34px_rgba(250,204,21,0.34),0_0_64px_rgba(34,211,238,0.24)]'
+                  : 'shadow-xl'
+              }`}
+            >
               {/* Traveling Neon Laser Accent */}
               <motion.div
                 aria-hidden="true"
@@ -1061,7 +1109,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSpeedMode((m) => (m === 'balanced' ? 'fast' : 'balanced'))}
+                      onClick={() => {
+                        const next = speedMode === 'balanced' ? 'fast' : 'balanced';
+                        setSpeedMode(next);
+                        onSpeedModeChange?.(next);
+                      }}
                       title={
                         speedMode === 'balanced'
                           ? 'Model: gemini-4-hydrogen (Smart Tool Agent)'
@@ -1268,6 +1320,25 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                   </div>
 
                                   <div className="flex flex-wrap gap-1.5">
+                                    {onPreviewDocument && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onPreviewDocument({
+                                            title: art.fileName,
+                                            fileName: art.fileName,
+                                            blob: art.blob,
+                                            subtitle: art.summary,
+                                          })
+                                        }
+                                        className="py-1.5 px-2.5 rounded-lg border border-cyan-400/50 bg-cyan-400/10 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                                        title="Preview generated document"
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        <span>Preview</span>
+                                      </button>
+                                    )}
+
                                     <button
                                       type="button"
                                       onClick={() => triggerDownload(art.blob, art.fileName)}
@@ -1349,10 +1420,28 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                         key={`${file.name}_${idx}`}
                         className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-yellow-400/15 border border-yellow-400/40 text-[10px] font-mono text-zinc-900 dark:text-yellow-300 max-w-full"
                       >
-                        <span className="truncate max-w-[160px] font-bold">{file.name}</span>
+                        <span className="truncate max-w-[145px] font-bold">{file.name}</span>
                         <span className="text-zinc-500 dark:text-zinc-400 shrink-0">
                           {formatBytes(file.size)}
                         </span>
+                        {onPreviewDocument && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPreviewDocument({
+                                title: file.name,
+                                fileName: file.name,
+                                blob: file,
+                                subtitle: 'Attached Input Document',
+                              })
+                            }
+                            aria-label={`Preview ${file.name}`}
+                            title="Preview document"
+                            className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => removeAttachedFile(idx)}

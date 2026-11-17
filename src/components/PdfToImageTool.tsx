@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   Loader2,
   Sliders,
+  Eye,
 } from 'lucide-react';
+import { PreviewTarget } from './DocumentPreviewModal';
 import {
   PdfRenderedImagePage,
   PdfToImageFormat,
@@ -23,6 +25,7 @@ interface PdfToImageToolProps {
   setIsWorking: (val: boolean) => void;
   onSendImageToTool?: (file: File, targetTool: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'filters') => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -49,6 +52,7 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
   setIsWorking,
   onSendImageToTool,
   onTaskComplete,
+  onPreviewDocument,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -298,14 +302,33 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
           </div>
 
           {result && result.zipBlob && (
-            <button
-              type="button"
-              onClick={() => triggerDownload(result.zipBlob!, result.zipFileName)}
-              className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs inline-flex items-center gap-2 cursor-pointer transition-colors whitespace-nowrap shrink-0"
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span>Download All ({result.pages.length} ZIP)</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {onPreviewDocument && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPreviewDocument({
+                      title: result.zipFileName,
+                      fileName: result.zipFileName,
+                      blob: result.zipBlob,
+                      subtitle: `${result.pages.length} rendered pages archive`,
+                    })
+                  }
+                  className="px-3 py-2 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Inspect ZIP</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => triggerDownload(result.zipBlob!, result.zipFileName)}
+                className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs inline-flex items-center gap-2 cursor-pointer transition-colors whitespace-nowrap"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>Download All ({result.pages.length} ZIP)</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -350,6 +373,23 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
                     </div>
 
                     <div className="flex flex-wrap gap-1.5">
+                      {onPreviewDocument && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onPreviewDocument({
+                              title: page.fileName,
+                              fileName: page.fileName,
+                              blob: page.blob,
+                              subtitle: `Page ${page.pageNumber} · ${page.width}×${page.height}`,
+                            })
+                          }
+                          className="p-1.5 rounded-lg border border-cyan-400/50 bg-cyan-50/70 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-400/20 cursor-pointer"
+                          title={`Preview Page ${page.pageNumber}`}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => triggerDownload(page.blob, page.fileName)}

@@ -38,6 +38,7 @@ interface LandingPageProps {
   onOpenPdfTool: (tool: PdfToolTab) => void;
   onOpenImageTool: (tool: ImageToolTab) => void;
   onOpenLegal?: (page: 'privacy' | 'terms') => void;
+  neonGlowMode?: 'full' | 'subtle';
 }
 
 const EASE_OUT_QUINT = [0.22, 1, 0.36, 1] as const;
@@ -87,6 +88,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenPdfTool,
   onOpenImageTool,
   onOpenLegal,
+  neonGlowMode = 'full',
 }) => {
   const [docStage, setDocStage] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
@@ -182,18 +184,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               transition={{ duration: 0.55, delay: 0.08, ease: EASE_OUT_QUINT }}
             >
               {/* Ambient Breathing Neon Backlight Halo */}
-              <motion.div
-                aria-hidden="true"
-                animate={{
-                  opacity: [0.55, 0.9, 0.55],
-                  scale: [0.98, 1.02, 0.98],
-                }}
-                transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
-                className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl"
-              />
+              {neonGlowMode === 'full' && (
+                <motion.div
+                  aria-hidden="true"
+                  animate={{
+                    opacity: [0.55, 0.9, 0.55],
+                    scale: [0.98, 1.02, 0.98],
+                  }}
+                  transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
+                  className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl"
+                />
+              )}
 
               {/* Animated Neon Rim Container */}
-              <div className="relative p-[1.5px] rounded-2xl bg-gradient-to-br from-yellow-400/80 via-cyan-400/45 to-amber-500/80 shadow-[0_0_28px_rgba(250,204,21,0.28),0_0_54px_rgba(34,211,238,0.16)] dark:shadow-[0_0_36px_rgba(250,204,21,0.34),0_0_68px_rgba(34,211,238,0.22)]">
+              <div
+                className={`relative p-[1.5px] rounded-2xl bg-gradient-to-br from-yellow-400/80 via-cyan-400/45 to-amber-500/80 ${
+                  neonGlowMode === 'full'
+                    ? 'shadow-[0_0_28px_rgba(250,204,21,0.28),0_0_54px_rgba(34,211,238,0.16)] dark:shadow-[0_0_36px_rgba(250,204,21,0.34),0_0_68px_rgba(34,211,238,0.22)]'
+                    : 'shadow-md'
+                }`}
+              >
                 {/* Traveling Top Neon Laser Accent */}
                 <motion.div
                   aria-hidden="true"

@@ -22,7 +22,9 @@ import {
   Edit3,
   Lock,
   FileImage,
+  Eye,
 } from 'lucide-react';
+import { PreviewTarget } from './DocumentPreviewModal';
 import {
   PdfToWordMode,
   CompressionLevel,
@@ -72,6 +74,7 @@ interface PdfToolsPanelProps {
   onToolChange: (tool: PdfToolTab) => void;
   onSendPdfToCoverStudio: (file: File) => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -110,6 +113,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   onToolChange,
   onSendPdfToCoverStudio,
   onTaskComplete,
+  onPreviewDocument,
 }) => {
   // Common feedback states
   const [isWorking, setIsWorking] = useState(false);
@@ -737,14 +741,33 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => triggerBlobDownload(p2wResult.blob, p2wResult.fileName)}
-                  className="w-full py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download {p2wResult.fileName}</span>
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: p2wResult.fileName,
+                          fileName: p2wResult.fileName,
+                          blob: p2wResult.blob,
+                          subtitle: 'Converted Word Document (.docx)',
+                        })
+                      }
+                      className="py-3 px-4 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Preview</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => triggerBlobDownload(p2wResult.blob, p2wResult.fileName)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download {p2wResult.fileName}</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="my-auto text-center py-10 space-y-2">
@@ -870,11 +893,28 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   <div dangerouslySetInnerHTML={{ __html: w2pResult.previewHtml }} />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex flex-wrap gap-2.5">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: w2pResult.fileName,
+                          fileName: w2pResult.fileName,
+                          blob: w2pResult.blob,
+                          subtitle: `${w2pResult.pageCount} pages · Word → PDF`,
+                        })
+                      }
+                      className="py-3 px-3.5 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Preview PDF</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => triggerBlobDownload(w2pResult.blob, w2pResult.fileName)}
-                    className="py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                    className="flex-1 py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
                   >
                     <Download className="w-4 h-4" />
                     <span>Download PDF</span>
@@ -882,7 +922,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   <button
                     type="button"
                     onClick={() => openGeneratedPdfInStudio(w2pResult.blob, w2pResult.fileName)}
-                    className="py-3 px-4 rounded-xl border border-yellow-500/40 bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+                    className="flex-1 py-3 px-4 rounded-xl border border-yellow-500/40 bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
                   >
                     <Sparkles className="w-4 h-4" />
                     <span>Add QR Cover in Studio</span>
@@ -1077,14 +1117,33 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                       {formatBytes(mergeResult.blob.size)}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => triggerBlobDownload(mergeResult.blob, mergeResult.fileName)}
-                    className="w-full py-2.5 px-3 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download {mergeResult.fileName}</span>
-                  </button>
+                  <div className="flex gap-2">
+                    {onPreviewDocument && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onPreviewDocument({
+                            title: mergeResult.fileName,
+                            fileName: mergeResult.fileName,
+                            blob: mergeResult.blob,
+                            subtitle: `${mergeResult.totalPages} merged pages`,
+                          })
+                        }
+                        className="py-2.5 px-3 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => triggerBlobDownload(mergeResult.blob, mergeResult.fileName)}
+                      className="flex-1 py-2.5 px-3 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download {mergeResult.fileName}</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => openGeneratedPdfInStudio(mergeResult.blob, mergeResult.fileName)}
@@ -1297,14 +1356,33 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   </div>
                 </div>
                 <div className="space-y-2.5">
-                  <button
-                    type="button"
-                    onClick={() => triggerBlobDownload(compressResult.blob, compressResult.fileName)}
-                    className="w-full py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Compressed PDF</span>
-                  </button>
+                  <div className="flex gap-2">
+                    {onPreviewDocument && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onPreviewDocument({
+                            title: compressResult.fileName,
+                            fileName: compressResult.fileName,
+                            blob: compressResult.blob,
+                            subtitle: `${formatBytes(compressResult.compressedSize)} compressed`,
+                          })
+                        }
+                        className="py-3 px-3.5 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-4 h-4" />
+                        <span>Preview</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => triggerBlobDownload(compressResult.blob, compressResult.fileName)}
+                      className="flex-1 py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download Compressed PDF</span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => openGeneratedPdfInStudio(compressResult.blob, compressResult.fileName)}
@@ -1450,6 +1528,23 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {onPreviewDocument && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPreviewDocument({
+                                title: item.fileName,
+                                fileName: item.fileName,
+                                blob: item.blob,
+                                subtitle: `${item.label} · ${item.pageCount} page(s)`,
+                              })
+                            }
+                            className="p-2 rounded-lg border border-cyan-400/50 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 cursor-pointer"
+                            title="Preview PDF part"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => triggerBlobDownload(item.blob, item.fileName)}
@@ -1613,14 +1708,33 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 tabular-nums">
                   {imgResult.pageCount} pages · {formatBytes(imgResult.blob.size)}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => triggerBlobDownload(imgResult.blob, imgResult.fileName)}
-                  className="w-full py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download {imgResult.fileName}</span>
-                </button>
+                <div className="flex gap-2">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: imgResult.fileName,
+                          fileName: imgResult.fileName,
+                          blob: imgResult.blob,
+                          subtitle: `${imgResult.pageCount} pages`,
+                        })
+                      }
+                      className="py-3 px-3.5 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Preview</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => triggerBlobDownload(imgResult.blob, imgResult.fileName)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download {imgResult.fileName}</span>
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => openGeneratedPdfInStudio(imgResult.blob, imgResult.fileName)}
@@ -1773,7 +1887,24 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
                 Organized PDF ready ({orgResult.pageCount} pages · {formatBytes(orgResult.blob.size)})
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {onPreviewDocument && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPreviewDocument({
+                        title: orgResult.fileName,
+                        fileName: orgResult.fileName,
+                        blob: orgResult.blob,
+                        subtitle: `${orgResult.pageCount} organized pages`,
+                      })
+                    }
+                    className="px-3 py-2 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Preview</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => triggerBlobDownload(orgResult.blob, orgResult.fileName)}
@@ -1953,7 +2084,24 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
                   Signed PDF Ready ({formatBytes(signResult.blob.size)})
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: signResult.fileName,
+                          fileName: signResult.fileName,
+                          blob: signResult.blob,
+                          subtitle: 'Signed PDF Output',
+                        })
+                      }
+                      className="px-3 py-1.5 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => triggerBlobDownload(signResult.blob, signResult.fileName)}
@@ -2042,6 +2190,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           isWorking={isWorking}
           setIsWorking={setIsWorking}
           onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
         />
       )}
 
@@ -2054,6 +2203,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           isWorking={isWorking}
           setIsWorking={setIsWorking}
           onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
         />
       )}
 
@@ -2065,6 +2215,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           isWorking={isWorking}
           setIsWorking={setIsWorking}
           onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
         />
       )}
     </div>

@@ -24,7 +24,9 @@ import {
   CheckCircle2,
   Upload,
   Maximize2,
+  Eye,
 } from 'lucide-react';
+import { PreviewTarget } from './DocumentPreviewModal';
 import {
   PdfEditElement,
   PdfEditResult,
@@ -44,6 +46,7 @@ interface PdfEditorToolProps {
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -78,6 +81,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
   isWorking,
   setIsWorking,
   onTaskComplete,
+  onPreviewDocument,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const picInputRef = useRef<HTMLInputElement>(null);
@@ -1244,11 +1248,28 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                     {formatBytes(editResult.blob.size)}
                   </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="flex flex-wrap gap-2">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: editResult.fileName,
+                          fileName: editResult.fileName,
+                          blob: editResult.blob,
+                          subtitle: `Edited PDF · ${editResult.pageCount} pages`,
+                        })
+                      }
+                      className="py-2.5 px-3 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => triggerDownload(editResult.blob, editResult.fileName)}
-                    className="py-2.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download Edited PDF</span>
@@ -1256,7 +1277,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenInCoverStudio(editResult.blob, editResult.fileName)}
-                    className="py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Attach QR Cover</span>

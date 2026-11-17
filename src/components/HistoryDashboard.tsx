@@ -10,6 +10,7 @@ import {
   Search,
   QrCode,
   Mail,
+  Eye,
 } from 'lucide-react';
 import { deleteDocumentRecord } from '../firebase';
 
@@ -18,6 +19,7 @@ interface HistoryDashboardProps {
   onSelectDocument: (doc: SavedDocRecord) => void;
   onRefresh: () => void;
   onOpenEmailShare: (doc: SavedDocRecord) => void;
+  onPreviewDoc?: (doc: SavedDocRecord) => void;
 }
 
 export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
@@ -25,6 +27,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   onSelectDocument,
   onRefresh,
   onOpenEmailShare,
+  onPreviewDoc,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -172,6 +175,18 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
                     </div>
                   ) : (
                     <div className="flex items-center gap-1">
+                      {onPreviewDoc && (
+                        <button
+                          type="button"
+                          onClick={() => onPreviewDoc(doc)}
+                          className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-lg transition-colors cursor-pointer"
+                          title="Preview document"
+                          aria-label={`Preview ${doc.title}`}
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => onOpenEmailShare(doc)}

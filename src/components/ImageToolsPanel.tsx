@@ -45,6 +45,7 @@ import {
   resizeImageFile,
 } from '../services/imageToolkit';
 import { PdfToImageTool } from './PdfToImageTool';
+import { PreviewTarget } from './DocumentPreviewModal';
 
 export type ImageToolTab =
   | 'bg-remove'
@@ -61,6 +62,7 @@ interface ImageToolsPanelProps {
   onToolChange: (tool: ImageToolTab) => void;
   onUseAsCoverLogo?: (dataUrl: string) => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
 interface BulkBgItem {
@@ -124,6 +126,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   onToolChange,
   onUseAsCoverLogo,
   onTaskComplete,
+  onPreviewDocument,
 }) => {
   const [isWorking, setIsWorking] = useState(false);
   const [progress, setProgress] = useState<{ percent: number; status: string } | null>(null);
@@ -1569,6 +1572,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           setIsWorking={setIsWorking}
           onSendImageToTool={sendFileToImageTool}
           onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
         />
       )}
 

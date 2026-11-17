@@ -21,6 +21,8 @@ import {
   unlockPdfWithPassword,
 } from '../services/pdfSecurity';
 
+import { PreviewTarget } from './DocumentPreviewModal';
+
 interface PdfProtectToolProps {
   onOpenInCoverStudio: (blob: Blob, fileName: string) => void;
   onError: (msg: string | null) => void;
@@ -28,6 +30,7 @@ interface PdfProtectToolProps {
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -66,6 +69,7 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
   isWorking,
   setIsWorking,
   onTaskComplete,
+  onPreviewDocument,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'lock' | 'unlock'>('lock');
@@ -515,11 +519,28 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
                 </span>
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="flex flex-wrap gap-2">
+              {onPreviewDocument && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onPreviewDocument({
+                      title: unlockResult.fileName,
+                      fileName: unlockResult.fileName,
+                      blob: unlockResult.blob,
+                      subtitle: `Unlocked PDF · ${unlockResult.pageCount} pages`,
+                    })
+                  }
+                  className="py-2.5 px-3 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Preview</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => triggerDownload(unlockResult.blob, unlockResult.fileName)}
-                className="py-2.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download Unlocked</span>
@@ -527,7 +548,7 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenInCoverStudio(unlockResult.blob, unlockResult.fileName)}
-                className="py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Attach QR Cover</span>
