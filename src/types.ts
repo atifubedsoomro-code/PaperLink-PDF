@@ -64,6 +64,8 @@ export interface CoverData {
   qrColor: string;
   qrBgColor: string;
   showLogoInQR: boolean;
+  /** Set to false for clean basic covers without a QR code block */
+  includeQr?: boolean;
   /** Optional dynamic QR verification metadata printed on cover footer */
   version?: string;
   showSyncTimestamp?: boolean;

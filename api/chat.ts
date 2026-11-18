@@ -77,19 +77,27 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
    - Image Compress (quality slider + live approximate size reducer + max-width cap)
    - Filters & Hex Palette Extractor (brightness/contrast/saturation/hue/blur/grayscale/sepia/sharpen + top 6 dominant hex colors)
 
-### Direct Action & Tool Execution Rules
-- You have real browser tools declared below that run PaperLink's local engines directly on the user's attached files.
-- Whenever the user attaches one or more files in chat and asks to perform an action (e.g., "compress it", "shrink this PDF", "convert to word", "turn word into pdf", "merge these", "extract page 1-3", "convert pdf pages to png", "remove background", "resize to 1080x1080", "convert to webp", "protect with password secret123", "open in cover studio"), **ALWAYS call the matching function tool right away**.
-- When multiple attached files match a tool (for example compressing multiple PDFs or images), trigger the tool once and our client executor processes all matching attached files automatically.
-- If the user asks to perform an operation requiring a file (like PDF compression) but has NOT attached a file yet, politely ask them to attach or drag-and-drop their file using the **+** button and confirm you will process it immediately.
-- If the user asks to go to a specific tool or view on the website, use \`navigate_workspace\`.
-- Keep responses concise, warm, accurate, and formatted cleanly with short paragraphs or bullet points.`;
+### Direct Action & Multi-Step Pipeline Rules (CRITICAL)
+- You have real browser tools declared below that execute PaperLink's local engines directly on the user's attached files.
+- **MULTI-STEP PIPELINED COMMANDS:** Users frequently give 2, 3, or more chained instructions in a single message (e.g., *"convert this png into the pdf, add a basic cover without qr and protect it with the password: example"*, OR *"convert word to pdf, compress it, and add a cover"*, OR *"remove background, resize to 1080x1080, and turn into webp"*).
+- Whenever a prompt asks for multiple operations in one message, **YOU MUST emit ALL matching tool calls in exact execution order in this single turn**:
+  - Example: User attaches a PNG and says *"convert this png into the pdf, add a basic cover without qr and protect it with the password: example"* → immediately call in order:
+    1. \`images_to_pdf\`
+    2. \`add_cover_to_pdf\` with \`themeStyle: "basic"\`, \`includeQr: false\`
+    3. \`protect_pdf\` with \`password: "example"\`
+- Our client pipeline runner automatically feeds the output file(s) of Step N straight into Step N+1 in memory. **NEVER** stop after Step 1 or tell the user to re-attach a PDF for Step 2/3 when Step 1 (\`images_to_pdf\`, \`word_to_pdf\`, \`merge_pdfs\`, \`split_pdf\`, \`add_cover_to_pdf\`) creates that PDF in the same chain.
+- Distinguish clearly between:
+  - \`add_cover_to_pdf\`: Directly generates and prepends Page 1 cover onto the PDF automatically right in chat (set \`includeQr: false\` for "without QR" / "no QR" / "basic cover without QR").
+  - \`open_in_cover_studio\`: Opens the interactive Cover Studio visual editor UI when the user explicitly asks to edit/design in Cover Studio.
+- If the user asks to perform a file operation without attaching any file, ask them to attach or drag-and-drop their file using **+**.
+- If the user asks to open a page or tool view, call \`navigate_workspace\`.
+- Keep text replies brief, friendly, and confident so the result cards stand out cleanly.`;
 
 const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: 'compress_pdf',
     description:
-      'Compress one or more PDF files currently attached in the chat using PaperLink PDF Compressor.',
+      'Compress one or more PDF files (attached or created by an earlier step in the same turn) using PaperLink PDF Compressor.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -110,7 +118,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: 'compress_image',
     description:
-      'Compress attached image files (PNG, JPG, WebP, BMP) using PaperLink Image Compressor.',
+      'Compress attached or pipeline image files (PNG, JPG, WebP, BMP) using PaperLink Image Compressor.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -132,7 +140,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: 'pdf_to_word',
     description:
-      'Convert an attached PDF file into an editable Word (.docx) document using PaperLink.',
+      'Convert an attached or pipeline PDF file into an editable Word (.docx) document using PaperLink.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -173,7 +181,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: 'split_pdf',
-    description: 'Extract specific pages or split an attached PDF into separate files.',
+    description: 'Extract specific pages or split an attached or pipeline PDF into separate files.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -193,7 +201,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: 'pdf_to_images',
     description:
-      'Render pages of an attached PDF into PNG, JPG, or WebP images (packed as ZIP if multiple pages).',
+      'Render pages of an attached or pipeline PDF into PNG, JPG, or WebP images (packed as ZIP if multiple pages).',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -214,13 +222,53 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: 'images_to_pdf',
-    description: 'Combine one or more attached images (JPG, PNG, WebP) into a single PDF document.',
+    description: 'Combine one or more attached or pipeline images (JPG, PNG, WebP) into a PDF document.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         paperSize: {
           type: Type.STRING,
           description: '"a4", "letter", or "fit". Defaults to "a4".',
+        },
+      },
+    },
+  },
+  {
+    name: 'add_cover_to_pdf',
+    description:
+      'Generate and prepend a Cover Page as Page 1 onto an attached or previously created PDF in this pipeline. Supports basic plain covers without QR as well as styled covers.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: {
+          type: Type.STRING,
+          description: 'Optional title for the cover page. Defaults automatically from the filename.',
+        },
+        subtitle: {
+          type: Type.STRING,
+          description: 'Optional subtitle or course/project description.',
+        },
+        preparedBy: {
+          type: Type.STRING,
+          description: 'Optional author or Prepared By name.',
+        },
+        organization: {
+          type: Type.STRING,
+          description: 'Optional organization or company header.',
+        },
+        themeStyle: {
+          type: Type.STRING,
+          description:
+            'Cover look: "basic" (clean ink-friendly ruled white cover), "centered" (minimalist centered print), "left-bar" (clean left accent bar), "corporate" (executive slate), "dark" (obsidian gold), or "academic". Defaults to "basic".',
+        },
+        includeQr: {
+          type: Type.BOOLEAN,
+          description:
+            'Whether to include a QR code block on the cover footer. Set to false whenever the user says "without qr", "no qr", "basic cover", or no Drive link is requested. Defaults to false.',
+        },
+        paperSize: {
+          type: Type.STRING,
+          description: '"a4" or "letter". Defaults to "a4".',
         },
       },
     },
@@ -244,7 +292,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: 'resize_image',
-    description: 'Resize attached image(s) to target pixel width and height.',
+    description: 'Resize attached or pipeline image(s) to target pixel width and height.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -266,7 +314,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: 'convert_image_format',
-    description: 'Convert attached image(s) into PNG, JPG, WebP, BMP, or ICO format.',
+    description: 'Convert attached or pipeline image(s) into PNG, JPG, WebP, BMP, or ICO format.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -280,7 +328,8 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
   {
     name: 'protect_pdf',
-    description: 'Encrypt/lock an attached PDF with a password using AES-256 encryption.',
+    description:
+      'Encrypt/lock an attached or previously created PDF with a password using AES-256 encryption.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -301,9 +350,23 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'unlock_pdf',
+    description: 'Remove password protection from an encrypted PDF using its current password.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        password: {
+          type: Type.STRING,
+          description: 'The current password required to unlock the encrypted PDF.',
+        },
+      },
+      required: ['password'],
+    },
+  },
+  {
     name: 'open_in_cover_studio',
     description:
-      'Load an attached document (.pdf, .docx, .txt) into Cover Studio to design a Drive QR cover, or apply an attached image as the Cover Studio brand logo.',
+      'Load an attached document (.pdf, .docx, .txt) into the interactive Cover Studio editor UI, or apply an attached image as the Cover Studio brand logo.',
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -419,8 +482,8 @@ export async function executePaperLinkChat(
 
     const candidateModels =
       primaryModel === 'gemini-4-hydrogen'
-        ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-2.5-flash']
-        : ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-4-hydrogen'];
+        ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
+        : ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
 
     let response: Awaited<ReturnType<ReturnType<typeof ai.chats.create>['sendMessage']>> | null =
       null;
@@ -435,9 +498,12 @@ export async function executePaperLinkChat(
           config: {
             systemInstruction: PAPERLINK_SYSTEM_INSTRUCTION,
             tools: [{ functionDeclarations: PAPERLINK_TOOL_DECLARATIONS }],
-            ...(candidate === 'gemini-3.1-flash-lite'
-              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
-              : {}),
+            thinkingConfig: {
+              thinkingLevel:
+                candidate === 'gemini-3.1-flash-lite'
+                  ? ThinkingLevel.MINIMAL
+                  : ThinkingLevel.LOW,
+            },
           },
         });
 

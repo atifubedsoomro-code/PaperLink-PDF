@@ -53,7 +53,11 @@ import {
   removeImageBackground,
   resizeImageFile,
 } from '../services/imageToolkit';
-import { protectPdfWithPassword } from '../services/pdfSecurity';
+import { protectPdfWithPassword, unlockPdfWithPassword } from '../services/pdfSecurity';
+import { mergeCoverWithPdf } from '../services/pdfService';
+import { generateQRCodeDataUrl } from '../services/qrService';
+import { COVER_THEMES } from '../constants/themes';
+import { CoverData } from '../types';
 
 export interface PaperLinkChatbotProps {
   activeView: AppView;
@@ -78,6 +82,7 @@ interface ChatArtifact {
   kind: 'pdf' | 'word' | 'image' | 'zip';
   fileObj?: File;
   dataUrl?: string;
+  isEncrypted?: boolean;
 }
 
 interface ChatMessage {
@@ -95,6 +100,17 @@ interface GeminiFunctionCall {
   id?: string;
   name: string;
   args: Record<string, any>;
+}
+
+type PipelineMediaKind = 'pdf' | 'image' | 'word' | 'none';
+
+interface ToolExecutionOutput {
+  summaryText: string;
+  artifacts: ChatArtifact[];
+  badge: string;
+  producedFiles: File[];
+  consumedKind: PipelineMediaKind;
+  producedKind: PipelineMediaKind;
 }
 
 function formatBytes(bytes: number): string {
@@ -242,11 +258,14 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
   const executeWebsiteTool = async (
     fc: GeminiFunctionCall,
-    files: File[]
-  ): Promise<{ summaryText: string; artifacts: ChatArtifact[]; badge: string }> => {
+    files: File[],
+    stepPrefix?: string
+  ): Promise<ToolExecutionOutput> => {
     const args = fc.args || {};
     const artifacts: ChatArtifact[] = [];
+    const producedFiles: File[] = [];
     const notes: string[] = [];
+    const prefix = stepPrefix ? `${stepPrefix}: ` : '';
 
     const pdfs = files.filter(isPdfFile);
     const words = files.filter(isWordFile);
@@ -270,11 +289,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             : 60;
 
         for (const pdf of pdfs) {
-          setExecStatus(`Compressing ${pdf.name}...`);
+          setExecStatus(`${prefix}Compressing ${pdf.name}...`);
           const res = await compressPdfFile(
             pdf,
             level,
-            (_pct, st) => setExecStatus(st),
+            (_pct, st) => setExecStatus(`${prefix}${st}`),
             qPct
           );
           const savedPct = Math.max(
@@ -282,6 +301,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             Math.round(((res.originalSize - res.compressedSize) / Math.max(1, res.originalSize)) * 100)
           );
           const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: res.fileName,
@@ -296,7 +316,14 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             )}** (${savedPct}% reduction).`
           );
         }
-        return { summaryText: notes.join('\n'), artifacts, badge: 'PDF Compress Executed' };
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'PDF Compress',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
+        };
       }
 
       case 'compress_image': {
@@ -313,12 +340,14 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
         const outForZip: { fileName: string; blob: Blob }[] = [];
         for (const img of images) {
-          setExecStatus(`Compressing image ${img.name}...`);
+          setExecStatus(`${prefix}Compressing image ${img.name}...`);
           const res = await compressImageFile(img, { format: fmt, quality, maxWidth });
           const savedPct = Math.max(
             0,
             Math.round(((res.originalSizeBytes - res.sizeBytes) / Math.max(1, res.originalSizeBytes)) * 100)
           );
+          const outFile = new File([res.blob], res.fileName, { type: res.blob.type || `image/${fmt}` });
+          producedFiles.push(outFile);
           outForZip.push({ fileName: res.fileName, blob: res.blob });
           artifacts.push({
             id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -326,6 +355,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summary: `${formatBytes(res.originalSizeBytes)} → ${formatBytes(res.sizeBytes)} (${savedPct}% smaller · ${res.width}×${res.height})`,
             blob: res.blob,
             kind: 'image',
+            fileObj: outFile,
             dataUrl: res.dataUrl,
           });
           notes.push(
@@ -342,34 +372,54 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             kind: 'zip',
           });
         }
-        return { summaryText: notes.join('\n'), artifacts, badge: 'Image Compress Executed' };
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'Image Compress',
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
+        };
       }
 
       case 'pdf_to_word': {
         if (pdfs.length === 0) throw new Error('Attach a PDF file to convert to Word (.docx).');
         const mode: PdfToWordMode = args.mode === 'layout' ? 'layout' : 'editable';
         for (const pdf of pdfs) {
-          setExecStatus(`Converting ${pdf.name} to Word...`);
-          const res = await convertPdfToWord(pdf, mode, (_p, st) => setExecStatus(st));
+          setExecStatus(`${prefix}Converting ${pdf.name} to Word...`);
+          const res = await convertPdfToWord(pdf, mode, (_p, st) => setExecStatus(`${prefix}${st}`));
+          const outFile = new File([res.blob], res.fileName, {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: res.fileName,
             summary: `${res.pageCount} pages · ${res.wordCount.toLocaleString()} words (.docx)`,
             blob: res.blob,
             kind: 'word',
+            fileObj: outFile,
           });
           notes.push(`Converted **${pdf.name}** into **${res.fileName}** (${res.pageCount} pages).`);
         }
-        return { summaryText: notes.join('\n'), artifacts, badge: 'PDF → Word Executed' };
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'PDF → Word',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'word',
+        };
       }
 
       case 'word_to_pdf': {
         if (words.length === 0) throw new Error('Attach a Word (.docx) file to convert to PDF.');
         const paperSize: 'a4' | 'letter' = args.paperSize === 'letter' ? 'letter' : 'a4';
         for (const w of words) {
-          setExecStatus(`Converting ${w.name} to PDF...`);
-          const res = await convertWordToPdf(w, paperSize, (_p, st) => setExecStatus(st));
+          setExecStatus(`${prefix}Converting ${w.name} to PDF...`);
+          const res = await convertWordToPdf(w, paperSize, (_p, st) => setExecStatus(`${prefix}${st}`));
           const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: res.fileName,
@@ -380,21 +430,29 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           });
           notes.push(`Converted **${w.name}** to **${res.fileName}** (${res.pageCount} pages).`);
         }
-        return { summaryText: notes.join('\n'), artifacts, badge: 'Word → PDF Executed' };
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'Word → PDF',
+          producedFiles,
+          consumedKind: 'word',
+          producedKind: 'pdf',
+        };
       }
 
       case 'merge_pdfs': {
         if (pdfs.length < 2) {
           throw new Error('Attach at least 2 PDF files so I can merge them together.');
         }
-        setExecStatus(`Inspecting ${pdfs.length} PDF files...`);
+        setExecStatus(`${prefix}Inspecting ${pdfs.length} PDF files...`);
         const sources = [];
         for (const pdf of pdfs) {
           sources.push(await inspectPdfSource(pdf));
         }
         const outName = String(args.outputName || 'paperlink_merged');
-        const res = await mergeMultiplePdfs(sources, outName, (_p, st) => setExecStatus(st));
+        const res = await mergeMultiplePdfs(sources, outName, (_p, st) => setExecStatus(`${prefix}${st}`));
         const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+        producedFiles.push(outFile);
         artifacts.push({
           id: `art_${Date.now()}`,
           fileName: res.fileName,
@@ -406,7 +464,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         return {
           summaryText: `Merged ${pdfs.length} PDFs into **${res.fileName}** (${res.totalPages} pages total).`,
           artifacts,
-          badge: 'PDF Merge Executed',
+          badge: 'PDF Merge',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
         };
       }
 
@@ -414,10 +475,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         if (pdfs.length === 0) throw new Error('Attach a PDF file to split or extract pages.');
         const mode: SplitMode = args.mode === 'fixed-chunks' ? 'fixed-chunks' : 'extract-range';
         const expr = String(args.rangeOrInterval || '1');
-        setExecStatus(`Splitting ${pdfs[0].name}...`);
-        const res = await splitPdfFile(pdfs[0], mode, expr, (_p, st) => setExecStatus(st));
+        setExecStatus(`${prefix}Splitting ${pdfs[0].name}...`);
+        const res = await splitPdfFile(pdfs[0], mode, expr, (_p, st) => setExecStatus(`${prefix}${st}`));
         for (const f of res.files) {
           const outFile = new File([f.blob], f.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `art_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: f.fileName,
@@ -430,7 +492,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         return {
           summaryText: `Created **${res.files.length}** output PDF file(s) from **${pdfs[0].name}**.`,
           artifacts,
-          badge: 'PDF Split Executed',
+          badge: 'PDF Split',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
         };
       }
 
@@ -444,11 +509,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         const scale = (allowedScales.includes(reqScale as PdfToImageScale) ? reqScale : 2) as PdfToImageScale;
         const pageRangeExpr = typeof args.pageRangeExpr === 'string' ? args.pageRangeExpr : '';
 
-        setExecStatus(`Rendering ${pdfs[0].name} pages...`);
+        setExecStatus(`${prefix}Rendering ${pdfs[0].name} pages...`);
         const res = await convertPdfToImages(
           pdfs[0],
           { format, scale, quality: 0.92, pageRangeExpr },
-          (_p, st) => setExecStatus(st)
+          (_p, st) => setExecStatus(`${prefix}${st}`)
         );
         if (res.zipBlob) {
           artifacts.push({
@@ -459,20 +524,28 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             kind: 'zip',
           });
         }
-        for (const p of res.pages.slice(0, 4)) {
-          artifacts.push({
-            id: `pg_${p.pageNumber}_${Date.now()}`,
-            fileName: p.fileName,
-            summary: `Page ${p.pageNumber} · ${p.width}×${p.height}px (${formatBytes(p.sizeBytes)})`,
-            blob: p.blob,
-            kind: 'image',
-            dataUrl: p.dataUrl,
-          });
+        for (const p of res.pages) {
+          const imgFile = new File([p.blob], p.fileName, { type: p.blob.type || `image/${format}` });
+          producedFiles.push(imgFile);
+          if (artifacts.length < 5) {
+            artifacts.push({
+              id: `pg_${p.pageNumber}_${Date.now()}`,
+              fileName: p.fileName,
+              summary: `Page ${p.pageNumber} · ${p.width}×${p.height}px (${formatBytes(p.sizeBytes)})`,
+              blob: p.blob,
+              kind: 'image',
+              fileObj: imgFile,
+              dataUrl: p.dataUrl,
+            });
+          }
         }
         return {
           summaryText: `Rendered **${res.pages.length}** page(s) from **${pdfs[0].name}** as **${format.toUpperCase()}** at ${scale}× sharpness.`,
           artifacts,
-          badge: 'PDF → Image Executed',
+          badge: 'PDF → Image',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'image',
         };
       }
 
@@ -480,9 +553,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         if (images.length === 0) throw new Error('Attach at least one image to convert into PDF.');
         const paperSize: 'a4' | 'letter' | 'fit' =
           args.paperSize === 'letter' || args.paperSize === 'fit' ? args.paperSize : 'a4';
-        setExecStatus(`Building PDF from ${images.length} image(s)...`);
-        const res = await convertImagesToPdf(images, paperSize, (_p, st) => setExecStatus(st));
+        setExecStatus(`${prefix}Converting ${images.length} image(s) to PDF...`);
+        const res = await convertImagesToPdf(images, paperSize, (_p, st) => setExecStatus(`${prefix}${st}`));
         const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+        producedFiles.push(outFile);
         artifacts.push({
           id: `art_${Date.now()}`,
           fileName: res.fileName,
@@ -492,9 +566,106 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           fileObj: outFile,
         });
         return {
-          summaryText: `Combined ${images.length} image(s) into **${res.fileName}**.`,
+          summaryText: `Converted ${images.length} image(s) into **${res.fileName}** (${res.pageCount} page${res.pageCount === 1 ? '' : 's'}).`,
           artifacts,
-          badge: 'Images → PDF Executed',
+          badge: 'Images → PDF',
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'add_cover_to_pdf': {
+        if (pdfs.length === 0) {
+          throw new Error('Attach or convert a PDF first before adding a cover page.');
+        }
+        const styleKey = String(args.themeStyle || 'basic').toLowerCase();
+        const themeLookupId =
+          styleKey === 'dark'
+            ? 'cyber-slate'
+            : styleKey === 'corporate'
+            ? 'executive-horizon'
+            : styleKey === 'academic'
+            ? 'academic-thesis'
+            : styleKey === 'centered'
+            ? 'plain-centered-ink'
+            : styleKey === 'left-bar'
+            ? 'plain-sidebar-stripe'
+            : 'plain-classic-rule';
+        const chosenTheme = COVER_THEMES.find((t) => t.id === themeLookupId) || COVER_THEMES[0];
+        const includeQr = args.includeQr === true;
+        const paperSize: 'a4' | 'letter' = args.paperSize === 'letter' ? 'letter' : 'a4';
+
+        for (const pdf of pdfs) {
+          setExecStatus(`${prefix}Adding ${includeQr ? 'cover' : 'basic cover (no QR)'} to ${pdf.name}...`);
+          const baseClean = pdf.name.replace(/\.pdf$/i, '');
+          const derivedTitle =
+            String(args.title || '').trim() ||
+            baseClean.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+          const coverConfig: CoverData = {
+            title: derivedTitle || 'Document Cover',
+            subtitle: String(args.subtitle || '').trim(),
+            preparedBy: String(args.preparedBy || '').trim(),
+            organization: String(args.organization || '').trim(),
+            documentId: '',
+            date: new Date().toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            }),
+            summary: '',
+            qrCallToAction: includeQr ? 'Scan with phone camera to view soft copy.' : '',
+            imageUrl: chosenTheme.defaultImage || '',
+            themeId: chosenTheme.id,
+            primaryColor: chosenTheme.primaryColor,
+            accentColor: chosenTheme.accentColor,
+            font: chosenTheme.defaultFont,
+            paperSize,
+            qrPosition: 'bottom-right',
+            qrColor: chosenTheme.primaryColor,
+            qrBgColor: '#ffffff',
+            showLogoInQR: false,
+            includeQr,
+          };
+
+          const qrUrl = includeQr
+            ? await generateQRCodeDataUrl({
+                url: 'https://drive.google.com',
+                colorDark: coverConfig.qrColor,
+                colorLight: coverConfig.qrBgColor,
+                width: 480,
+              })
+            : '';
+
+          const srcBuffer = await pdf.arrayBuffer();
+          const mergedBytes = await mergeCoverWithPdf(srcBuffer, coverConfig, qrUrl);
+          const safeBuf = new Uint8Array(mergedBytes).slice().buffer;
+          const outBlob = new Blob([safeBuf], { type: 'application/pdf' });
+          const outName = `${baseClean.replace(/[^a-zA-Z0-9_-]+/g, '_')}_with_cover.pdf`;
+          const outFile = new File([outBlob], outName, { type: 'application/pdf' });
+
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `cov_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: outName,
+            summary: `${includeQr ? 'Styled Cover' : 'Basic Cover (No QR)'} + Original PDF · ${formatBytes(outBlob.size)}`,
+            blob: outBlob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(
+            `Prepended a **${chosenTheme.name}** cover page (${includeQr ? 'with QR' : 'without QR'}) to **${pdf.name}**.`
+          );
+        }
+
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: includeQr ? 'Cover Added' : 'Basic Cover (No QR)',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
         };
       }
 
@@ -507,12 +678,14 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
         const zipList: { fileName: string; blob: Blob }[] = [];
         for (const img of images) {
-          setExecStatus(`Removing background from ${img.name}...`);
+          setExecStatus(`${prefix}Removing background from ${img.name}...`);
           const res = await removeImageBackground(
             img,
             { engine, tolerance: 28, feather: 2, despill: true, fillMode: 'transparent', outputFormat },
-            (_p, st) => setExecStatus(st)
+            (_p, st) => setExecStatus(`${prefix}${st}`)
           );
+          const outFile = new File([res.blob], res.fileName, { type: `image/${outputFormat}` });
+          producedFiles.push(outFile);
           zipList.push({ fileName: res.fileName, blob: res.blob });
           artifacts.push({
             id: `bg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -520,6 +693,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summary: `Transparent cutout · ${res.width}×${res.height}px (${formatBytes(res.sizeBytes)})`,
             blob: res.blob,
             kind: 'image',
+            fileObj: outFile,
             dataUrl: res.dataUrl,
           });
         }
@@ -536,7 +710,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         return {
           summaryText: `Removed the background cleanly for **${images.length}** image(s).`,
           artifacts,
-          badge: 'Background Remover Executed',
+          badge: 'Background Removed',
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
         };
       }
 
@@ -549,7 +726,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           fitRaw === 'cover' || fitRaw === 'exact' ? fitRaw : 'contain';
 
         for (const img of images) {
-          setExecStatus(`Resizing ${img.name} to ${width}×${height}...`);
+          setExecStatus(`${prefix}Resizing ${img.name} to ${width}×${height}...`);
           const res = await resizeImageFile(img, {
             width,
             height,
@@ -558,19 +735,25 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             quality: 0.92,
             padColor: '#FFFFFF',
           });
+          const outFile = new File([res.blob], res.fileName, { type: res.blob.type || 'image/png' });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `rs_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: res.fileName,
             summary: `${res.width}×${res.height}px (${fit}) · ${formatBytes(res.sizeBytes)}`,
             blob: res.blob,
             kind: 'image',
+            fileObj: outFile,
             dataUrl: res.dataUrl,
           });
         }
         return {
           summaryText: `Resized **${images.length}** image(s) to **${width}×${height}px**.`,
           artifacts,
-          badge: 'Image Resize Executed',
+          badge: 'Image Resize',
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
         };
       }
 
@@ -581,18 +764,21 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           ? fmtRaw
           : 'webp') as ImageOutputFormat;
         for (const img of images) {
-          setExecStatus(`Converting ${img.name} to .${targetFormat}...`);
+          setExecStatus(`${prefix}Converting ${img.name} to .${targetFormat}...`);
           const res = await convertImageFormat(img, {
             targetFormat,
             quality: 0.92,
             backgroundColor: '#FFFFFF',
           });
+          const outFile = new File([res.blob], res.fileName, { type: res.blob.type || `image/${targetFormat}` });
+          producedFiles.push(outFile);
           artifacts.push({
             id: `cv_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             fileName: res.fileName,
             summary: `.${targetFormat.toUpperCase()} · ${res.width}×${res.height}px (${formatBytes(res.sizeBytes)})`,
             blob: res.blob,
             kind: 'image',
+            fileObj: outFile,
             dataUrl: res.dataUrl,
           });
         }
@@ -600,6 +786,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           summaryText: `Converted **${images.length}** image(s) to **.${targetFormat.toUpperCase()}**.`,
           artifacts,
           badge: `Converted to .${targetFormat.toUpperCase()}`,
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
         };
       }
 
@@ -607,35 +796,74 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         if (pdfs.length === 0) throw new Error('Attach a PDF file to lock with a password.');
         const password = String(args.password || '').trim();
         if (!password) throw new Error('Specify a password to encrypt the PDF.');
-        setExecStatus(`Encrypting ${pdfs[0].name} (AES-256)...`);
-        const res = await protectPdfWithPassword(
-          pdfs[0],
-          {
-            userPassword: password,
-            algorithm: 'AES-256',
-            permissions: {
-              printing: args.allowPrinting === false ? false : 'highResolution',
-              copying: args.allowCopying === true,
-              modifying: false,
-              annotating: false,
-              fillingForms: true,
-              contentAccessibility: true,
-              documentAssembly: false,
+        for (const pdf of pdfs) {
+          setExecStatus(`${prefix}Encrypting ${pdf.name} (AES-256)...`);
+          const res = await protectPdfWithPassword(
+            pdf,
+            {
+              userPassword: password,
+              algorithm: 'AES-256',
+              permissions: {
+                printing: args.allowPrinting === false ? false : 'highResolution',
+                copying: args.allowCopying === true,
+                modifying: false,
+                annotating: false,
+                fillingForms: true,
+                contentAccessibility: true,
+                documentAssembly: false,
+              },
             },
-          },
-          (_p, st) => setExecStatus(st)
-        );
-        artifacts.push({
-          id: `sec_${Date.now()}`,
-          fileName: res.fileName,
-          summary: `AES-256 Encrypted · ${res.pageCount} pages`,
-          blob: res.blob,
-          kind: 'pdf',
-        });
+            (_p, st) => setExecStatus(`${prefix}${st}`)
+          );
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `sec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `AES-256 Encrypted · ${res.pageCount} page(s) · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+            isEncrypted: true,
+          });
+          notes.push(`Locked **${pdf.name}** → **${res.fileName}** (${res.pageCount} page(s), AES-256 password protected).`);
+        }
         return {
-          summaryText: `Locked **${pdfs[0].name}** with AES-256 password encryption.`,
+          summaryText: notes.join('\n'),
           artifacts,
           badge: 'PDF Protected (AES-256)',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'unlock_pdf': {
+        if (pdfs.length === 0) throw new Error('Attach an encrypted PDF file to unlock.');
+        const password = String(args.password || '').trim();
+        if (!password) throw new Error('Provide the current password to unlock the PDF.');
+        for (const pdf of pdfs) {
+          setExecStatus(`${prefix}Unlocking ${pdf.name}...`);
+          const res = await unlockPdfWithPassword(pdf, password, (_p, st) => setExecStatus(`${prefix}${st}`));
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `unsec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `Decrypted PDF · ${res.pageCount} page(s) · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(`Unlocked **${pdf.name}** → **${res.fileName}** (${res.pageCount} page(s)).`);
+        }
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'PDF Unlocked',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
         };
       }
 
@@ -654,6 +882,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summaryText: `Applied **${images[0].name}** as your Cover Studio logo and opened Customize (Step 3).`,
             artifacts: [],
             badge: 'Opened Cover Studio Logo',
+            producedFiles: [],
+            consumedKind: 'image',
+            producedKind: 'none',
           };
         }
 
@@ -664,6 +895,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           summaryText: `Loaded **${docCandidate.name}** into **Cover Studio**! You can now pick a cover theme and link Google Drive QR.`,
           artifacts: [],
           badge: 'Loaded in Cover Studio',
+          producedFiles: [],
+          consumedKind: 'pdf',
+          producedKind: 'none',
         };
       }
 
@@ -676,6 +910,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summaryText: `Switched workspace to **PDF & Word Tools**${args.pdfTool ? ` (${args.pdfTool})` : ''}.`,
             artifacts: [],
             badge: 'Navigated to PDF Tools',
+            producedFiles: [],
+            consumedKind: 'none',
+            producedKind: 'none',
           };
         }
         if (viewRaw === 'image-tools') {
@@ -685,6 +922,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summaryText: `Switched workspace to **Designer Image Studio**${args.imageTool ? ` (${args.imageTool})` : ''}.`,
             artifacts: [],
             badge: 'Navigated to Image Studio',
+            producedFiles: [],
+            consumedKind: 'none',
+            producedKind: 'none',
           };
         }
         if (viewRaw === 'batch' || viewRaw === 'library' || viewRaw === 'studio' || viewRaw === 'home') {
@@ -693,9 +933,19 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             summaryText: `Opened **${viewRaw === 'batch' ? 'Batch Queue' : viewRaw === 'library' ? 'Document Library' : viewRaw === 'studio' ? 'Cover Studio' : 'Home'}**.`,
             artifacts: [],
             badge: `Opened ${viewRaw}`,
+            producedFiles: [],
+            consumedKind: 'none',
+            producedKind: 'none',
           };
         }
-        return { summaryText: 'Workspace ready.', artifacts: [], badge: 'Navigated' };
+        return {
+          summaryText: 'Workspace ready.',
+          artifacts: [],
+          badge: 'Navigated',
+          producedFiles: [],
+          consumedKind: 'none',
+          producedKind: 'none',
+        };
       }
 
       default:
@@ -703,6 +953,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           summaryText: `Recognized action \`${fc.name}\`.`,
           artifacts: [],
           badge: fc.name,
+          producedFiles: [],
+          consumedKind: 'none',
+          producedKind: 'none',
         };
     }
   };
@@ -732,14 +985,15 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     setMessages((prev) => [...prev, userMsg]);
     if (!customPrompt) setInput('');
     setIsBusy(true);
-    setExecStatus('PaperLink AI is thinking...');
+    setExecStatus('Planning workflow...');
 
     try {
-      const inlineImages: Array<{ name: string; mimeType: string; base64Data: string }> = [];
-      for (const f of currentFiles.filter(isImageFile).slice(0, 3)) {
-        const encoded = await createInlinePreviewBase64(f);
-        if (encoded) inlineImages.push(encoded);
-      }
+      const encodedResults = await Promise.all(
+        currentFiles.filter(isImageFile).slice(0, 3).map(createInlinePreviewBase64)
+      );
+      const inlineImages = encodedResults.filter(
+        (item): item is { name: string; mimeType: string; base64Data: string } => item !== null
+      );
 
       const resp = await fetch('/api/chat', {
         method: 'POST',
@@ -778,18 +1032,53 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       const functionCalls: GeminiFunctionCall[] = Array.isArray(data.functionCalls)
         ? data.functionCalls
         : [];
-      const collectedArtifacts: ChatArtifact[] = [];
       const collectedSummaries: string[] = [];
       const badges: string[] = [];
+      const stepResults: ToolExecutionOutput[] = [];
 
       if (functionCalls.length > 0) {
-        for (const fc of functionCalls) {
-          const result = await executeWebsiteTool(fc, currentFiles);
-          if (result.summaryText) collectedSummaries.push(result.summaryText);
-          if (result.artifacts.length > 0) collectedArtifacts.push(...result.artifacts);
+        let workingFiles = [...currentFiles];
+        const totalSteps = functionCalls.length;
+
+        for (let i = 0; i < totalSteps; i++) {
+          const fc = functionCalls[i];
+          const stepLabel = totalSteps > 1 ? `Step ${i + 1}/${totalSteps}` : undefined;
+          const result = await executeWebsiteTool(fc, workingFiles, stepLabel);
+          stepResults.push(result);
+
+          if (result.summaryText) {
+            collectedSummaries.push(
+              totalSteps > 1 ? `**${i + 1}.** ${result.summaryText}` : result.summaryText
+            );
+          }
           if (result.badge) badges.push(result.badge);
+
+          // Feed produced output files cleanly into the next step of the chain
+          if (result.producedFiles.length > 0) {
+            const remaining = workingFiles.filter((f) => {
+              if (result.consumedKind === 'pdf' && isPdfFile(f)) return false;
+              if (result.consumedKind === 'image' && isImageFile(f)) return false;
+              if (result.consumedKind === 'word' && isWordFile(f)) return false;
+              return true;
+            });
+            workingFiles = [...result.producedFiles, ...remaining];
+          }
         }
       }
+
+      // Show only terminal unconsumed artifacts so chained workflows deliver the finished file cleanly
+      const terminalArtifacts: ChatArtifact[] = [];
+      stepResults.forEach((stepRes, idx) => {
+        if (stepRes.artifacts.length === 0) return;
+        const consumedByLaterStep =
+          stepRes.producedKind !== 'none' &&
+          stepResults
+            .slice(idx + 1)
+            .some((later) => later.consumedKind === stepRes.producedKind && later.artifacts.length > 0);
+        if (!consumedByLaterStep) {
+          terminalArtifacts.push(...stepRes.artifacts);
+        }
+      });
 
       const modelTextParts = [data.reply, ...collectedSummaries].filter(
         (t) => typeof t === 'string' && t.trim().length > 0
@@ -804,8 +1093,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           id: `m_${Date.now()}`,
           role: 'model',
           text: finalReply,
-          artifacts: collectedArtifacts,
-          actionBadge: badges.join(' · ') || undefined,
+          artifacts: terminalArtifacts,
+          actionBadge: badges.join(' → ') || undefined,
           modelUsed: data.modelUsed,
         },
       ]);
@@ -1334,7 +1623,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                   </div>
 
                                   <div className="flex flex-wrap gap-1.5">
-                                    {onPreviewDocument && (
+                                    {onPreviewDocument && !art.isEncrypted && (
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -1362,7 +1651,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                       <span>Download</span>
                                     </button>
 
-                                    {art.kind === 'pdf' && art.fileObj && (
+                                    {art.kind === 'pdf' && art.fileObj && !art.isEncrypted && (
                                       <button
                                         type="button"
                                         onClick={() => {

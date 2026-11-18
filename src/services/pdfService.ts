@@ -668,6 +668,7 @@ export async function generateCoverPagePdf(
 
   // 4. Bottom Footer Section (QR Card + Metadata + Optional Verification Badge)
   const bottomPad = 40 * s;
+  const shouldIncludeQr = coverData.includeQr !== false;
   const qrPos = coverData.qrPosition || 'bottom-right';
   const qrImgSize = 112 * s;
   const qrCardPad = 8 * s;
@@ -676,9 +677,11 @@ export async function generateCoverPagePdf(
   const qrCardH = qrImgSize + qrCardPad * 2 + qrLabelH;
   const ctaRaw =
     coverData.qrCallToAction || 'Scan with phone camera to view full soft copy on Google Drive.';
-  const ctaLines = HAS_NON_WINANSI_RE.test(ctaRaw)
-    ? wrapUnicodeTextCanvas(ctaRaw, 500, 9 * s, cssFontFamily, 130 * s).slice(0, 3)
-    : wrapTextByWidth(ctaRaw, bodyFont, 9 * s, 130 * s).slice(0, 3);
+  const ctaLines = shouldIncludeQr
+    ? (HAS_NON_WINANSI_RE.test(ctaRaw)
+        ? wrapUnicodeTextCanvas(ctaRaw, 500, 9 * s, cssFontFamily, 130 * s).slice(0, 3)
+        : wrapTextByWidth(ctaRaw, bodyFont, 9 * s, 130 * s).slice(0, 3))
+    : [];
   const ctaBlockH = ctaLines.length > 0 ? 6 * s + ctaLines.length * (11 * s) : 0;
 
   // Build Verification Pills/Lines (version, sync timestamp, expiry note)
@@ -696,7 +699,13 @@ export async function generateCoverPagePdf(
   let footerTopY = bottomPad + qrCardH + ctaBlockH;
   let qrCardBottomY = bottomPad + ctaBlockH;
 
-  if (qrPos === 'bottom-center') {
+  if (!shouldIncludeQr) {
+    const basicMetaHeight =
+      (coverData.preparedBy ? 34 * s : 0) +
+      (coverData.date ? 30 * s : 0) +
+      (verificationLine ? 18 * s : 0);
+    footerTopY = bottomPad + Math.max(24 * s, basicMetaHeight);
+  } else if (qrPos === 'bottom-center') {
     const hasMeta = Boolean(coverData.preparedBy || coverData.date || verificationLine);
     const metaRowH = hasMeta ? (verificationLine ? 34 * s : 22 * s) : 0;
     footerTopY = bottomPad + metaRowH + ctaBlockH + qrCardH;
@@ -713,8 +722,26 @@ export async function generateCoverPagePdf(
   });
 
   // Draw Metadata Block
-  const metaRightAligned = qrPos === 'bottom-left';
-  if (qrPos === 'bottom-center') {
+  const metaRightAligned = shouldIncludeQr && qrPos === 'bottom-left';
+  if (!shouldIncludeQr) {
+    const inlineParts = [coverData.preparedBy, coverData.date, verificationLine].filter(Boolean) as string[];
+    if (inlineParts.length > 0) {
+      const footerSummary = inlineParts.join('   ·   ');
+      await drawSmartTextLines(footerSummary, {
+        xLeft: padXLeft,
+        maxWidth: contentWidth,
+        topBaselineY: bottomPad + 6 * s,
+        fontSize: 11 * s,
+        lineHeight: 14 * s,
+        font: bodyFont,
+        fontWeight: 500,
+        colorRgb: bodyRgb,
+        colorHex: bodyHex,
+        align: isCentered ? 'center' : 'left',
+        lines: [footerSummary],
+      });
+    }
+  } else if (qrPos === 'bottom-center') {
     let inlineY = bottomPad + (verificationLine ? 16 * s : 4 * s);
     if (coverData.preparedBy || coverData.date) {
       const parts = [coverData.preparedBy, coverData.date].filter(Boolean) as string[];
@@ -807,64 +834,66 @@ export async function generateCoverPagePdf(
     }
   }
 
-  // Draw QR Code Block
-  const qrCardX =
-    qrPos === 'bottom-left'
-      ? padXLeft
-      : qrPos === 'bottom-center'
-      ? (dims.width - qrCardW) / 2
-      : dims.width - padXRight - qrCardW;
+  // Draw QR Code Block (only when includeQr !== false)
+  if (shouldIncludeQr) {
+    const qrCardX =
+      qrPos === 'bottom-left'
+        ? padXLeft
+        : qrPos === 'bottom-center'
+        ? (dims.width - qrCardW) / 2
+        : dims.width - padXRight - qrCardW;
 
-  page.drawRectangle({
-    x: qrCardX,
-    y: qrCardBottomY,
-    width: qrCardW,
-    height: qrCardH,
-    color: hexToPdfRgb(coverData.qrBgColor || '#ffffff', '#ffffff'),
-    borderColor: hexToPdfRgb('#cbd5e1'),
-    borderWidth: 1 * s,
-  });
+    page.drawRectangle({
+      x: qrCardX,
+      y: qrCardBottomY,
+      width: qrCardW,
+      height: qrCardH,
+      color: hexToPdfRgb(coverData.qrBgColor || '#ffffff', '#ffffff'),
+      borderColor: hexToPdfRgb('#cbd5e1'),
+      borderWidth: 1 * s,
+    });
 
-  if (qrDataUrl) {
-    try {
-      const qrBytes = await fetch(qrDataUrl).then((r) => r.arrayBuffer());
-      const embeddedQr = await pdfDoc.embedPng(new Uint8Array(qrBytes));
-      page.drawImage(embeddedQr, {
-        x: qrCardX + qrCardPad,
-        y: qrCardBottomY + qrCardPad + qrLabelH,
-        width: qrImgSize,
-        height: qrImgSize,
-      });
-    } catch (e) {
-      console.warn('QR embed error:', e);
+    if (qrDataUrl) {
+      try {
+        const qrBytes = await fetch(qrDataUrl).then((r) => r.arrayBuffer());
+        const embeddedQr = await pdfDoc.embedPng(new Uint8Array(qrBytes));
+        page.drawImage(embeddedQr, {
+          x: qrCardX + qrCardPad,
+          y: qrCardBottomY + qrCardPad + qrLabelH,
+          width: qrImgSize,
+          height: qrImgSize,
+        });
+      } catch (e) {
+        console.warn('QR embed error:', e);
+      }
     }
+
+    const qrBadgeText = 'SCAN FOR DRIVE COPY';
+    const qrBadgeW = fontHelveticaBold.widthOfTextAtSize(qrBadgeText, 8 * s);
+    page.drawText(qrBadgeText, {
+      x: qrCardX + (qrCardW - qrBadgeW) / 2,
+      y: qrCardBottomY + qrCardPad + 4 * s,
+      size: 8 * s,
+      font: fontHelveticaBold,
+      color: hexToPdfRgb('#0f172a'),
+    });
+
+    const qrCenterX = qrCardX + qrCardW / 2;
+    await drawSmartTextLines(ctaRaw, {
+      xLeft: qrCenterX - 68 * s,
+      maxWidth: 136 * s,
+      topBaselineY: qrCardBottomY - 12 * s,
+      fontSize: 9 * s,
+      lineHeight: 11 * s,
+      font: bodyFont,
+      fontWeight: 500,
+      colorRgb: bodyRgb,
+      colorHex: bodyHex,
+      opacity: 0.78,
+      align: 'center',
+      lines: ctaLines,
+    });
   }
-
-  const qrBadgeText = 'SCAN FOR DRIVE COPY';
-  const qrBadgeW = fontHelveticaBold.widthOfTextAtSize(qrBadgeText, 8 * s);
-  page.drawText(qrBadgeText, {
-    x: qrCardX + (qrCardW - qrBadgeW) / 2,
-    y: qrCardBottomY + qrCardPad + 4 * s,
-    size: 8 * s,
-    font: fontHelveticaBold,
-    color: hexToPdfRgb('#0f172a'),
-  });
-
-  const qrCenterX = qrCardX + qrCardW / 2;
-  await drawSmartTextLines(ctaRaw, {
-    xLeft: qrCenterX - 68 * s,
-    maxWidth: 136 * s,
-    topBaselineY: qrCardBottomY - 12 * s,
-    fontSize: 9 * s,
-    lineHeight: 11 * s,
-    font: bodyFont,
-    fontWeight: 500,
-    colorRgb: bodyRgb,
-    colorHex: bodyHex,
-    opacity: 0.78,
-    align: 'center',
-    lines: ctaLines,
-  });
 
   // 5. Middle Content Stack (Logo + Header Meta + Title + Subtitle + Accent Rule + Summary)
   const topAreaStart = (hasBanner ? dims.height - bannerHeight : dims.height) - 40 * s;
