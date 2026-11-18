@@ -1,5 +1,5 @@
 import React from 'react';
-import { QrCode, X, ShieldCheck } from 'lucide-react';
+import { QrCode, X, ShieldCheck, AlertCircle } from 'lucide-react';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface AuthGateModalProps {
@@ -8,6 +8,7 @@ interface AuthGateModalProps {
   onLogin: () => void;
   isLoggingIn: boolean;
   actionTitle?: string;
+  errorMsg?: string | null;
 }
 
 export const AuthGateModal: React.FC<AuthGateModalProps> = ({
@@ -16,6 +17,7 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
   onLogin,
   isLoggingIn,
   actionTitle = 'Connect Google Drive',
+  errorMsg = null,
 }) => {
   if (!isOpen) return null;
 
@@ -53,6 +55,16 @@ export const AuthGateModal: React.FC<AuthGateModalProps> = ({
               PaperLink only accesses files it creates or uploads. Local PDF tools work without signing in.
             </span>
           </div>
+
+          {errorMsg && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 text-red-700 dark:text-red-200 text-xs flex items-start gap-2 leading-relaxed"
+            >
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
           <div className="flex flex-col items-center pt-1">
             <GoogleSignInButton

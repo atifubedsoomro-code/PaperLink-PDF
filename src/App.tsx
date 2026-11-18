@@ -1066,6 +1066,7 @@ export default function App() {
           onLogin={handleLogin}
           isLoggingIn={isLoggingIn}
           actionTitle={authGateAction}
+          errorMsg={authErrorMsg}
         />
 
         <SettingsModal

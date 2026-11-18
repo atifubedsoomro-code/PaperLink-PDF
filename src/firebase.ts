@@ -20,20 +20,26 @@ import {
 import { SavedDocRecord, BrandKitPreset } from './types';
 import appletConfig from '../firebase-applet-config.json';
 
-// Configure Firebase with user's dedicated PaperLink project
+// Configure Firebase via Vite env vars (Vercel) or firebase-applet-config.json (AI Studio)
 const config = {
-  apiKey: appletConfig.apiKey || 'AIzaSyD-44iztVhZurorn6blmehXGmzDKDdyRNg',
-  authDomain: appletConfig.authDomain || 'qr-drive-325f8.firebaseapp.com',
-  projectId: appletConfig.projectId || 'qr-drive-325f8',
-  storageBucket: appletConfig.storageBucket || 'qr-drive-325f8.firebasestorage.app',
-  messagingSenderId: appletConfig.messagingSenderId || '245248622910',
-  appId: appletConfig.appId || '1:245248622910:web:a9aa9a785cab370011ec6f',
-  measurementId: appletConfig.measurementId || 'G-P43SP7XPNT',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || appletConfig.apiKey || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket || '',
+  messagingSenderId:
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || appletConfig.appId || '',
+  measurementId:
+    import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || appletConfig.measurementId || undefined,
 };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(config);
+const databaseId =
+  import.meta.env.VITE_FIREBASE_DATABASE_ID ||
+  (appletConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
+  undefined;
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 
 // Provider with required scopes: Google Drive file management, Gmail send & Google Sheets feedback sync
 const provider = new GoogleAuthProvider();
@@ -158,8 +164,22 @@ export const googleSignIn = async (options?: {
 
     setCachedToken(credential.accessToken);
     return { user: result.user, accessToken: credential.accessToken };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Sign-in error:', error);
+    const code = String(error?.code || '');
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+    if (code === 'auth/unauthorized-domain' || String(error?.message || '').includes('auth/unauthorized-domain')) {
+      throw new Error(
+        `Domain "${host}" is not authorized in Firebase Auth yet. Open Firebase Console -> Authentication -> Settings -> Authorized domains and add "${host}".`
+      );
+    }
+    if (code === 'auth/popup-blocked') {
+      throw new Error('Google Sign-In popup was blocked by your browser. Allow popups for this site and try again.');
+    }
+    if (code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in popup was closed before completing. Click Sign in with Google to try again.');
+    }
     throw error;
   }
 };
