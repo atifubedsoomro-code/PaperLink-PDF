@@ -8,6 +8,7 @@ import {
   Loader2,
   Sliders,
   Eye,
+  ShieldCheck,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -159,6 +160,10 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
           </p>
           <p className="text-[11px] text-zinc-500 mt-1 tabular-nums">
             {pdfFile ? formatBytes(pdfFile.size) : 'Multi-page brochures, flyers, or decks supported'}
+          </p>
+          <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Your files never leave your device — rendered 100% locally in your browser.</span>
           </p>
         </div>
 

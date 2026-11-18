@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { executePaperLinkChat } from './api/chat.ts';
 import type { ChatRequestBody } from './api/chat.ts';
-import { executeFeedbackSubmission } from './api/feedback.ts';
+import { executeFeedbackSubmission, getFeedbackHealthStatus } from './api/feedback.ts';
 import type { FeedbackSubmissionPayload } from './api/feedback.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,8 +23,16 @@ async function createAppServer() {
     res.status(result.status).json(result.payload);
   });
 
+  app.get('/api/feedback', (_req: Request, res: Response) => {
+    res.status(200).json(getFeedbackHealthStatus());
+  });
+
   app.post('/api/feedback', async (req: Request, res: Response) => {
     const body = (req.body || {}) as FeedbackSubmissionPayload;
+    if (!body?.details || String(body.details).trim().length < 2) {
+      res.status(400).json({ error: 'Feedback details are required.' });
+      return;
+    }
     const result = await executeFeedbackSubmission(body);
     res.status(result.status).json(result.body);
   });

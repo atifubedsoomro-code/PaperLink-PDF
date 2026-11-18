@@ -22,6 +22,7 @@ import { DocumentUploader } from './components/DocumentUploader';
 import { ThemeSelector } from './components/ThemeSelector';
 import { ColorCarousel } from './components/ColorCarousel';
 import { CoverPreview } from './components/CoverPreview';
+import { MiniPreview } from './components/MiniPreview';
 import { DriveSyncPanel } from './components/DriveSyncPanel';
 import { ExportModal } from './components/ExportModal';
 import { EmailShareModal } from './components/EmailShareModal';
@@ -91,6 +92,7 @@ import {
   Files,
   FolderOpen,
   Eye,
+  Save,
 } from 'lucide-react';
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -106,6 +108,121 @@ interface FooterAction {
 }
 
 const STUDIO_TOUR_SEEN_KEY = 'paperlink_studio_tour_seen_v1';
+const COVER_DRAFT_STORAGE_KEY = 'paperlink_cover_draft_v1';
+
+interface StoredCoverDraft {
+  savedAt: number;
+  coverData: Partial<CoverData>;
+}
+
+function createDefaultCoverData(
+  defaultPaperSize: DefaultPaperSize,
+  defaultQrPosition: DefaultQrCorner
+): CoverData {
+  const initialTheme = COVER_THEMES[0];
+  return {
+    title: '',
+    subtitle: '',
+    preparedBy: '',
+    organization: '',
+    documentId: '',
+    date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    summary: '',
+    qrCallToAction: 'Scan with phone camera to view full soft copy on Google Drive.',
+    imageUrl: initialTheme.defaultImage,
+    themeId: initialTheme.id,
+    primaryColor: initialTheme.primaryColor,
+    accentColor: '#facc15',
+    titleColor: undefined,
+    subtitleColor: undefined,
+    textColor: undefined,
+    backgroundImageUrl: undefined,
+    backgroundImageOpacity: 0.35,
+    backgroundImageStyle: 'full',
+    logoUrl: undefined,
+    logoSize: 'medium',
+    logoPosition: 'top-left',
+    font: 'inter',
+    paperSize: defaultPaperSize,
+    qrPosition: defaultQrPosition,
+    qrColor: '#000000',
+    qrBgColor: '#ffffff',
+    showLogoInQR: false,
+    version: '',
+    showSyncTimestamp: false,
+    expiryNote: '',
+    stampPageNumbers: false,
+    watermarkText: '',
+    watermarkOpacity: 0.1,
+  };
+}
+
+function loadSavedCoverDraft(
+  defaultPaperSize: DefaultPaperSize,
+  defaultQrPosition: DefaultQrCorner
+): { coverData: CoverData; savedAt: number | null } {
+  const base = createDefaultCoverData(defaultPaperSize, defaultQrPosition);
+  try {
+    const raw = localStorage.getItem(COVER_DRAFT_STORAGE_KEY);
+    if (!raw) return { coverData: base, savedAt: null };
+    const parsed = JSON.parse(raw) as StoredCoverDraft | Partial<CoverData>;
+    const draftFields =
+      parsed && typeof parsed === 'object' && 'coverData' in parsed && parsed.coverData
+        ? (parsed.coverData as Partial<CoverData>)
+        : (parsed as Partial<CoverData>);
+    const savedAt =
+      parsed && typeof parsed === 'object' && 'savedAt' in parsed && typeof parsed.savedAt === 'number'
+        ? parsed.savedAt
+        : Date.now();
+    if (!draftFields || typeof draftFields !== 'object') {
+      return { coverData: base, savedAt: null };
+    }
+    return {
+      coverData: {
+        ...base,
+        ...draftFields,
+      },
+      savedAt,
+    };
+  } catch {
+    return { coverData: base, savedAt: null };
+  }
+}
+
+function saveCoverDraftToStorage(data: CoverData): number | null {
+  const now = Date.now();
+  try {
+    localStorage.setItem(COVER_DRAFT_STORAGE_KEY, JSON.stringify({ savedAt: now, coverData: data }));
+    return now;
+  } catch {
+    // Fallback if a huge embedded background/logo data URL exceeds localStorage quota
+    try {
+      const compactData: CoverData = {
+        ...data,
+        backgroundImageUrl:
+          data.backgroundImageUrl && data.backgroundImageUrl.length > 180_000
+            ? undefined
+            : data.backgroundImageUrl,
+        logoUrl: data.logoUrl && data.logoUrl.length > 180_000 ? undefined : data.logoUrl,
+      };
+      localStorage.setItem(
+        COVER_DRAFT_STORAGE_KEY,
+        JSON.stringify({ savedAt: now, coverData: compactData })
+      );
+      return now;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function clearCoverDraftFromStorage() {
+  try {
+    localStorage.removeItem(COVER_DRAFT_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 function readInitialView(): AppView {
   if (typeof window === 'undefined') return 'home';
@@ -263,43 +380,58 @@ export default function App() {
   const [currentDoc, setCurrentDoc] = useState<UploadedDocInfo | null>(null);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
 
-  const initialTheme = COVER_THEMES[0];
+  const initialDraft = useRef<{ coverData: CoverData; savedAt: number | null } | null>(null);
+  if (initialDraft.current === null) {
+    initialDraft.current = loadSavedCoverDraft(defaultPaperSize, defaultQrPosition);
+  }
 
-  const [coverData, setCoverData] = useState<CoverData>({
-    title: '',
-    subtitle: '',
-    preparedBy: '',
-    organization: '',
-    documentId: '',
-    date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-    summary: '',
-    qrCallToAction: 'Scan with phone camera to view full soft copy on Google Drive.',
-    imageUrl: initialTheme.defaultImage,
-    themeId: initialTheme.id,
-    primaryColor: initialTheme.primaryColor,
-    accentColor: '#facc15',
-    titleColor: undefined,
-    subtitleColor: undefined,
-    textColor: undefined,
-    backgroundImageUrl: undefined,
-    backgroundImageOpacity: 0.35,
-    backgroundImageStyle: 'full',
-    logoUrl: undefined,
-    logoSize: 'medium',
-    logoPosition: 'top-left',
-    font: 'inter',
-    paperSize: defaultPaperSize,
-    qrPosition: defaultQrPosition,
-    qrColor: '#000000',
-    qrBgColor: '#ffffff',
-    showLogoInQR: false,
-    version: '',
-    showSyncTimestamp: false,
-    expiryNote: '',
-    stampPageNumbers: false,
-    watermarkText: '',
-    watermarkOpacity: 0.1,
-  });
+  const [coverData, setCoverData] = useState<CoverData>(() => initialDraft.current!.coverData);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<number | null>(
+    () => initialDraft.current!.savedAt
+  );
+  const coverDataRef = useRef<CoverData>(coverData);
+  coverDataRef.current = coverData;
+
+  const hasDraftEdits = Boolean(
+    coverData.title.trim() ||
+      coverData.subtitle.trim() ||
+      coverData.preparedBy.trim() ||
+      coverData.organization.trim() ||
+      coverData.documentId.trim() ||
+      coverData.summary.trim() ||
+      coverData.watermarkText?.trim() ||
+      coverData.version?.trim() ||
+      coverData.expiryNote?.trim() ||
+      coverData.logoUrl ||
+      coverData.backgroundImageUrl
+  );
+
+  // Debounced auto-save whenever coverData changes
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const savedTs = saveCoverDraftToStorage(coverData);
+      if (savedTs) setLastAutoSavedAt(savedTs);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [coverData]);
+
+  // Periodic background auto-save (every 10 seconds) + flush before page refresh/unload
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const savedTs = saveCoverDraftToStorage(coverDataRef.current);
+      if (savedTs) setLastAutoSavedAt(savedTs);
+    }, 10_000);
+
+    const handleBeforeUnload = () => {
+      saveCoverDraftToStorage(coverDataRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   // Google Drive & QR state
   const [uploadMode, setUploadMode] = useState<DriveUploadMode>('source');
@@ -964,17 +1096,16 @@ export default function App() {
     setCurrentDoc(null);
     setUploadResult(null);
     setUploadError(null);
-    setCoverData((prev) => ({
-      ...prev,
-      title: '',
-      subtitle: '',
-      organization: '',
-      documentId: '',
-      summary: '',
-      paperSize: defaultPaperSize,
-      qrPosition: defaultQrPosition,
-    }));
+    clearCoverDraftFromStorage();
+    setLastAutoSavedAt(null);
+    setCoverData(createDefaultCoverData(defaultPaperSize, defaultQrPosition));
     setCurrentStep(1);
+  };
+
+  const handleDiscardCoverDraft = () => {
+    clearCoverDraftFromStorage();
+    setLastAutoSavedAt(null);
+    setCoverData(createDefaultCoverData(defaultPaperSize, defaultQrPosition));
   };
 
   const originalPagesCount =
@@ -1366,6 +1497,34 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Subtle Cover Editor Auto-Save Draft Bar */}
+                {(lastAutoSavedAt || hasDraftEdits) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/90 dark:bg-[#111116] text-xs">
+                    <span className="inline-flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+                      <Save className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>
+                        Draft auto-saved locally
+                        {lastAutoSavedAt
+                          ? ` · ${new Date(lastAutoSavedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}`
+                          : ''}
+                      </span>
+                    </span>
+                    {hasDraftEdits && (
+                      <button
+                        type="button"
+                        onClick={handleDiscardCoverDraft}
+                        className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer"
+                      >
+                        Reset draft
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {currentStep === 1 && (
                   <div data-tour-target="studio-upload">
                     <DocumentUploader
@@ -1387,6 +1546,18 @@ export default function App() {
                       }
                     />
                   </div>
+                )}
+
+                {currentStep >= 2 && (
+                  <MiniPreview
+                    coverData={coverData}
+                    currentDoc={currentDoc}
+                    qrDataUrl={qrDataUrl}
+                    activeStep={currentStep}
+                    onJumpToThemes={() => setCurrentStep(2)}
+                    onJumpToColors={() => setCurrentStep(3)}
+                    onOpenFullPreview={qrDataUrl ? handlePreviewMergedPdf : undefined}
+                  />
                 )}
 
                 {currentStep === 2 && (

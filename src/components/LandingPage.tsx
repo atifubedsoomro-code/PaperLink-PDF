@@ -130,7 +130,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 transition-colors">
+      <div className="bg-zinc-50 dark:bg-[#09090b] text-zinc-900 dark:text-zinc-100 transition-colors overflow-x-clip">
         {/* 1. HERO + ANIMATED DOCUMENTATION STAGE ON ENTRY */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-14 lg:pt-14 lg:pb-20">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
@@ -211,11 +211,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <motion.div
                   aria-hidden="true"
                   animate={{
-                    opacity: [0.55, 0.9, 0.55],
-                    scale: [0.98, 1.02, 0.98],
+                    opacity: [0.55, 0.88, 0.55],
+                    scale: [0.985, 1.015, 0.985],
                   }}
                   transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
-                  className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl"
+                  className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl will-change-transform"
                 />
               )}
 
@@ -227,13 +227,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'shadow-md'
                 }`}
               >
-                {/* Traveling Top Neon Laser Accent */}
-                <motion.div
-                  aria-hidden="true"
-                  animate={{ x: ['-35%', '135%'] }}
-                  transition={{ repeat: Infinity, duration: 6.8, ease: 'easeInOut' }}
-                  className="pointer-events-none absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] z-20"
-                />
+                {/* Clipped Top Neon Laser Track (prevents rounded-corner overflow glitch) */}
+                {neonGlowMode === 'full' && (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
+                  >
+                    <motion.div
+                      initial={{ x: '-100%', opacity: 0 }}
+                      animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
+                      transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
+                      className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
+                    />
+                  </div>
+                )}
 
                 <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#0d0d12]/95 backdrop-blur-xl overflow-hidden">
                   {/* Documentation Chrome Header */}
@@ -990,7 +997,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 Developed by <span className="font-semibold text-zinc-800 dark:text-zinc-300">Team Terminators</span> (Pakistan) · Conversions run locally in your browser.
               </p>
               <p className="mt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-                Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham
+                Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham · 5. Manahil Shamsi
               </p>
             </div>
 

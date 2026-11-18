@@ -25,6 +25,7 @@ import {
   Upload,
   Maximize2,
   Eye,
+  ShieldCheck,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -607,6 +608,10 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
           </h3>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md mx-auto">
             Add resizeable text, resizeable pictures, whiteout/redact rectangles, highlights, freehand drawings, and stamps directly onto any page.
+          </p>
+          <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Your files never leave your device — 100% processed locally in your browser.</span>
           </p>
         </div>
       ) : (

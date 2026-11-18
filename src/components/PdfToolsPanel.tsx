@@ -23,6 +23,10 @@ import {
   Lock,
   FileImage,
   Eye,
+  ShieldCheck,
+  Undo2,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -50,6 +54,7 @@ import {
   transformPdfPages,
   signAndStampPdf,
   estimateCompressedPdfSize,
+  parsePageRange,
 } from '../services/pdfToolkit';
 import { renderPdfPages } from '../services/documentParser';
 import { PdfEditorTool } from './PdfEditorTool';
@@ -144,11 +149,14 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   const [compressLevel, setCompressLevel] = useState<CompressionLevel>('balanced');
   const [compressQualityPct, setCompressQualityPct] = useState<number>(70);
   const [compressResult, setCompressResult] = useState<PdfCompressResult | null>(null);
+  const [compressBeforeThumb, setCompressBeforeThumb] = useState<string | null>(null);
+  const [compressAfterThumb, setCompressAfterThumb] = useState<string | null>(null);
 
   // 5. PDF Split
   const splitInputRef = useRef<HTMLInputElement>(null);
   const [splitFile, setSplitFile] = useState<File | null>(null);
   const [splitPageCount, setSplitPageCount] = useState<number>(0);
+  const [splitPageThumbs, setSplitPageThumbs] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('extract-range');
   const [splitExpr, setSplitExpr] = useState('1-3');
   const [splitResult, setSplitResult] = useState<PdfSplitResult | null>(null);
@@ -163,6 +171,8 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   const orgInputRef = useRef<HTMLInputElement>(null);
   const [orgFile, setOrgFile] = useState<File | null>(null);
   const [orgThumbs, setOrgThumbs] = useState<PdfPageThumb[]>([]);
+  const [orgInitialThumbs, setOrgInitialThumbs] = useState<PdfPageThumb[]>([]);
+  const [orgUndoStack, setOrgUndoStack] = useState<PdfPageThumb[][]>([]);
   const [orgResult, setOrgResult] = useState<PdfTransformResult | null>(null);
 
   // 8. Sign & Stamp PDF
@@ -293,10 +303,26 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
     }
   };
 
+  const handleSelectCompressFile = async (f: File) => {
+    resetFeedback();
+    setCompressFile(f);
+    setCompressResult(null);
+    setCompressBeforeThumb(null);
+    setCompressAfterThumb(null);
+    try {
+      const buf = await f.arrayBuffer();
+      const thumbs = await renderPdfPages(buf, 1);
+      if (thumbs[0]) setCompressBeforeThumb(thumbs[0]);
+    } catch {
+      // Optional visual thumbnail fallback
+    }
+  };
+
   const handleRunCompress = async () => {
     if (!compressFile) return;
     resetFeedback();
     setCompressResult(null);
+    setCompressAfterThumb(null);
     setIsWorking(true);
     try {
       const res = await compressPdfFile(
@@ -306,6 +332,13 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         compressQualityPct
       );
       setCompressResult(res);
+      try {
+        const afterBuf = await res.blob.arrayBuffer();
+        const afterThumbs = await renderPdfPages(afterBuf, 1);
+        if (afterThumbs[0]) setCompressAfterThumb(afterThumbs[0]);
+      } catch {
+        // Ignore preview fallback error
+      }
       const savedPct = Math.max(
         0,
         Math.round(((res.originalSize - res.compressedSize) / Math.max(1, res.originalSize)) * 100)
@@ -329,13 +362,65 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
     resetFeedback();
     setSplitFile(f);
     setSplitResult(null);
+    setSplitPageThumbs([]);
     try {
       const info = await inspectPdfSource(f);
       setSplitPageCount(info.pageCount);
       setSplitExpr(info.pageCount > 1 ? `1-${Math.min(3, info.pageCount)}` : '1');
+      try {
+        const buf = await f.arrayBuffer();
+        const thumbs = await renderPdfPages(buf, Math.min(info.pageCount, 18));
+        setSplitPageThumbs(thumbs);
+      } catch {
+        // Optional thumbnails
+      }
     } catch {
       setErrorMsg('Could not read page count from this PDF.');
     }
+  };
+
+  const getSplitSelectedPageSet = (): Set<number> => {
+    if (!splitPageCount) return new Set();
+    try {
+      if (splitMode === 'extract-range') {
+        const indices = parsePageRange(splitExpr, splitPageCount);
+        return new Set(indices.map((i) => i + 1));
+      }
+      const chunkSize = Math.max(1, parseInt(splitExpr, 10) || 1);
+      const firstPart = new Set<number>();
+      for (let p = 1; p <= Math.min(chunkSize, splitPageCount); p++) firstPart.add(p);
+      return firstPart;
+    } catch {
+      return new Set();
+    }
+  };
+
+  const handleToggleSplitPageThumb = (pageNum: number) => {
+    if (splitMode !== 'extract-range' || !splitPageCount) return;
+    const current = getSplitSelectedPageSet();
+    if (current.has(pageNum)) {
+      if (current.size <= 1) return; // keep at least 1 page selected
+      current.delete(pageNum);
+    } else {
+      current.add(pageNum);
+    }
+    const sorted = Array.from(current).sort((a, b) => a - b);
+    // Compact consecutive pages into readable ranges like 1-3, 5
+    const parts: string[] = [];
+    let rangeStart = sorted[0];
+    let rangeEnd = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === rangeEnd + 1) {
+        rangeEnd = sorted[i];
+      } else {
+        parts.push(rangeStart === rangeEnd ? `${rangeStart}` : `${rangeStart}-${rangeEnd}`);
+        rangeStart = sorted[i];
+        rangeEnd = sorted[i];
+      }
+    }
+    parts.push(rangeStart === rangeEnd ? `${rangeStart}` : `${rangeStart}-${rangeEnd}`);
+    setSplitExpr(parts.join(', '));
+    setSplitResult(null);
   };
 
   const handleRunSplit = async () => {
@@ -413,6 +498,8 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
     resetFeedback();
     setOrgFile(f);
     setOrgThumbs([]);
+    setOrgInitialThumbs([]);
+    setOrgUndoStack([]);
     setOrgResult(null);
     setIsWorking(true);
     try {
@@ -420,12 +507,37 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setOrgThumbs(thumbs);
+      setOrgInitialThumbs(thumbs.map((t) => ({ ...t })));
     } catch (err: any) {
       setErrorMsg(err?.message || 'Could not extract page thumbnails.');
     } finally {
       setIsWorking(false);
       setProgress(null);
     }
+  };
+
+  const commitOrgChange = (updater: (prev: PdfPageThumb[]) => PdfPageThumb[]) => {
+    setOrgThumbs((prev) => {
+      const snapshot = prev.map((t) => ({ ...t }));
+      setOrgUndoStack((stack) => [...stack.slice(-29), snapshot]);
+      return updater(prev);
+    });
+    setOrgResult(null);
+  };
+
+  const handleOrgUndo = () => {
+    if (orgUndoStack.length === 0) return;
+    const previousState = orgUndoStack[orgUndoStack.length - 1];
+    setOrgUndoStack((stack) => stack.slice(0, -1));
+    setOrgThumbs(previousState);
+    setOrgResult(null);
+  };
+
+  const handleOrgResetAll = () => {
+    if (orgInitialThumbs.length === 0) return;
+    setOrgUndoStack((stack) => [...stack.slice(-29), orgThumbs.map((t) => ({ ...t }))]);
+    setOrgThumbs(orgInitialThumbs.map((t) => ({ ...t })));
+    setOrgResult(null);
   };
 
   const handleRunTransform = async () => {
@@ -657,6 +769,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 tabular-nums">
                 {p2wFile ? `${formatBytes(p2wFile.size)} · Click to replace` : 'Supports single and multi-page PDF files'}
               </p>
+              <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Your files never leave your device — converted 100% locally in your browser.</span>
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -833,6 +949,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 tabular-nums">
                 {w2pFile ? `${formatBytes(w2pFile.size)} · Click to replace` : 'Standard Office Open XML (.docx) documents'}
               </p>
+              <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Your files never leave your device — converted 100% locally in your browser.</span>
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -993,7 +1113,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   Select or drop 2+ PDF files to combine
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                  Files stay private in browser memory while merging
+                  Combine reports, scanned assignments, or contracts into one clean PDF.
+                </p>
+                <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Your files never leave your device — merged 100% locally in your browser.</span>
                 </p>
               </div>
             ) : (
@@ -1177,11 +1301,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) {
-                  setCompressFile(f);
-                  setCompressResult(null);
-                  resetFeedback();
-                }
+                if (f) void handleSelectCompressFile(f);
               }}
             />
 
@@ -1191,11 +1311,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               onDrop={(e) => {
                 e.preventDefault();
                 const f = e.dataTransfer.files?.[0];
-                if (f) {
-                  setCompressFile(f);
-                  setCompressResult(null);
-                  resetFeedback();
-                }
+                if (f) void handleSelectCompressFile(f);
               }}
               className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 bg-zinc-50 dark:bg-zinc-950/60 rounded-xl p-8 text-center cursor-pointer transition-colors"
             >
@@ -1207,6 +1323,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 {compressFile
                   ? `Original size: ${formatBytes(compressFile.size)}`
                   : 'Works on reports, scans, and exported PDF decks'}
+              </p>
+              <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Your files never leave your device — compressed 100% locally in your browser.</span>
               </p>
             </div>
 
@@ -1226,6 +1346,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     onClick={() => {
                       setCompressLevel(opt.id);
                       setCompressQualityPct(opt.pct);
+                      setCompressResult(null);
                     }}
                     className={`p-3 rounded-xl border text-left cursor-pointer transition-colors ${
                       compressLevel === opt.id
@@ -1260,6 +1381,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     const val = parseInt(e.target.value, 10);
                     setCompressQualityPct(val);
                     setCompressLevel(val >= 96 ? 'lossless' : val >= 55 ? 'balanced' : 'maximum');
+                    setCompressResult(null);
                   }}
                   aria-label="PDF compression strength slider"
                   className="w-full accent-yellow-400 cursor-pointer"
@@ -1285,7 +1407,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                           Approx. Estimated Output
                         </span>
                         <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">
-                          ~{formatBytes(est.estimatedBytes)}{' '}
+                          {formatBytes(compressFile.size)} → ~{formatBytes(est.estimatedBytes)}{' '}
                           <span className="text-emerald-600 dark:text-emerald-400">
                             (~{est.reductionPct}% smaller)
                           </span>
@@ -1316,16 +1438,61 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
 
           <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
             {compressResult ? (
-              <div className="space-y-5">
-                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-5 h-5" />
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Compression Report</h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Before &amp; After Preview</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompressResult(null);
+                      setCompressAfterThumb(null);
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-yellow-400 cursor-pointer"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Try different level</span>
+                  </button>
                 </div>
+
                 {compressResult.keptOriginalBecauseSmaller && (
                   <p className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs leading-relaxed">
                     This PDF is already tightly packed—original bytes were preserved cleanly.
                   </p>
                 )}
+
+                {/* Visual Before vs After Page 1 Thumbnail & Size Comparison */}
+                {(compressBeforeThumb || compressAfterThumb) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-center space-y-1.5">
+                      <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                        Before · {formatBytes(compressResult.originalSize)}
+                      </p>
+                      <div className="aspect-[3/4] rounded-lg bg-white border border-zinc-200 dark:border-zinc-800 overflow-hidden flex items-center justify-center">
+                        {compressBeforeThumb ? (
+                          <img src={compressBeforeThumb} alt="Original Page 1" className="max-w-full max-h-full object-contain" />
+                        ) : (
+                          <span className="text-[11px] text-zinc-400">Original</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl border border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-950/20 text-center space-y-1.5">
+                      <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                        After · {formatBytes(compressResult.compressedSize)}
+                      </p>
+                      <div className="aspect-[3/4] rounded-lg bg-white border border-emerald-200 dark:border-emerald-500/30 overflow-hidden flex items-center justify-center">
+                        {compressAfterThumb ? (
+                          <img src={compressAfterThumb} alt="Compressed Page 1" className="max-w-full max-h-full object-contain" />
+                        ) : (
+                          <span className="text-[11px] text-zinc-400">Compressed</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-950 p-4 space-y-2.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-zinc-500 dark:text-zinc-400">Original Size</span>
@@ -1334,13 +1501,13 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-zinc-500 dark:text-zinc-400">Output Size</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">Compressed Size</span>
                     <span className="font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
                       {formatBytes(compressResult.compressedSize)}
                     </span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
-                    <span className="text-zinc-500 dark:text-zinc-400">Net Reduction</span>
+                    <span className="text-zinc-500 dark:text-zinc-400">Space Saved</span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
                       {compressResult.originalSize > 0
                         ? `${Math.max(
@@ -1350,7 +1517,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                                 compressResult.originalSize) *
                                 100
                             )
-                          )}% saved`
+                          )}% smaller`
                         : '0%'}
                     </span>
                   </div>
@@ -1371,7 +1538,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                         className="py-3 px-3.5 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
                       >
                         <Eye className="w-4 h-4" />
-                        <span>Preview</span>
+                        <span>Inspect All Pages</span>
                       </button>
                     )}
                     <button
@@ -1380,7 +1547,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                       className="flex-1 py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
                     >
                       <Download className="w-4 h-4" />
-                      <span>Download Compressed PDF</span>
+                      <span>Download PDF</span>
                     </button>
                   </div>
                   <button
@@ -1394,14 +1561,30 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="my-auto text-center py-10 space-y-2">
-                <Minimize2 className="w-10 h-10 text-zinc-400 dark:text-zinc-700 mx-auto" />
-                <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                  Ready for Optimization
-                </h3>
-                <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                  Select any PDF to shrink its file size cleanly for sharing, printing, or Google Drive upload.
-                </p>
+              <div className="my-auto text-center py-6 space-y-3">
+                {compressBeforeThumb ? (
+                  <>
+                    <p className="text-xs font-bold text-zinc-900 dark:text-white">
+                      Source Preview (Page 1 · {formatBytes(compressFile?.size || 0)})
+                    </p>
+                    <div className="max-w-[200px] mx-auto aspect-[3/4] rounded-xl bg-white border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-xs flex items-center justify-center">
+                      <img src={compressBeforeThumb} alt="Source preview" className="max-w-full max-h-full object-contain" />
+                    </div>
+                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                      Click Compress PDF to compare Before vs After quality and file size before downloading.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Minimize2 className="w-10 h-10 text-zinc-400 dark:text-zinc-700 mx-auto" />
+                    <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                      Ready for Optimization
+                    </h3>
+                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                      Select any PDF to compare Before vs After size &amp; visual quality before downloading.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1415,7 +1598,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">Split PDF & Extract Pages</h2>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-                Extract specific pages (e.g. 2-5, 9) into a clean PDF or split a multi-chapter dossier into equal parts.
+                Click page thumbnails below or enter a range (e.g. 2-5, 9) to preview &amp; extract clean PDF files.
               </p>
             </div>
 
@@ -1426,7 +1609,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) handleSelectSplitFile(f);
+                if (f) void handleSelectSplitFile(f);
               }}
             />
 
@@ -1436,7 +1619,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               onDrop={(e) => {
                 e.preventDefault();
                 const f = e.dataTransfer.files?.[0];
-                if (f) handleSelectSplitFile(f);
+                if (f) void handleSelectSplitFile(f);
               }}
               className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 bg-zinc-50 dark:bg-zinc-950/60 rounded-xl p-8 text-center cursor-pointer transition-colors"
             >
@@ -1447,6 +1630,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 tabular-nums">
                 {splitFile ? `${splitPageCount} total pages · ${formatBytes(splitFile.size)}` : 'Any PDF length'}
               </p>
+              <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Your files never leave your device — split 100% locally in your browser.</span>
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1455,6 +1642,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 onClick={() => {
                   setSplitMode('extract-range');
                   setSplitExpr(splitPageCount > 1 ? `1-${Math.min(3, splitPageCount)}` : '1');
+                  setSplitResult(null);
                 }}
                 className={`p-3 rounded-xl border text-left cursor-pointer ${
                   splitMode === 'extract-range'
@@ -1470,6 +1658,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 onClick={() => {
                   setSplitMode('fixed-chunks');
                   setSplitExpr('2');
+                  setSplitResult(null);
                 }}
                 className={`p-3 rounded-xl border text-left cursor-pointer ${
                   splitMode === 'fixed-chunks'
@@ -1483,16 +1672,33 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                {splitMode === 'extract-range'
-                  ? `Page Range (1 to ${splitPageCount || '?'})`
-                  : 'Pages Per Part'}
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  {splitMode === 'extract-range'
+                    ? `Page Range (1 to ${splitPageCount || '?'})`
+                    : 'Pages Per Part'}
+                </label>
+                {splitFile && splitMode === 'extract-range' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplitExpr(splitPageCount > 1 ? `1-${splitPageCount}` : '1');
+                      setSplitResult(null);
+                    }}
+                    className="text-[11px] font-semibold text-amber-700 dark:text-yellow-400 hover:underline cursor-pointer"
+                  >
+                    Select all pages
+                  </button>
+                )}
+              </div>
               <input
                 type={splitMode === 'fixed-chunks' ? 'number' : 'text'}
                 min={1}
                 value={splitExpr}
-                onChange={(e) => setSplitExpr(e.target.value)}
+                onChange={(e) => {
+                  setSplitExpr(e.target.value);
+                  setSplitResult(null);
+                }}
                 placeholder={splitMode === 'extract-range' ? '1-3, 5' : '2'}
                 className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white focus:border-yellow-400 focus:outline-none"
               />
@@ -1512,18 +1718,35 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
             {splitResult ? (
               <>
-                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-5 h-5" />
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
-                    Generated {splitResult.files.length} PDF {splitResult.files.length === 1 ? 'File' : 'Files'}
-                  </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="w-5 h-5" />
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
+                      Generated {splitResult.files.length} PDF {splitResult.files.length === 1 ? 'File' : 'Files'}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSplitResult(null)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-yellow-400 cursor-pointer"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Change selection</span>
+                  </button>
                 </div>
+
+                {splitFile && (
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 tabular-nums">
+                    Before: <span className="font-semibold text-zinc-900 dark:text-white">{splitPageCount} pages</span> ({formatBytes(splitFile.size)}) → Output: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{splitResult.files.length} PDF part(s)</span>
+                  </p>
+                )}
+
                 <div className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-950 max-h-80 overflow-y-auto">
                   {splitResult.files.map((item) => (
                     <div key={item.fileName} className="p-3.5 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{item.fileName}</p>
-                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 tabular-nums">
                           {item.label} · {item.pageCount} pages · {formatBytes(item.blob.size)}
                         </p>
                       </div>
@@ -1539,10 +1762,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                                 subtitle: `${item.label} · ${item.pageCount} page(s)`,
                               })
                             }
-                            className="p-2 rounded-lg border border-cyan-400/50 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 cursor-pointer"
-                            title="Preview PDF part"
+                            className="px-2.5 py-2 rounded-lg border border-cyan-400/50 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 text-xs font-semibold cursor-pointer inline-flex items-center gap-1"
+                            title="Preview PDF part before downloading"
                           >
                             <Eye className="w-3.5 h-3.5" />
+                            <span>Preview</span>
                           </button>
                         )}
                         <button
@@ -1566,12 +1790,59 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   ))}
                 </div>
               </>
+            ) : splitPageThumbs.length > 0 ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-zinc-900 dark:text-white">
+                    {splitMode === 'extract-range'
+                      ? 'Click pages to include or exclude'
+                      : `Previewing source pages (${splitPageCount} total)`}
+                  </span>
+                  <span className="font-mono text-amber-700 dark:text-yellow-400 font-semibold tabular-nums">
+                    {getSplitSelectedPageSet().size} selected
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 max-h-80 overflow-y-auto pr-1">
+                  {splitPageThumbs.map((thumbUrl, i) => {
+                    const pageNum = i + 1;
+                    const selectedSet = getSplitSelectedPageSet();
+                    const isSelected = selectedSet.has(pageNum);
+                    return (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => handleToggleSplitPageThumb(pageNum)}
+                        disabled={splitMode !== 'extract-range'}
+                        className={`p-1.5 rounded-xl border text-left transition-all ${
+                          splitMode === 'extract-range' ? 'cursor-pointer' : 'cursor-default'
+                        } ${
+                          isSelected
+                            ? 'border-yellow-400 bg-yellow-400/15 ring-1 ring-yellow-400/50'
+                            : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 opacity-55 hover:opacity-90'
+                        }`}
+                      >
+                        <div className="aspect-[3/4] rounded-md bg-white overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center">
+                          <img src={thumbUrl} alt={`Page ${pageNum}`} className="max-w-full max-h-full object-contain" />
+                        </div>
+                        <p className="mt-1 text-[10px] font-mono font-bold text-center text-zinc-700 dark:text-zinc-300 tabular-nums">
+                          Page {pageNum} {isSelected ? '✓' : ''}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                {splitPageCount > splitPageThumbs.length && (
+                  <p className="text-[11px] text-zinc-500 text-center">
+                    Showing first {splitPageThumbs.length} of {splitPageCount} page thumbnails — enter any page number up to {splitPageCount} in the range box.
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="my-auto text-center py-12 space-y-2">
                 <Scissors className="w-10 h-10 text-zinc-400 dark:text-zinc-700 mx-auto" />
-                <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">No Extracted Parts Yet</h3>
+                <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Visual Page Picker Ready</h3>
                 <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                  Choose a page range or chunk size on the left to generate separate clean PDF files.
+                  Select a PDF on the left to preview page thumbnails, verify what gets kept, and inspect each split PDF before downloading.
                 </p>
               </div>
             )}
@@ -1624,6 +1895,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 <ImageIcon className="w-8 h-8 text-amber-600 dark:text-yellow-400 mx-auto mb-3" />
                 <p className="text-sm font-bold text-zinc-900 dark:text-white">Select or drop JPG, PNG, or WebP scans</p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Reorder images before building your PDF packet</p>
+                <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Your files never leave your device — packaged 100% locally in your browser.</span>
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50 dark:bg-zinc-950 max-h-72 overflow-y-auto">
@@ -1763,10 +2038,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">Rotate, Reorder & Delete PDF Pages</h2>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-                Fix upside-down scans, drop blank pages, or rearrange page sequence before attaching a QR cover.
+                Fix upside-down scans, drop blank pages, or rearrange page sequence — with instant Undo &amp; preview.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 ref={orgInputRef}
                 type="file"
@@ -1777,6 +2052,28 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                   if (f) handleSelectOrganizeFile(f);
                 }}
               />
+              {orgThumbs.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleOrgUndo}
+                    disabled={orgUndoStack.length === 0 || isWorking}
+                    className="px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:border-yellow-400 disabled:opacity-40 text-xs font-semibold text-zinc-800 dark:text-zinc-200 inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Undo{orgUndoStack.length > 0 ? ` (${orgUndoStack.length})` : ''}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOrgResetAll}
+                    disabled={orgUndoStack.length === 0 || isWorking}
+                    className="px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:border-yellow-400 disabled:opacity-40 text-xs font-semibold text-zinc-800 dark:text-zinc-200 inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset All</span>
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => orgInputRef.current?.click()}
@@ -1788,8 +2085,8 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleRunTransform}
-                  disabled={isWorking}
-                  className="px-4 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-xs font-bold cursor-pointer"
+                  disabled={isWorking || orgThumbs.every((t) => t.deleted)}
+                  className="px-4 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black text-xs font-bold cursor-pointer"
                 >
                   Save Updated PDF
                 </button>
@@ -1800,127 +2097,190 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           {orgThumbs.length === 0 ? (
             <div
               onClick={() => orgInputRef.current?.click()}
-              className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 bg-zinc-50 dark:bg-zinc-950/60 rounded-xl p-10 text-center cursor-pointer"
+              className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 bg-zinc-50 dark:bg-zinc-950/60 rounded-xl p-10 text-center cursor-pointer transition-colors"
             >
               <RotateCw className="w-8 h-8 text-amber-600 dark:text-yellow-400 mx-auto mb-3" />
               <p className="text-sm font-bold text-zinc-900 dark:text-white">Select a PDF to inspect thumbnails</p>
+              <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>Your files never leave your device — edited 100% locally in your browser.</span>
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {orgThumbs.map((page, idx) => (
-                <div
-                  key={page.pageNumber}
-                  className={`p-3 rounded-xl border transition-all flex flex-col gap-2 ${
-                    page.deleted
-                      ? 'opacity-40 border-red-400/50 bg-red-50/40 dark:bg-red-950/20'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950'
-                  }`}
-                >
-                  <div className="aspect-[3/4] bg-white rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center">
-                    <img
-                      src={page.thumbnailUrl}
-                      alt={`Page ${page.pageNumber}`}
-                      style={{ transform: `rotate(${page.rotationDelta}deg)` }}
-                      className="max-w-full max-h-full object-contain transition-transform"
-                    />
+            <>
+              {(() => {
+                const keptPages = orgThumbs.filter((t) => !t.deleted).length;
+                const deletedPages = orgThumbs.length - keptPages;
+                const rotatedPages = orgThumbs.filter((t) => !t.deleted && t.rotationDelta !== 0).length;
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs">
+                    <span className="text-zinc-700 dark:text-zinc-300 font-medium tabular-nums">
+                      Previewing change plan: <strong className="text-zinc-950 dark:text-white">{keptPages} of {orgThumbs.length} pages kept</strong>
+                      {rotatedPages > 0 ? ` · ${rotatedPages} rotated` : ''}
+                      {deletedPages > 0 ? ` · ${deletedPages} marked removed` : ''}
+                    </span>
+                    <span className="text-[11px] text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1 font-medium">
+                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>All edits are reversible until you click Save</span>
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600 dark:text-zinc-400">
-                    <span>Orig P{page.pageNumber}</span>
-                    {page.rotationDelta !== 0 && <span className="text-amber-600 dark:text-yellow-400">{page.rotationDelta}°</span>}
-                  </div>
-                  <div className="flex items-center justify-between gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrgThumbs((prev) =>
-                          prev.map((t, i) => (i === idx ? { ...t, rotationDelta: (t.rotationDelta + 90) % 360 } : t))
-                        );
-                        setOrgResult(null);
-                      }}
-                      title="Rotate 90° clockwise"
-                      className="p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-yellow-400 cursor-pointer"
-                    >
-                      <RotateCw className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (idx === 0) return;
-                        setOrgThumbs((prev) => {
-                          const next = [...prev];
-                          const [m] = next.splice(idx, 1);
-                          next.splice(idx - 1, 0, m);
-                          return next;
-                        });
-                      }}
-                      disabled={idx === 0}
-                      title="Move earlier"
-                      className="p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 cursor-pointer"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5 -rotate-90" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrgThumbs((prev) =>
-                          prev.map((t, i) => (i === idx ? { ...t, deleted: !t.deleted } : t))
-                        );
-                        setOrgResult(null);
-                      }}
-                      title={page.deleted ? 'Restore page' : 'Delete page'}
-                      className={`p-1.5 rounded border cursor-pointer ${
+                );
+              })()}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {orgThumbs.map((page, idx) => {
+                  const newPosition = orgThumbs.slice(0, idx + 1).filter((t) => !t.deleted).length;
+                  return (
+                    <div
+                      key={page.pageNumber}
+                      className={`p-3 rounded-xl border transition-all flex flex-col gap-2 ${
                         page.deleted
-                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-500'
-                          : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:text-red-500'
+                          ? 'opacity-45 border-red-400/50 bg-red-50/40 dark:bg-red-950/20'
+                          : page.rotationDelta !== 0
+                          ? 'border-amber-400/60 bg-amber-50/30 dark:bg-zinc-950'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950'
                       }`}
                     >
-                      {page.deleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                      <div className="aspect-[3/4] bg-white rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 flex items-center justify-center relative">
+                        <img
+                          src={page.thumbnailUrl}
+                          alt={`Page ${page.pageNumber}`}
+                          style={{ transform: `rotate(${page.rotationDelta}deg)` }}
+                          className="max-w-full max-h-full object-contain transition-transform"
+                        />
+                        {page.deleted && (
+                          <span className="absolute inset-0 bg-red-950/45 flex items-center justify-center text-[11px] font-bold text-white uppercase tracking-wider">
+                            Removed
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600 dark:text-zinc-400 tabular-nums">
+                        <span>
+                          {page.deleted ? `Orig P${page.pageNumber}` : `New P${newPosition} (Orig ${page.pageNumber})`}
+                        </span>
+                        {page.rotationDelta !== 0 && (
+                          <span className="text-amber-600 dark:text-yellow-400 font-bold">{page.rotationDelta}°</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            commitOrgChange((prev) =>
+                              prev.map((t, i) =>
+                                i === idx ? { ...t, rotationDelta: (t.rotationDelta + 90) % 360 } : t
+                              )
+                            )
+                          }
+                          title="Rotate 90° clockwise"
+                          className="p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-yellow-400 cursor-pointer"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (idx === 0) return;
+                            commitOrgChange((prev) => {
+                              const next = [...prev];
+                              const [m] = next.splice(idx, 1);
+                              next.splice(idx - 1, 0, m);
+                              return next;
+                            });
+                          }}
+                          disabled={idx === 0}
+                          title="Move earlier"
+                          className="p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 cursor-pointer"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (idx === orgThumbs.length - 1) return;
+                            commitOrgChange((prev) => {
+                              const next = [...prev];
+                              const [m] = next.splice(idx, 1);
+                              next.splice(idx + 1, 0, m);
+                              return next;
+                            });
+                          }}
+                          disabled={idx === orgThumbs.length - 1}
+                          title="Move later"
+                          className="p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 disabled:opacity-30 cursor-pointer"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            commitOrgChange((prev) =>
+                              prev.map((t, i) => (i === idx ? { ...t, deleted: !t.deleted } : t))
+                            )
+                          }
+                          title={page.deleted ? 'Restore page' : 'Delete page'}
+                          className={`p-1.5 rounded border cursor-pointer ${
+                            page.deleted
+                              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-500'
+                              : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:text-red-500'
+                          }`}
+                        >
+                          {page.deleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {orgResult && (
-            <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
-                Organized PDF ready ({orgResult.pageCount} pages · {formatBytes(orgResult.blob.size)})
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                {onPreviewDocument && (
+            <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 block">
+                    Before → After Summary
+                  </span>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300 mt-0.5 tabular-nums">
+                    Before: {orgThumbs.length} pages ({orgFile ? formatBytes(orgFile.size) : '—'}) → Output: <strong>{orgResult.pageCount} pages</strong> ({formatBytes(orgResult.blob.size)})
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {onPreviewDocument && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewDocument({
+                          title: orgResult.fileName,
+                          fileName: orgResult.fileName,
+                          blob: orgResult.blob,
+                          subtitle: `${orgResult.pageCount} organized pages`,
+                        })
+                      }
+                      className="px-3 py-2 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Preview Result</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() =>
-                      onPreviewDocument({
-                        title: orgResult.fileName,
-                        fileName: orgResult.fileName,
-                        blob: orgResult.blob,
-                        subtitle: `${orgResult.pageCount} organized pages`,
-                      })
-                    }
-                    className="px-3 py-2 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
+                    onClick={() => triggerBlobDownload(orgResult.blob, orgResult.fileName)}
+                    className="px-4 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
                   >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Preview</span>
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => triggerBlobDownload(orgResult.blob, orgResult.fileName)}
-                  className="px-4 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openGeneratedPdfInStudio(orgResult.blob, orgResult.fileName)}
-                  className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Open in Cover Studio</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => openGeneratedPdfInStudio(orgResult.blob, orgResult.fileName)}
+                    className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-yellow-300 font-bold text-xs cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Open in Cover Studio</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2174,7 +2534,11 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 className="flex-1 min-h-[260px] border-2 border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl flex flex-col items-center justify-center p-8 text-center cursor-pointer"
               >
                 <PenTool className="w-8 h-8 text-zinc-400 dark:text-zinc-600 mb-2" />
-                <p className="text-xs text-zinc-500">Select a PDF first to preview & click where to stamp your signature.</p>
+                <p className="text-xs text-zinc-500">Select a PDF first to preview &amp; click where to stamp your signature.</p>
+                <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Your files never leave your device — signed 100% locally in your browser.</span>
+                </p>
               </div>
             )}
           </div>

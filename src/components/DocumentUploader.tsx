@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Files, Eye } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Files, Eye, ShieldCheck, Info } from 'lucide-react';
 import { parseUploadedDocument } from '../services/documentParser';
 import { UploadedDocInfo } from '../types';
 
@@ -12,6 +12,9 @@ interface DocumentUploaderProps {
   onPreviewDoc?: () => void;
 }
 
+const PRIVACY_TOOLTIP_TEXT =
+  'Your files are processed locally in your browser and never leave your device.';
+
 export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
   currentDoc,
   onDocumentParsed,
@@ -21,8 +24,28 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
   onPreviewDoc,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const privacyWrapperRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [isPrivacyTooltipOpen, setIsPrivacyTooltipOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isPrivacyTooltipOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (privacyWrapperRef.current && !privacyWrapperRef.current.contains(e.target as Node)) {
+        setIsPrivacyTooltipOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsPrivacyTooltipOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [isPrivacyTooltipOpen]);
 
   const handleFile = async (file: File) => {
     setParseError(null);
@@ -66,6 +89,44 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Highly Visible Privacy First Badge with Interactive Tooltip */}
+          <div
+            ref={privacyWrapperRef}
+            className="relative group inline-block"
+            onMouseEnter={() => setIsPrivacyTooltipOpen(true)}
+            onMouseLeave={() => setIsPrivacyTooltipOpen(false)}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsPrivacyTooltipOpen((prev) => !prev);
+              }}
+              onFocus={() => setIsPrivacyTooltipOpen(true)}
+              onBlur={() => setIsPrivacyTooltipOpen(false)}
+              title={PRIVACY_TOOLTIP_TEXT}
+              aria-describedby="privacy-first-tooltip"
+              aria-expanded={isPrivacyTooltipOpen}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 dark:bg-emerald-500/20 border border-emerald-500/60 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 text-xs font-bold cursor-pointer transition-colors whitespace-nowrap"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[2.5] shrink-0" />
+              <span>Privacy First</span>
+              <Info className="w-3 h-3 opacity-80 shrink-0" />
+            </button>
+
+            <div
+              id="privacy-first-tooltip"
+              role="tooltip"
+              className={`absolute left-0 sm:left-1/2 sm:-translate-x-1/2 bottom-full mb-2 w-64 max-w-[calc(100vw-3rem)] px-3 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white border border-emerald-400/60 shadow-xl text-[11px] leading-relaxed font-medium z-30 transition-all duration-150 ${
+                isPrivacyTooltipOpen
+                  ? 'opacity-100 translate-y-0 pointer-events-auto'
+                  : 'opacity-0 translate-y-1 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0'
+              }`}
+            >
+              {PRIVACY_TOOLTIP_TEXT}
+            </div>
+          </div>
+
           {onSwitchToBatch && (
             <button
               type="button"
@@ -142,6 +203,10 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Parsed and ready for theme selection</span>
               </p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1.5 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Your file stays on your device — only uploaded to Google Drive if you choose Step 4.</span>
+              </p>
             </div>
           </div>
         </div>
@@ -166,6 +231,10 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
           </p>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
             PDF · DOCX · DOC · TXT · RTF · MD (up to 50 MB)
+          </p>
+          <p className="mt-3 pt-3 border-t border-zinc-200/80 dark:border-zinc-800/80 text-xs text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Your files never leave your device — parsed 100% locally in your browser.</span>
           </p>
         </div>
       )}

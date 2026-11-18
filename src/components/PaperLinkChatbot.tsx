@@ -898,13 +898,20 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   : 'shadow-lg'
               }`}
             >
-              {/* Traveling Top Neon Laser Accent */}
-              <motion.div
-                aria-hidden="true"
-                animate={{ x: ['-30%', '130%'] }}
-                transition={{ repeat: Infinity, duration: 6.5, ease: 'easeInOut' }}
-                className="pointer-events-none absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] z-20"
-              />
+              {/* Clipped Traveling Top Neon Laser Accent */}
+              {neonGlowMode === 'full' && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
+                >
+                  <motion.div
+                    initial={{ x: '-100%', opacity: 0 }}
+                    animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
+                    transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
+                    className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
+                  />
+                </div>
+              )}
 
               <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#0c0c12]/95 backdrop-blur-xl overflow-hidden">
                 {isDragOver && (
@@ -1078,13 +1085,20 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   : 'shadow-xl'
               }`}
             >
-              {/* Traveling Neon Laser Accent */}
-              <motion.div
-                aria-hidden="true"
-                animate={{ x: ['-30%', '130%'] }}
-                transition={{ repeat: Infinity, duration: 6.5, ease: 'easeInOut' }}
-                className="pointer-events-none absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] z-20"
-              />
+              {/* Clipped Traveling Neon Laser Accent */}
+              {neonGlowMode === 'full' && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
+                >
+                  <motion.div
+                    initial={{ x: '-100%', opacity: 0 }}
+                    animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
+                    transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
+                    className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
+                  />
+                </div>
+              )}
 
               <div className="relative h-full flex flex-col rounded-[14px] bg-white/95 dark:bg-[#0c0c11]/95 backdrop-blur-xl overflow-hidden">
                 {/* Chat Header */}
@@ -1188,7 +1202,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       Developed by Team Terminators:
                     </p>
                     <p className="font-mono text-zinc-700 dark:text-zinc-300 leading-relaxed">
-                      Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham
+                      Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham · 5. Manahil Shamsi
                     </p>
                   </div>
                 )}

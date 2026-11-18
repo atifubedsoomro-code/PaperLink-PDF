@@ -101,6 +101,16 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
     }
   }, [toolCategory, specificTool]);
 
+  useEffect(() => {
+    const syncEntries = () => setLocalEntries(getLocalFeedbackEntries());
+    window.addEventListener('paperlink-feedback-updated', syncEntries);
+    window.addEventListener('storage', syncEntries);
+    return () => {
+      window.removeEventListener('paperlink-feedback-updated', syncEntries);
+      window.removeEventListener('storage', syncEntries);
+    };
+  }, []);
+
   const parsedSheetId = useMemo(() => extractSpreadsheetId(sheetUrl), [sheetUrl]);
   const hasValidWebhook = useMemo(
     () => /^https:\/\/script\.google\.com\/macros\/s\//i.test((webhookUrl || '').trim()),
@@ -181,14 +191,17 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
         syncedToGoogleSheet: synced,
       });
       setLocalEntries(savedList);
+      window.dispatchEvent(new Event('paperlink-feedback-updated'));
 
       setSubmitBanner(
-        `Thank you! Your anonymous feedback (${pendingEntry.feedbackId}) has been recorded.`
+        synced
+          ? `Thank you! Your anonymous feedback (${pendingEntry.feedbackId}) has been sent.`
+          : `Thank you! Your anonymous feedback (${pendingEntry.feedbackId}) was saved on this device.`
       );
       onTaskComplete?.({
         headline: synced ? 'Feedback Received' : 'Feedback Recorded',
         subtext: `Thank you! ${pendingEntry.feedbackId} (${pendingEntry.rating}/5★) has been logged.`,
-        statusLabel: synced ? 'Anonymous Feedback Sent' : 'Feedback Saved',
+        statusLabel: synced ? 'Anonymous Feedback Sent' : 'Feedback Saved Locally',
       });
 
       setDetails('');
@@ -200,7 +213,8 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
         syncedToGoogleSheet: false,
       });
       setLocalEntries(savedList);
-      setSubmitBanner(`Feedback ${pendingEntry.feedbackId} has been recorded locally.`);
+      window.dispatchEvent(new Event('paperlink-feedback-updated'));
+      setSubmitBanner(`Feedback ${pendingEntry.feedbackId} has been saved on this device.`);
       setDetails('');
       setPendingEntry(null);
     } finally {
@@ -521,7 +535,20 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
                 : 'shadow-md'
             }`}
           >
-            <div className="rounded-[14.5px] bg-white/95 dark:bg-[#101016]/95 backdrop-blur-xl p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
+            {neonGlowMode === 'full' && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
+              >
+                <motion.div
+                  initial={{ x: '-100%', opacity: 0 }}
+                  animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
+                  transition={{ repeat: Infinity, duration: 6.0, repeatDelay: 0.9, ease: 'linear' }}
+                  className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
+                />
+              </div>
+            )}
+            <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#101016]/95 backdrop-blur-xl p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start overflow-hidden">
               {/* Left Compact Column: Header + Stats + Latest 3 Feedback Highlights */}
               <div className="lg:col-span-5 space-y-3.5">
                 <div className="flex items-start gap-2.5">

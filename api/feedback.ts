@@ -35,32 +35,49 @@ export async function executeFeedbackSubmission(
     };
   }
 
+  const cleanRating = Math.min(5, Math.max(1, Math.round(Number(payload.rating) || 5)));
+
   try {
     const response = await fetch(webhookUrl, {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        feedbackId: payload.feedbackId,
-        date: payload.date,
-        userName: payload.userName || 'Anonymous',
-        toolCategory: payload.toolCategory,
-        specificTool: payload.specificTool,
-        feedbackType: payload.feedbackType,
-        rating: payload.rating,
-        details: payload.details,
-        priority: payload.priority || 'Medium',
-        status: payload.status || 'New',
-        resolutionNotes: payload.resolutionNotes || '',
+        feedbackId: String(payload.feedbackId || '').trim(),
+        date: String(payload.date || new Date().toISOString().slice(0, 10)),
+        userName: String(payload.userName || 'Anonymous').trim() || 'Anonymous',
+        toolCategory: String(payload.toolCategory || 'General Experience'),
+        specificTool: String(payload.specificTool || ''),
+        feedbackType: String(payload.feedbackType || 'Feature Request'),
+        rating: cleanRating,
+        details: String(payload.details || '').trim(),
+        priority: String(payload.priority || 'Medium'),
+        status: String(payload.status || 'New'),
+        resolutionNotes: String(payload.resolutionNotes || ''),
       }),
     });
 
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
     const rawText = await response.text().catch(() => '');
+    const trimmedText = rawText.trim();
+
+    // Google Apps Script returns an HTML login/error page with HTTP 200 if access is not set to "Anyone"
+    if (contentType.includes('text/html') || /^<!doctype html|^<html/i.test(trimmedText)) {
+      return {
+        status: 502,
+        body: {
+          ok: false,
+          synced: false,
+          error: 'Apps Script returned HTML instead of JSON. Ensure Web App access is set to "Anyone".',
+        },
+      };
+    }
+
     let parsedResult: any = null;
     try {
-      parsedResult = rawText ? JSON.parse(rawText) : null;
+      parsedResult = trimmedText ? JSON.parse(trimmedText) : null;
     } catch {
-      // Apps Script may return plain text like "ok" or HTML on misconfigured permission
+      // Apps Script may return plain text like "ok"
     }
 
     if (!response.ok || parsedResult?.ok === false || parsedResult?.status === 'error') {
@@ -95,6 +112,19 @@ export async function executeFeedbackSubmission(
       },
     };
   }
+}
+
+export function getFeedbackHealthStatus(): { ok: boolean; webhookConfigured: boolean } {
+  const webhookUrl = (
+    process.env.FEEDBACK_SHEET_WEBHOOK_URL ||
+    process.env.FEEDBACK_WEBHOOK_URL ||
+    process.env.VITE_FEEDBACK_WEBHOOK_URL ||
+    ''
+  ).trim();
+  return {
+    ok: true,
+    webhookConfigured: /^https:\/\/script\.google\.com\/macros\/s\//i.test(webhookUrl),
+  };
 }
 
 type VercelRequestLike = IncomingMessage & {
@@ -139,6 +169,11 @@ export default async function handler(req: VercelRequestLike, res: VercelRespons
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
+    return;
+  }
+
+  if (req.method === 'GET') {
+    sendJson(res, 200, getFeedbackHealthStatus());
     return;
   }
 

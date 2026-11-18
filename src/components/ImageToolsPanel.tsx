@@ -25,6 +25,7 @@ import {
   Check,
   Trash2,
   Plus,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   BgFillMode,
@@ -885,6 +886,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               <p className="text-[11px] text-zinc-500 mt-0.5 tabular-nums">
                 {bgFile ? formatBytes(bgFile.size) : 'Portraits, products, signatures, logos, stickers'}
               </p>
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1.5 inline-flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — processed locally.</span>
+              </p>
             </div>
 
             {/* Cutout Engine Selector */}
@@ -1311,6 +1316,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               <span className="block text-[11px] text-zinc-500 mt-0.5 tabular-nums">
                 {bulkItems.length} file{bulkItems.length === 1 ? '' : 's'} queued
               </span>
+              <span className="mt-1.5 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — processed locally.</span>
+              </span>
             </button>
 
             <div className="space-y-3">
@@ -1623,6 +1632,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   Source: {resizeOrigDims.w}×{resizeOrigDims.h}px
                 </p>
               )}
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1.5 inline-flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — resized locally.</span>
+              </p>
             </div>
 
             {/* Graphic Design Presets */}
@@ -1890,6 +1903,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   ? `${convertFiles.length} image(s) queued`
                   : 'Click or drop PNG, JPG, WebP, SVG, BMP files'}
               </p>
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1.5 inline-flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — converted locally.</span>
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -2064,9 +2081,13 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             <button
               type="button"
               onClick={() => cropInputRef.current?.click()}
-              className="w-full py-3.5 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50 dark:bg-zinc-950 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer"
+              className="w-full py-3.5 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50 dark:bg-zinc-950 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer flex flex-col items-center gap-1"
             >
-              {cropFile ? `Replace Image (${cropFile.name})` : 'Upload Image to Crop & Rotate'}
+              <span>{cropFile ? `Replace Image (${cropFile.name})` : 'Upload Image to Crop & Rotate'}</span>
+              <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — edited locally.</span>
+              </span>
             </button>
 
             <div className="space-y-2">
@@ -2339,6 +2360,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   ? `${compFiles.length} image(s) queued`
                   : 'Click or drop images to compress'}
               </p>
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1.5 inline-flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — compressed locally.</span>
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -2554,9 +2579,13 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             <button
               type="button"
               onClick={() => filterInputRef.current?.click()}
-              className="w-full py-3.5 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50 dark:bg-zinc-950 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer"
+              className="w-full py-3.5 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50 dark:bg-zinc-950 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer flex flex-col items-center gap-1"
             >
-              {filterFile ? `Replace Asset (${filterFile.name})` : 'Upload Image to Grade & Extract Colors'}
+              <span>{filterFile ? `Replace Asset (${filterFile.name})` : 'Upload Image to Grade & Extract Colors'}</span>
+              <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>Your files never leave your device — graded locally.</span>
+              </span>
             </button>
 
             {/* Quick Presets */}

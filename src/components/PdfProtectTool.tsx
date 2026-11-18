@@ -271,7 +271,11 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
                       : ` · ${docMeta.pageCount} pages (Unencrypted)`
                     : ''
                 }`
-              : 'Processed 100% in your browser — passwords never leave your device'}
+              : 'Encrypt sensitive PDFs or unlock with your password'}
+          </p>
+          <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Your files &amp; passwords never leave your device — 100% processed locally.</span>
           </p>
         </div>
 

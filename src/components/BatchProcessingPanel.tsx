@@ -15,6 +15,7 @@ import {
   Download,
   Loader2,
   Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface BatchProcessingPanelProps {
@@ -359,6 +360,10 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
           </h3>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md mx-auto">
             Drag and drop multiple PDF, DOC, DOCX, or TXT files here.
+          </p>
+          <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium mt-2.5 flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>Your files never leave your device until you choose Upload All to Drive.</span>
           </p>
           <span className="inline-block mt-4 px-4 py-2 bg-yellow-400 text-black text-xs font-bold rounded-lg">
             Browse Files
