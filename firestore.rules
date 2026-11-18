@@ -58,7 +58,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'name', 'organization', 'preparedBy', 'logoUrl', 'logoSize', 'logoPosition',
-          'themeId', 'primaryColor', 'accentColor', 'font', 'qrPosition', 'createdAt', 'userEmail'
+          'themeId', 'primaryColor', 'accentColor', 'titleColor', 'subtitleColor', 'textColor',
+          'font', 'qrColor', 'qrBgColor', 'qrPosition', 'showLogoInQR', 'createdAt', 'userEmail'
         ])
         && data.id is string && data.id.size() <= 128
         && data.name is string && data.name.size() > 0 && data.name.size() <= 120
@@ -71,6 +72,12 @@ service cloud.firestore {
         && isOwnerEmail(data.userEmail)
         && (!('organization' in data) || (data.organization is string && data.organization.size() <= 200))
         && (!('preparedBy' in data) || (data.preparedBy is string && data.preparedBy.size() <= 160))
+        && (!('titleColor' in data) || (data.titleColor is string && data.titleColor.size() <= 32))
+        && (!('subtitleColor' in data) || (data.subtitleColor is string && data.subtitleColor.size() <= 32))
+        && (!('textColor' in data) || (data.textColor is string && data.textColor.size() <= 32))
+        && (!('qrColor' in data) || (data.qrColor is string && data.qrColor.size() <= 32))
+        && (!('qrBgColor' in data) || (data.qrBgColor is string && data.qrBgColor.size() <= 32))
+        && (!('showLogoInQR' in data) || (data.showLogoInQR is bool))
         && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 500000))
         && (!('logoSize' in data) || (data.logoSize is string && data.logoSize.size() <= 16))
         && (!('logoPosition' in data) || (data.logoPosition is string && data.logoPosition.size() <= 24))

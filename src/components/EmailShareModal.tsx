@@ -75,11 +75,6 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
     setIsConfirming(true);
   };
 
-  const handleOpenWebGmail = () => {
-    window.open(webGmailUrl, '_blank', 'noopener,noreferrer');
-    onClose();
-  };
-
   const handleConfirmedSend = async () => {
     setIsSending(true);
     setErrorMessage(null);
@@ -124,7 +119,7 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
       if (msg.includes('has not been used') || msg.includes('disabled') || msg.includes('403')) {
         setApiDisabledError(true);
         setErrorMessage(
-          'Gmail API is disabled on project 245248622910 in Google Cloud Console. Use 1-Click Gmail Web below to send immediately without API activation!'
+          'Gmail API is not enabled on this Cloud project yet. Use 1-Click Gmail Web below to send immediately without API activation!'
         );
       } else {
         setErrorMessage(msg || 'Failed to send email. Check network or Gmail permissions.');
@@ -211,7 +206,7 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
                     <AlertCircle className="w-5 h-5 text-amber-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="text-xs text-zinc-700 dark:text-zinc-200">
                       <p className="font-bold text-amber-800 dark:text-yellow-300">
-                        Gmail API Not Enabled in Google Cloud (Project 245248622910)
+                        Gmail API Not Enabled in Google Cloud
                       </p>
                       <p className="text-[11px] text-zinc-600 dark:text-zinc-300 mt-1 leading-relaxed">
                         You can send this email right now via <strong>1-Click Gmail Web</strong> without needing API configuration.
@@ -220,16 +215,18 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleOpenWebGmail}
+                    <a
+                      href={webGmailUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={onClose}
                       className="flex-1 py-2 px-3 bg-yellow-400 hover:bg-yellow-300 text-black font-extrabold text-xs rounded-lg flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-colors"
                     >
                       <ExternalLink className="w-4 h-4" />
                       <span>Open in Gmail Web (1-Click Send)</span>
-                    </button>
+                    </a>
                     <a
-                      href="https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=245248622910"
+                      href="https://console.cloud.google.com/apis/library/gmail.googleapis.com"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="py-2 px-3 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white text-[11px] font-semibold rounded-lg flex items-center justify-center gap-1 text-center cursor-pointer transition-colors"
@@ -259,15 +256,17 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
                 </button>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                  <button
-                    type="button"
-                    onClick={handleOpenWebGmail}
+                  <a
+                    href={webGmailUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={onClose}
                     className="px-3.5 py-2 text-xs font-bold rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-900 dark:text-white border border-zinc-300 dark:border-zinc-700 flex items-center gap-1.5 cursor-pointer transition-colors"
                     title="Opens Gmail Web with recipient, subject, and link pre-filled"
                   >
                     <ExternalLink className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
                     <span>Gmail Web</span>
-                  </button>
+                  </a>
 
                   <button
                     type="button"

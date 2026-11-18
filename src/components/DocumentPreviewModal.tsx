@@ -129,15 +129,21 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     setActiveStack([]);
   }, [target]);
 
-  // Escape key closes modal
+  // Keyboard shortcuts: Escape closes, ArrowLeft/ArrowRight switches PDF pages
   useEffect(() => {
     if (!currentTarget) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'ArrowLeft' && pdfTotalPages > 1) {
+        setPdfPage((p) => Math.max(1, p - 1));
+      } else if (e.key === 'ArrowRight' && pdfTotalPages > 1) {
+        setPdfPage((p) => Math.min(pdfTotalPages, p + 1));
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTarget, onClose]);
+  }, [currentTarget, onClose, pdfTotalPages]);
 
   const kind: DetectedKind = currentTarget ? detectPreviewKind(currentTarget) : 'unsupported';
 
@@ -145,6 +151,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   useEffect(() => {
     let cancelled = false;
     let createdObjUrl: string | null = null;
+    let loadedPdfProxy: any = null;
 
     setErrorMsg(null);
     setPdfDoc(null);
@@ -219,7 +226,10 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
           }
           const buf = new Uint8Array(await currentTarget.blob.arrayBuffer()).slice().buffer;
           const doc = await pdfjsLib.getDocument({ data: buf, useSystemFonts: true }).promise;
-          if (!cancelled) {
+          if (cancelled) {
+            if (doc && typeof doc.destroy === 'function') void doc.destroy();
+          } else {
+            loadedPdfProxy = doc;
             setPdfDoc(doc);
             setPdfTotalPages(doc.numPages || 1);
             setPdfPage(1);
@@ -246,6 +256,9 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     return () => {
       cancelled = true;
       if (createdObjUrl) URL.revokeObjectURL(createdObjUrl);
+      if (loadedPdfProxy && typeof loadedPdfProxy.destroy === 'function') {
+        void loadedPdfProxy.destroy();
+      }
     };
   }, [currentTarget]);
 

@@ -224,6 +224,25 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 // ==========================================
+// Document Records & Brand Kit Helpers
+// ==========================================
+function sanitizeForFirestore<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v !== undefined) {
+        clean[k] = sanitizeForFirestore(v);
+      }
+    }
+    return clean as T;
+  }
+  return value;
+}
+
+// ==========================================
 // Document Records Persistence
 // ==========================================
 const LOCAL_STORAGE_DOCS_KEY = 'docqr_saved_documents';
@@ -241,7 +260,7 @@ export const saveDocumentRecord = async (record: SavedDocRecord): Promise<void> 
   if (auth.currentUser && record.userEmail) {
     try {
       const docRef = doc(db, 'documents', record.id);
-      await setDoc(docRef, record, { merge: true });
+      await setDoc(docRef, sanitizeForFirestore(record), { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `documents/${record.id}`);
     }
@@ -319,7 +338,7 @@ export const saveBrandKit = async (kit: BrandKitPreset): Promise<void> => {
 
   if (auth.currentUser && kit.userEmail) {
     try {
-      await setDoc(doc(db, 'brandKits', kit.id), kit, { merge: true });
+      await setDoc(doc(db, 'brandKits', kit.id), sanitizeForFirestore(kit), { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `brandKits/${kit.id}`);
     }
