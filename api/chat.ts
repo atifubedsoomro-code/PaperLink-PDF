@@ -480,6 +480,39 @@ export async function executePaperLinkChat(
       }
     }
 
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const getErrorStatus = (err: any): number | undefined => {
+      if (typeof err?.status === 'number') return err.status;
+      if (typeof err?.code === 'number') return err.code;
+      const msg = String(err?.message || '');
+      if (/\b503\b|UNAVAILABLE/i.test(msg)) return 503;
+      if (/\b429\b|RESOURCE_EXHAUSTED/i.test(msg)) return 429;
+      if (/\b504\b|DEADLINE_EXCEEDED/i.test(msg)) return 504;
+      if (/\b502\b/.test(msg)) return 502;
+      if (/\b500\b|INTERNAL/i.test(msg)) return 500;
+      return undefined;
+    };
+
+    const isTransientError = (err: any): boolean => {
+      const code = getErrorStatus(err);
+      if (code && [429, 500, 502, 503, 504].includes(code)) return true;
+      const msg = String(err?.message || '');
+      return /overloaded|high demand|try again|ECONNRESET|ETIMEDOUT|fetch failed|temporarily unavailable/i.test(
+        msg
+      );
+    };
+
+    const isFatalAuthError = (err: any): boolean => {
+      const code = getErrorStatus(err);
+      const msg = String(err?.message || '');
+      return (
+        code === 401 ||
+        code === 403 ||
+        /API_KEY_INVALID|API key not valid|PERMISSION_DENIED/i.test(msg)
+      );
+    };
+
     const candidateModels =
       primaryModel === 'gemini-4-hydrogen'
         ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
@@ -491,38 +524,42 @@ export async function executePaperLinkChat(
     let lastErr: unknown = null;
 
     for (const candidate of candidateModels) {
-      try {
-        const chat = ai.chats.create({
-          model: candidate,
-          history: formattedHistory,
-          config: {
-            systemInstruction: PAPERLINK_SYSTEM_INSTRUCTION,
-            tools: [{ functionDeclarations: PAPERLINK_TOOL_DECLARATIONS }],
-            thinkingConfig: {
-              thinkingLevel:
-                candidate === 'gemini-3.1-flash-lite'
-                  ? ThinkingLevel.MINIMAL
-                  : ThinkingLevel.LOW,
+      const maxAttempts = 2;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const chat = ai.chats.create({
+            model: candidate,
+            history: formattedHistory,
+            config: {
+              systemInstruction: PAPERLINK_SYSTEM_INSTRUCTION,
+              tools: [{ functionDeclarations: PAPERLINK_TOOL_DECLARATIONS }],
+              thinkingConfig: {
+                thinkingLevel:
+                  candidate === 'gemini-3.1-flash-lite'
+                    ? ThinkingLevel.MINIMAL
+                    : ThinkingLevel.LOW,
+              },
             },
-          },
-        });
+          });
 
-        response = await chat.sendMessage({ message: messageParts });
-        activeModel = candidate;
-        lastErr = null;
-        break;
-      } catch (err: any) {
-        lastErr = err;
-        const errStr = String(err?.message || '');
-        const isInvalidKey =
-          errStr.includes('API_KEY_INVALID') ||
-          errStr.includes('API key not valid') ||
-          errStr.includes('API_KEY');
-        if (isInvalidKey) {
-          throw err;
+          response = await chat.sendMessage({ message: messageParts });
+          activeModel = candidate;
+          lastErr = null;
+          break;
+        } catch (err: any) {
+          lastErr = err;
+          if (isFatalAuthError(err)) {
+            throw err;
+          }
+          if (attempt < maxAttempts - 1 && isTransientError(err)) {
+            const backoffMs = 350 * (attempt + 1) + Math.floor(Math.random() * 150);
+            await sleep(backoffMs);
+            continue;
+          }
+          break;
         }
-        console.warn(`Model ${candidate} failed (${err?.status || 'error'}), trying fallback model...`);
       }
+      if (response) break;
     }
 
     if (!response) {
@@ -546,13 +583,20 @@ export async function executePaperLinkChat(
     };
   } catch (err: any) {
     console.error('Gemini /api/chat error:', err);
-    const status =
+    const parsedStatus =
       typeof err?.status === 'number' && err.status >= 400 && err.status < 600
         ? err.status
+        : /\b503\b|UNAVAILABLE|high demand|overloaded/i.test(String(err?.message || ''))
+        ? 503
+        : /\b429\b|RESOURCE_EXHAUSTED/i.test(String(err?.message || ''))
+        ? 429
         : 500;
-    const rawMsg = err?.message || 'Unable to process chat request with Gemini.';
+    const rawMsg =
+      parsedStatus === 503
+        ? 'The AI service is temporarily experiencing high demand. Please try sending your message again in a moment.'
+        : err?.message || 'Unable to process chat request with Gemini.';
     return {
-      status,
+      status: parsedStatus,
       payload: { error: rawMsg },
     };
   }

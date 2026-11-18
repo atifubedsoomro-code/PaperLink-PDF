@@ -21,6 +21,8 @@ import {
   Archive,
   ExternalLink,
   Eye,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AppView } from './Navbar';
@@ -181,6 +183,84 @@ async function createInlinePreviewBase64(file: File): Promise<{
   }
 }
 
+let sharedChatAudioCtx: AudioContext | null = null;
+
+function getOrUnlockAudioContext(): AudioContext | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!sharedChatAudioCtx || sharedChatAudioCtx.state === 'closed') {
+      sharedChatAudioCtx = new AudioCtx();
+    }
+    if (sharedChatAudioCtx.state === 'suspended') {
+      void sharedChatAudioCtx.resume();
+    }
+    return sharedChatAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+function playOutputSuccessSound() {
+  try {
+    const ctx = getOrUnlockAudioContext();
+    if (!ctx) return;
+
+    const playChimeNotes = () => {
+      const now = ctx.currentTime;
+      // Crisp, warm ascending C5 -> E5 -> G5 completion chime
+      const notes = [
+        { freq: 523.25, delay: 0, duration: 0.22, gain: 0.085 },
+        { freq: 659.25, delay: 0.085, duration: 0.24, gain: 0.09 },
+        { freq: 783.99, delay: 0.175, duration: 0.38, gain: 0.1 },
+      ];
+
+      for (const note of notes) {
+        const startAt = now + note.delay;
+        const osc = ctx.createOscillator();
+        const overtone = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        const overtoneGain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(note.freq, startAt);
+
+        overtone.type = 'triangle';
+        overtone.frequency.setValueAtTime(note.freq * 2, startAt);
+
+        gainNode.gain.setValueAtTime(0.0001, startAt);
+        gainNode.gain.exponentialRampToValueAtTime(note.gain, startAt + 0.018);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, startAt + note.duration);
+
+        overtoneGain.gain.setValueAtTime(0.0001, startAt);
+        overtoneGain.gain.exponentialRampToValueAtTime(note.gain * 0.22, startAt + 0.015);
+        overtoneGain.gain.exponentialRampToValueAtTime(0.0001, startAt + note.duration * 0.65);
+
+        osc.connect(gainNode);
+        overtone.connect(overtoneGain);
+        gainNode.connect(ctx.destination);
+        overtoneGain.connect(ctx.destination);
+
+        osc.start(startAt);
+        overtone.start(startAt);
+        osc.stop(startAt + note.duration + 0.03);
+        overtone.stop(startAt + note.duration + 0.03);
+      }
+    };
+
+    if (ctx.state === 'suspended') {
+      void ctx.resume().then(playChimeNotes).catch(() => {});
+    } else {
+      playChimeNotes();
+    }
+  } catch {
+    // Ignore audio API errors on restricted environments
+  }
+}
+
 export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   activeView,
   onNavigateView,
@@ -204,10 +284,32 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const [isBusy, setIsBusy] = useState(false);
   const [execStatus, setExecStatus] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [isSoundEnabled, setIsSoundEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('paperlink_chat_sound') !== 'muted';
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     setSpeedMode(defaultSpeedMode);
   }, [defaultSpeedMode]);
+
+  const toggleChatSound = () => {
+    setIsSoundEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('paperlink_chat_sound', next ? 'on' : 'muted');
+      } catch {
+        // ignore storage restrictions
+      }
+      if (next) {
+        playOutputSuccessSound();
+      }
+      return next;
+    });
+  };
 
   const handleCopyMessage = (id: string, text: string) => {
     try {
@@ -986,6 +1088,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     if (!customPrompt) setInput('');
     setIsBusy(true);
     setExecStatus('Planning workflow...');
+    // Unlock Web Audio inside the user's send gesture so chimes play reliably after async processing
+    if (isSoundEnabled) {
+      getOrUnlockAudioContext();
+    }
 
     try {
       const encodedResults = await Promise.all(
@@ -1098,6 +1204,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           modelUsed: data.modelUsed,
         },
       ]);
+
+      if (terminalArtifacts.length > 0 && isSoundEnabled) {
+        playOutputSuccessSound();
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,
@@ -1430,6 +1540,28 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     >
                       <Zap className="w-3 h-3" />
                       <span>{speedMode === 'fast' ? 'Fast' : 'Smart'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleChatSound}
+                      title={
+                        isSoundEnabled
+                          ? 'Success sound on — click to mute'
+                          : 'Success sound muted — click to unmute'
+                      }
+                      aria-label={isSoundEnabled ? 'Mute output success sound' : 'Unmute output success sound'}
+                      className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
+                        isSoundEnabled
+                          ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-400/20'
+                          : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {isSoundEnabled ? (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      )}
                     </button>
 
                     <button
