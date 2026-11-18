@@ -202,58 +202,36 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </motion.div>
 
-            {/* Right Interactive "Animated Documentation" Card with Neon Lighting */}
+            {/* Right Interactive "Animated Documentation" Card — Crisp Warm Ambient Elevation */}
             <motion.div
               className="lg:col-span-6 relative group"
               initial={{ opacity: 0, y: 14, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.55, delay: 0.08, ease: EASE_OUT_QUINT }}
             >
-              {/* Ambient Breathing Neon Backlight Halo */}
+              {/* Soft Normal Ambient Glow (distinct from Chatbot neon frame) */}
               {neonGlowMode === 'full' && (
-                <motion.div
+                <div
                   aria-hidden="true"
-                  animate={{
-                    opacity: [0.55, 0.88, 0.55],
-                    scale: [0.985, 1.015, 0.985],
-                  }}
-                  transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
-                  className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/35 via-cyan-400/20 to-amber-500/35 dark:from-yellow-400/30 dark:via-cyan-400/25 dark:to-fuchsia-500/20 blur-2xl will-change-transform"
+                  className="pointer-events-none absolute -inset-3 rounded-3xl bg-gradient-to-tr from-amber-400/12 via-yellow-300/8 to-transparent dark:from-yellow-400/10 dark:via-amber-500/6 dark:to-transparent blur-2xl"
                 />
               )}
 
-              {/* Animated Neon Rim Container */}
+              {/* Crisp Elevated Architectural Card */}
               <div
-                className={`relative p-[1.5px] rounded-2xl bg-gradient-to-br from-yellow-400/80 via-cyan-400/45 to-amber-500/80 ${
+                className={`relative rounded-2xl border border-zinc-200/95 dark:border-zinc-800 bg-white dark:bg-[#0e0e14] overflow-hidden ring-1 ring-inset ring-black/[0.03] dark:ring-white/[0.04] transition-shadow duration-300 ${
                   neonGlowMode === 'full'
-                    ? 'shadow-[0_0_28px_rgba(250,204,21,0.28),0_0_54px_rgba(34,211,238,0.16)] dark:shadow-[0_0_36px_rgba(250,204,21,0.34),0_0_68px_rgba(34,211,238,0.22)]'
-                    : 'shadow-md'
+                    ? 'shadow-[0_14px_38px_-12px_rgba(15,23,42,0.12),0_0_24px_-6px_rgba(250,204,21,0.16)] dark:shadow-[0_20px_50px_-14px_rgba(0,0,0,0.65),0_0_28px_-8px_rgba(250,204,21,0.14)]'
+                    : 'shadow-lg'
                 }`}
               >
-                {/* Clipped Top Neon Laser Track (prevents rounded-corner overflow glitch) */}
-                {neonGlowMode === 'full' && (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
-                  >
-                    <motion.div
-                      initial={{ x: '-100%', opacity: 0 }}
-                      animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
-                      transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
-                      className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
-                    />
-                  </div>
-                )}
+                <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-amber-400/60 to-transparent" />
 
-                <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#0d0d12]/95 backdrop-blur-xl overflow-hidden">
+                <div className="relative">
                   {/* Documentation Chrome Header */}
                   <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/90 dark:bg-[#09090d]/95 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400 shadow-[0_0_10px_#facc15]" />
-                      </span>
-                      <QrCode className="w-4 h-4 text-amber-600 dark:text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" />
+                      <QrCode className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
                       <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-200">
                         Animated Documentation · How PaperLink Works
                       </span>
@@ -309,7 +287,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                           {active && (
                             <motion.div
                               layoutId="docTabActiveBar"
-                              className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-yellow-400 via-cyan-400 to-yellow-400 shadow-[0_0_12px_rgba(250,204,21,0.9)]"
+                              className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500 dark:bg-yellow-400"
                             />
                           )}
                         </button>

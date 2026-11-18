@@ -81,16 +81,16 @@ export const LegalPagesView: React.FC<LegalPagesViewProps> = ({
               2. Google User Data & OAuth Scopes
             </h2>
             <p>
-              When you choose to sign in with Google, PaperLink requests only the minimum scopes required for user-initiated actions:
+              When you choose to sign in with Google, PaperLink requests only the minimum non-sensitive scope required to sync your documents:
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm">
               <li>
-                <code className="font-mono text-amber-700 dark:text-yellow-400">https://www.googleapis.com/auth/drive.file</code> — Allows PaperLink to upload only the files you explicitly export or sync, update those specific files, and set public reader permissions when you create a cover QR code. PaperLink cannot list or read other unrelated files in your Google Drive.
-              </li>
-              <li>
-                <code className="font-mono text-amber-700 dark:text-yellow-400">https://www.googleapis.com/auth/gmail.send</code> — Used exclusively when you explicitly confirm sending a document share email from the Email Share dialog. PaperLink never reads your inbox or existing messages.
+                <code className="font-mono text-amber-700 dark:text-yellow-400">https://www.googleapis.com/auth/drive.file</code> — Allows PaperLink to upload only the PDF documents you explicitly export or sync, update those specific files, and set public reader permissions when you create a cover QR code. PaperLink cannot view, list, or read any other files in your Google Drive.
               </li>
             </ul>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Email sharing opens a pre-filled compose draft in your browser (Gmail Web) or local email app — PaperLink never requests Gmail API access to read or send your emails on your behalf. Anonymous feedback is transmitted via PaperLink&apos;s server endpoint without linking your Google account.
+            </p>
             <p>
               PaperLink&apos;s use and transfer of information received from Google APIs adheres to the{' '}
               <a
@@ -170,7 +170,7 @@ export const LegalPagesView: React.FC<LegalPagesViewProps> = ({
               3. Service Availability
             </h2>
             <p>
-              Local PDF tools run offline via your browser engine once loaded. Google Drive uploads and Gmail dispatch depend on your authenticated Google account connectivity and Google API availability.
+              Local PDF tools run offline via your browser engine once loaded. Google Drive uploads depend on your authenticated Google account connectivity and Google Drive API availability.
             </p>
           </section>
         </article>

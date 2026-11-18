@@ -41,11 +41,9 @@ const databaseId =
 export const auth = getAuth(app);
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 
-// Provider with required scopes: Google Drive file management, Gmail send & Google Sheets feedback sync
+// Provider with minimal non-sensitive scope: Google Drive file management only (fast OAuth verification)
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/drive.file');
-provider.addScope('https://www.googleapis.com/auth/gmail.send');
-provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 provider.setCustomParameters({
   prompt: 'select_account',
 });
@@ -159,7 +157,7 @@ export const googleSignIn = async (options?: {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
-      throw new Error('Google did not return an access token for Drive & Gmail');
+      throw new Error('Google did not return an access token for Google Drive');
     }
 
     setCachedToken(credential.accessToken);

@@ -411,7 +411,7 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
               onClick={() => setFeedbackType(ft.id)}
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer transition-colors ${
                 active
-                  ? 'border-cyan-400 bg-cyan-400/15 text-cyan-700 dark:text-cyan-300 font-bold'
+                  ? 'border-amber-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
                   : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
@@ -511,7 +511,7 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
     );
   }
 
-  // LANDING VARIANT (Compact Neon Card at the bottom of Home Page just above Footer)
+  // LANDING VARIANT (Attractive Warm Ambient Glow Card distinct from Chatbot neon border)
   return (
     <section
       id="user-feedback"
@@ -524,31 +524,19 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
           {neonGlowMode === 'full' && (
             <div
               aria-hidden="true"
-              className="pointer-events-none -inset-1 absolute rounded-3xl bg-gradient-to-tr from-yellow-400/20 via-cyan-400/15 to-amber-500/20 blur-xl opacity-70"
+              className="pointer-events-none -inset-2.5 absolute rounded-3xl bg-gradient-to-tr from-amber-400/10 via-yellow-300/6 to-transparent dark:from-yellow-400/8 dark:via-amber-500/5 dark:to-transparent blur-2xl"
             />
           )}
 
           <div
-            className={`relative p-[1.5px] rounded-2xl bg-gradient-to-br from-yellow-400/75 via-cyan-400/45 to-amber-500/75 ${
+            className={`relative rounded-2xl border border-zinc-200/95 dark:border-zinc-800 bg-white dark:bg-[#101016] overflow-hidden ring-1 ring-inset ring-black/[0.03] dark:ring-white/[0.04] transition-shadow duration-300 ${
               neonGlowMode === 'full'
-                ? 'shadow-[0_0_24px_rgba(250,204,21,0.16),0_0_40px_rgba(34,211,238,0.1)]'
+                ? 'shadow-[0_12px_36px_-12px_rgba(15,23,42,0.1),0_0_24px_-8px_rgba(250,204,21,0.15)] dark:shadow-[0_18px_46px_-14px_rgba(0,0,0,0.6),0_0_26px_-10px_rgba(250,204,21,0.12)]'
                 : 'shadow-md'
             }`}
           >
-            {neonGlowMode === 'full' && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
-              >
-                <motion.div
-                  initial={{ x: '-100%', opacity: 0 }}
-                  animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
-                  transition={{ repeat: Infinity, duration: 6.0, repeatDelay: 0.9, ease: 'linear' }}
-                  className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
-                />
-              </div>
-            )}
-            <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#101016]/95 backdrop-blur-xl p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start overflow-hidden">
+            <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-amber-400/60 to-transparent" />
+            <div className="relative p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-start">
               {/* Left Compact Column: Header + Stats + Latest 3 Feedback Highlights */}
               <div className="lg:col-span-5 space-y-3.5">
                 <div className="flex items-start gap-2.5">
