@@ -27,6 +27,9 @@ import {
   Undo2,
   ArrowLeft,
   ArrowRight,
+  Presentation,
+  FileSpreadsheet,
+  Table2,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -60,6 +63,7 @@ import { renderPdfPages } from '../services/documentParser';
 import { PdfEditorTool } from './PdfEditorTool';
 import { PdfProtectTool } from './PdfProtectTool';
 import { PdfToImageTool } from './PdfToImageTool';
+import { OfficeUtilityTools, OfficeUtilityTabId } from './OfficeUtilityTools';
 
 export type PdfToolTab =
   | 'pdf-to-word'
@@ -72,7 +76,8 @@ export type PdfToolTab =
   | 'pdf-organize'
   | 'pdf-sign'
   | 'pdf-edit'
-  | 'pdf-protect';
+  | 'pdf-protect'
+  | OfficeUtilityTabId;
 
 interface PdfToolsPanelProps {
   activeTool: PdfToolTab;
@@ -99,7 +104,7 @@ function triggerBlobDownload(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-const TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const PDF_TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'pdf-to-word', label: 'PDF to Word', icon: FileType2 },
   { id: 'word-to-pdf', label: 'Word to PDF', icon: FileText },
   { id: 'pdf-to-image', label: 'PDF to Image', icon: FileImage },
@@ -112,6 +117,17 @@ const TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<{ cl
   { id: 'pdf-edit', label: 'Edit PDF', icon: Edit3 },
   { id: 'pdf-protect', label: 'Protect PDF', icon: Lock },
 ];
+
+const OFFICE_TOOL_TABS: { id: OfficeUtilityTabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'ppt-to-pdf', label: 'PPT to PDF', icon: Presentation },
+  { id: 'ppt-to-image', label: 'PPT to Image', icon: ImageIcon },
+  { id: 'excel-to-pdf', label: 'Excel to PDF', icon: FileSpreadsheet },
+  { id: 'excel-to-image', label: 'Excel to Image', icon: ImageIcon },
+  { id: 'pdf-to-excel', label: 'PDF to Excel', icon: Table2 },
+  { id: 'pdf-to-ppt', label: 'PDF to PPT', icon: Presentation },
+];
+
+const OFFICE_TAB_IDS = new Set<string>(OFFICE_TOOL_TABS.map((t) => t.id));
 
 export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   activeTool,
@@ -654,40 +670,77 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header & 11-Tool Selector */}
+      {/* Header & Grouped Tool Selector */}
       <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight">
-            PaperLink Local PDF &amp; Word Toolkit
+            PaperLink Local PDF &amp; Office Utility Toolkit
           </h1>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            11 private tools executing locally in your browser without server uploads — send any result straight into Cover Studio.
+            17 private PDF, Word, PowerPoint, and Excel utilities executing locally in your browser — send any PDF straight into Cover Studio.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
-          {TOOL_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTool === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  resetFeedback();
-                  onToolChange(tab.id);
-                }}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-yellow-400 text-black font-bold shadow-xs'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        <div className="space-y-2.5">
+          <div>
+            <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5">
+              PDF &amp; Word Core Tools
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              {PDF_TOOL_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTool === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      resetFeedback();
+                      onToolChange(tab.id);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-yellow-400 text-black font-bold shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5">
+              Office Presentation &amp; Spreadsheet Utilities
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              {OFFICE_TOOL_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTool === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      resetFeedback();
+                      onToolChange(tab.id);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-yellow-400 text-black font-bold shadow-xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2578,6 +2631,20 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           onProgress={setProgress}
           isWorking={isWorking}
           setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
+        />
+      )}
+
+      {/* TOOLS 12-17: OFFICE PRESENTATION & SPREADSHEET UTILITIES */}
+      {OFFICE_TAB_IDS.has(activeTool) && (
+        <OfficeUtilityTools
+          activeTool={activeTool as OfficeUtilityTabId}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
           onTaskComplete={onTaskComplete}
           onPreviewDocument={onPreviewDocument}
         />

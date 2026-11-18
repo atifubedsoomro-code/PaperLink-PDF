@@ -55,9 +55,15 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
      - Step 05: Download Combined Updated PDF, Print, Email Share via Gmail, or Export options.
    - **Batch Queue** (inside Cover Studio): Process multiple PDF/Word files simultaneously using the active Cover Studio design, upload to Drive in bulk, and download merged packets.
    - **Document Library** (inside Cover Studio): View previously synced covers & Drive links, copy URLs, share via email, or reload back into Step 5.
-2. **PDF & Word Tools** (11 100% browser-private tools):
+2. **PDF & Office Utility Tools** (17 100% browser-private tools):
    - PDF to Word (.docx) [Editable or Visual Layout mode]
    - Word to PDF (.pdf)
+   - PPT to PDF (.pptx → print-ready PDF, optional speaker notes)
+   - PPT to Image (.pptx → PNG, JPG, or WebP slides + ZIP)
+   - Excel to PDF (.xlsx, .xls, .csv, .ods → Landscape/Portrait formatted table PDF)
+   - Excel to Image (.xlsx, .xls, .csv → PNG, JPG, or WebP table cards + ZIP)
+   - PDF to Excel (.xlsx or .csv table extraction)
+   - PDF to PPT (.pptx presentation builder)
    - PDF Merge (custom order + page ranges)
    - PDF Compress (continuous quality slider 15%-100% + live approximate size reducer + Lossless/Balanced/Maximum)
    - Split & Extract Pages (ranges like 1-3, 5 or fixed-size page chunks)
@@ -85,7 +91,7 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
     1. \`images_to_pdf\`
     2. \`add_cover_to_pdf\` with \`themeStyle: "basic"\`, \`includeQr: false\`
     3. \`protect_pdf\` with \`password: "example"\`
-- Our client pipeline runner automatically feeds the output file(s) of Step N straight into Step N+1 in memory. **NEVER** stop after Step 1 or tell the user to re-attach a PDF for Step 2/3 when Step 1 (\`images_to_pdf\`, \`word_to_pdf\`, \`merge_pdfs\`, \`split_pdf\`, \`add_cover_to_pdf\`) creates that PDF in the same chain.
+- Our client pipeline runner automatically feeds the output file(s) of Step N straight into Step N+1 in memory. **NEVER** stop after Step 1 or tell the user to re-attach a PDF for Step 2/3 when Step 1 (\`images_to_pdf\`, \`word_to_pdf\`, \`ppt_to_pdf\`, \`excel_to_pdf\`, \`merge_pdfs\`, \`split_pdf\`, \`add_cover_to_pdf\`) creates that PDF in the same chain.
 - Distinguish clearly between:
   - \`add_cover_to_pdf\`: Directly generates and prepends Page 1 cover onto the PDF automatically right in chat (set \`includeQr: false\` for "without QR" / "no QR" / "basic cover without QR").
   - \`open_in_cover_studio\`: Opens the interactive Cover Studio visual editor UI when the user explicitly asks to edit/design in Cover Studio.
@@ -379,6 +385,107 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'ppt_to_pdf',
+    description:
+      'Convert an attached PowerPoint (.pptx) presentation into a PDF document.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        layout: {
+          type: Type.STRING,
+          description:
+            '"slide-fit" (exact slide 16:9/4:3 fit, default), "a4-landscape", or "a4-portrait".',
+        },
+        includeNotes: {
+          type: Type.BOOLEAN,
+          description: 'Include speaker notes when using "a4-portrait" layout.',
+        },
+      },
+    },
+  },
+  {
+    name: 'ppt_to_images',
+    description:
+      'Export slides from an attached PowerPoint (.pptx) deck as PNG, JPG, or WebP images (+ ZIP).',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        format: {
+          type: Type.STRING,
+          description: '"png", "jpg", or "webp". Defaults to "png".',
+        },
+        scale: {
+          type: Type.NUMBER,
+          description: 'Resolution multiplier: 1, 1.5, or 2. Defaults to 1.5.',
+        },
+      },
+    },
+  },
+  {
+    name: 'excel_to_pdf',
+    description:
+      'Convert an attached Excel/CSV spreadsheet (.xlsx, .xls, .csv, .ods) into a formatted PDF document.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        orientation: {
+          type: Type.STRING,
+          description: '"landscape" (default, best for wide tables) or "portrait".',
+        },
+        paperSize: {
+          type: Type.STRING,
+          description: '"a4" or "letter". Defaults to "a4".',
+        },
+      },
+    },
+  },
+  {
+    name: 'excel_to_images',
+    description:
+      'Render sheets of an attached Excel/CSV spreadsheet (.xlsx, .xls, .csv, .ods) as PNG, JPG, or WebP images (+ ZIP).',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        format: {
+          type: Type.STRING,
+          description: '"png", "jpg", or "webp". Defaults to "png".',
+        },
+        scale: {
+          type: Type.NUMBER,
+          description: 'Resolution multiplier: 1, 1.5, or 2. Defaults to 1.5.',
+        },
+      },
+    },
+  },
+  {
+    name: 'pdf_to_excel',
+    description:
+      'Extract tabular data from an attached or pipeline PDF into an Excel (.xlsx) or CSV (.csv) file.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        format: {
+          type: Type.STRING,
+          description: '"xlsx" (default) or "csv".',
+        },
+      },
+    },
+  },
+  {
+    name: 'pdf_to_ppt',
+    description:
+      'Convert an attached or pipeline PDF document into a PowerPoint (.pptx) presentation.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        scale: {
+          type: Type.NUMBER,
+          description: 'Render sharpness: 1.5 (default) or 2.',
+        },
+      },
+    },
+  },
+  {
     name: 'navigate_workspace',
     description: 'Navigate the PaperLink user interface to a specific section or tool.',
     parameters: {
@@ -391,7 +498,7 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
         pdfTool: {
           type: Type.STRING,
           description:
-            'Optional PDF sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-organize", "pdf-sign", "pdf-edit", "pdf-protect", "pdf-to-image").',
+            'Optional PDF/Office sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "ppt-to-pdf", "ppt-to-image", "excel-to-pdf", "excel-to-image", "pdf-to-excel", "pdf-to-ppt", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-organize", "pdf-sign", "pdf-edit", "pdf-protect", "pdf-to-image").',
         },
         imageTool: {
           type: Type.STRING,

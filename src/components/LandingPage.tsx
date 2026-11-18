@@ -9,6 +9,7 @@ import {
   Eraser,
   FileCheck2,
   FileImage,
+  FileSpreadsheet,
   FileText,
   FileType2,
   Files,
@@ -22,11 +23,13 @@ import {
   Pause,
   PenTool,
   Play,
+  Presentation,
   QrCode,
   RefreshCw,
   Scissors,
   ShieldCheck,
   Sliders,
+  Table2,
   UploadCloud,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
@@ -613,10 +616,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               <div>
                 <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider mb-1.5 font-semibold">
-                  11 Browser-Private PDF Utilities
+                  17 Browser-Private PDF &amp; Office Utilities
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-bold text-zinc-950 dark:text-white tracking-tight">
-                  Click any document tool to begin immediately.
+                  Click any PDF, Word, PowerPoint, or Excel tool to begin.
                 </h2>
               </div>
               <button
@@ -624,7 +627,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 onClick={() => onNavigate('tools')}
                 className="text-sm font-semibold text-amber-700 dark:text-yellow-400 hover:underline inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
-                <span>Open PDF Tools</span>
+                <span>Open PDF &amp; Office Tools</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </motion.div>
@@ -707,6 +710,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   desc: 'Render PDF pages at up to 3× print sharpness into PNG, JPG, or WebP + ZIP.',
                   cta: 'Render Pages',
                   icon: FileImage,
+                },
+                {
+                  id: 'ppt-to-pdf' as PdfToolTab,
+                  title: 'PPT to PDF (.pptx)',
+                  desc: 'Convert PowerPoint decks to print-ready PDFs preserving slides, tables & notes.',
+                  cta: 'Convert PPT',
+                  icon: Presentation,
+                },
+                {
+                  id: 'ppt-to-image' as PdfToolTab,
+                  title: 'PPT to Image',
+                  desc: 'Export .pptx slides as sharp HD/2.5K PNG, JPG, or WebP graphics + ZIP.',
+                  cta: 'Export Slides',
+                  icon: ImageIcon,
+                },
+                {
+                  id: 'excel-to-pdf' as PdfToolTab,
+                  title: 'Excel to PDF (.xlsx/.csv)',
+                  desc: 'Turn Excel or CSV sheets into styled paginated Landscape or Portrait PDFs.',
+                  cta: 'Convert Sheet',
+                  icon: FileSpreadsheet,
+                },
+                {
+                  id: 'excel-to-image' as PdfToolTab,
+                  title: 'Excel to Image',
+                  desc: 'Render worksheets as clean, readable PNG, JPG, or WebP table cards + ZIP.',
+                  cta: 'Render Tables',
+                  icon: ImageIcon,
+                },
+                {
+                  id: 'pdf-to-excel' as PdfToolTab,
+                  title: 'PDF to Excel (.xlsx/.csv)',
+                  desc: 'Extract PDF report rows & tables cleanly into downloadable Excel or CSV.',
+                  cta: 'Extract Data',
+                  icon: Table2,
+                },
+                {
+                  id: 'pdf-to-ppt' as PdfToolTab,
+                  title: 'PDF to PPT (.pptx)',
+                  desc: 'Package PDF pages into crisp PowerPoint .pptx presentation decks.',
+                  cta: 'Build Slides',
+                  icon: Presentation,
                 },
               ].map((tool, idx) => {
                 const Icon = tool.icon;

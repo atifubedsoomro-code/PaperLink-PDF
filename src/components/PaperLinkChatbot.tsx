@@ -60,6 +60,14 @@ import { mergeCoverWithPdf } from '../services/pdfService';
 import { generateQRCodeDataUrl } from '../services/qrService';
 import { COVER_THEMES } from '../constants/themes';
 import { CoverData } from '../types';
+import {
+  convertExcelToImages,
+  convertExcelToPdf,
+  convertPdfToExcel,
+  convertPdfToPpt,
+  convertPptToImages,
+  convertPptToPdf,
+} from '../services/officeToolkit';
 
 export interface PaperLinkChatbotProps {
   activeView: AppView;
@@ -104,7 +112,7 @@ interface GeminiFunctionCall {
   args: Record<string, any>;
 }
 
-type PipelineMediaKind = 'pdf' | 'image' | 'word' | 'none';
+type PipelineMediaKind = 'pdf' | 'image' | 'word' | 'ppt' | 'excel' | 'none';
 
 interface ToolExecutionOutput {
   summaryText: string;
@@ -133,6 +141,16 @@ function isPdfFile(file: File): boolean {
 function isWordFile(file: File): boolean {
   const ext = getFileExt(file.name);
   return ext === 'docx' || ext === 'doc';
+}
+
+function isPptFile(file: File): boolean {
+  const ext = getFileExt(file.name);
+  return ext === 'pptx' || ext === 'ppt';
+}
+
+function isExcelFile(file: File): boolean {
+  const ext = getFileExt(file.name);
+  return ['xlsx', 'xls', 'csv', 'tsv', 'ods'].includes(ext);
 }
 
 function isImageFile(file: File): boolean {
@@ -371,6 +389,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
     const pdfs = files.filter(isPdfFile);
     const words = files.filter(isWordFile);
+    const ppts = files.filter(isPptFile);
+    const excels = files.filter(isExcelFile);
     const images = files.filter(isImageFile);
 
     switch (fc.name) {
@@ -1003,6 +1023,228 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         };
       }
 
+      case 'ppt_to_pdf': {
+        if (ppts.length === 0) throw new Error('Attach a PowerPoint (.pptx) file to convert to PDF.');
+        const layoutRaw = String(args.layout || 'slide-fit');
+        const layout =
+          layoutRaw === 'a4-landscape' || layoutRaw === 'a4-portrait' ? layoutRaw : 'slide-fit';
+        for (const ppt of ppts) {
+          setExecStatus(`${prefix}Converting ${ppt.name} to PDF...`);
+          const res = await convertPptToPdf(
+            ppt,
+            { layout, includeNotes: Boolean(args.includeNotes) },
+            (_p, st) => setExecStatus(`${prefix}${st}`)
+          );
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `pptpdf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${res.slideCount} slides · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(`Converted **${ppt.name}** to **${res.fileName}** (${res.slideCount} slides).`);
+        }
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'PPT → PDF',
+          producedFiles,
+          consumedKind: 'ppt',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'ppt_to_images': {
+        if (ppts.length === 0) throw new Error('Attach a PowerPoint (.pptx) file to export as images.');
+        const fmtRaw = String(args.format || 'png').toLowerCase();
+        const format = fmtRaw === 'jpg' || fmtRaw === 'webp' ? fmtRaw : 'png';
+        const scale = Number(args.scale) === 2 ? 2 : Number(args.scale) === 1 ? 1 : 1.5;
+        setExecStatus(`${prefix}Exporting ${ppts[0].name} slides...`);
+        const res = await convertPptToImages(
+          ppts[0],
+          { format, scale, quality: 0.92 },
+          (_p, st) => setExecStatus(`${prefix}${st}`)
+        );
+        if (res.zipBlob) {
+          artifacts.push({
+            id: `zip_ppt_${Date.now()}`,
+            fileName: res.zipFileName,
+            summary: `ZIP with ${res.slides.length} rendered slides (.${format})`,
+            blob: res.zipBlob,
+            kind: 'zip',
+          });
+        }
+        for (const sl of res.slides) {
+          const imgFile = new File([sl.blob], sl.fileName, { type: sl.blob.type || `image/${format}` });
+          producedFiles.push(imgFile);
+          if (artifacts.length < 5) {
+            artifacts.push({
+              id: `pptsl_${sl.slideNumber}_${Date.now()}`,
+              fileName: sl.fileName,
+              summary: `Slide ${sl.slideNumber} · ${sl.width}×${sl.height} (${formatBytes(sl.sizeBytes)})`,
+              blob: sl.blob,
+              kind: 'image',
+              fileObj: imgFile,
+              dataUrl: sl.dataUrl,
+            });
+          }
+        }
+        return {
+          summaryText: `Exported **${res.slides.length}** slide(s) from **${ppts[0].name}** as **.${format.toUpperCase()}**.`,
+          artifacts,
+          badge: 'PPT → Image',
+          producedFiles,
+          consumedKind: 'ppt',
+          producedKind: 'image',
+        };
+      }
+
+      case 'excel_to_pdf': {
+        if (excels.length === 0) throw new Error('Attach an Excel or CSV file (.xlsx, .xls, .csv) to convert to PDF.');
+        const orientation = args.orientation === 'portrait' ? 'portrait' : 'landscape';
+        const paperSize = args.paperSize === 'letter' ? 'letter' : 'a4';
+        for (const xl of excels) {
+          setExecStatus(`${prefix}Converting ${xl.name} to PDF...`);
+          const res = await convertExcelToPdf(
+            xl,
+            { orientation, paperSize },
+            (_p, st) => setExecStatus(`${prefix}${st}`)
+          );
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `xlpdf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${res.sheetCount} sheet(s) · ${res.pageCount} page(s) · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(`Converted **${xl.name}** to **${res.fileName}** (${res.pageCount} pages).`);
+        }
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'Excel → PDF',
+          producedFiles,
+          consumedKind: 'excel',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'excel_to_images': {
+        if (excels.length === 0) throw new Error('Attach an Excel or CSV file (.xlsx, .xls, .csv) to export as images.');
+        const fmtRaw = String(args.format || 'png').toLowerCase();
+        const format = fmtRaw === 'jpg' || fmtRaw === 'webp' ? fmtRaw : 'png';
+        const scale = Number(args.scale) === 2 ? 2 : Number(args.scale) === 1 ? 1 : 1.5;
+        setExecStatus(`${prefix}Rendering ${excels[0].name} sheets...`);
+        const res = await convertExcelToImages(
+          excels[0],
+          { format, scale, quality: 0.92 },
+          (_p, st) => setExecStatus(`${prefix}${st}`)
+        );
+        if (res.zipBlob) {
+          artifacts.push({
+            id: `zip_xl_${Date.now()}`,
+            fileName: res.zipFileName,
+            summary: `ZIP with ${res.pages.length} rendered sheet image(s)`,
+            blob: res.zipBlob,
+            kind: 'zip',
+          });
+        }
+        for (const pg of res.pages) {
+          const imgFile = new File([pg.blob], pg.fileName, { type: pg.blob.type || `image/${format}` });
+          producedFiles.push(imgFile);
+          if (artifacts.length < 5) {
+            artifacts.push({
+              id: `xlpg_${pg.pageNumber}_${Date.now()}`,
+              fileName: pg.fileName,
+              summary: `${pg.sheetName} · ${pg.width}×${pg.height} (${formatBytes(pg.sizeBytes)})`,
+              blob: pg.blob,
+              kind: 'image',
+              fileObj: imgFile,
+              dataUrl: pg.dataUrl,
+            });
+          }
+        }
+        return {
+          summaryText: `Rendered **${res.pages.length}** spreadsheet image(s) from **${excels[0].name}** as **.${format.toUpperCase()}**.`,
+          artifacts,
+          badge: 'Excel → Image',
+          producedFiles,
+          consumedKind: 'excel',
+          producedKind: 'image',
+        };
+      }
+
+      case 'pdf_to_excel': {
+        if (pdfs.length === 0) throw new Error('Attach a PDF file to extract tables into Excel/CSV.');
+        const format = args.format === 'csv' ? 'csv' : 'xlsx';
+        setExecStatus(`${prefix}Extracting ${pdfs[0].name} tables to ${format.toUpperCase()}...`);
+        const res = await convertPdfToExcel(
+          pdfs[0],
+          { format },
+          (_p, st) => setExecStatus(`${prefix}${st}`)
+        );
+        const outFile = new File([res.blob], res.fileName, {
+          type:
+            format === 'csv'
+              ? 'text/csv'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        producedFiles.push(outFile);
+        artifacts.push({
+          id: `pdfxl_${Date.now()}`,
+          fileName: res.fileName,
+          summary: `${res.totalRows} rows · ${res.pageCount} page(s) (.${format})`,
+          blob: res.blob,
+          kind: 'word',
+          fileObj: outFile,
+        });
+        return {
+          summaryText: `Extracted **${res.totalRows} rows** from **${pdfs[0].name}** into **${res.fileName}**.`,
+          artifacts,
+          badge: `PDF → ${format.toUpperCase()}`,
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'excel',
+        };
+      }
+
+      case 'pdf_to_ppt': {
+        if (pdfs.length === 0) throw new Error('Attach a PDF file to convert into PowerPoint (.pptx).');
+        const scale = Number(args.scale) === 2 ? 2 : 1.5;
+        setExecStatus(`${prefix}Building PowerPoint deck from ${pdfs[0].name}...`);
+        const res = await convertPdfToPpt(
+          pdfs[0],
+          { scale },
+          (_p, st) => setExecStatus(`${prefix}${st}`)
+        );
+        const outFile = new File([res.blob], res.fileName, {
+          type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        });
+        producedFiles.push(outFile);
+        artifacts.push({
+          id: `pdfppt_${Date.now()}`,
+          fileName: res.fileName,
+          summary: `${res.slideCount} slides (.pptx) · ${formatBytes(res.blob.size)}`,
+          blob: res.blob,
+          kind: 'word',
+          fileObj: outFile,
+        });
+        return {
+          summaryText: `Converted **${pdfs[0].name}** (${res.slideCount} pages) into **${res.fileName}**.`,
+          artifacts,
+          badge: 'PDF → PPT',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'ppt',
+        };
+      }
+
       case 'navigate_workspace': {
         const viewRaw = String(args.view || 'studio');
         if (viewRaw === 'tools') {
@@ -1165,6 +1407,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               if (result.consumedKind === 'pdf' && isPdfFile(f)) return false;
               if (result.consumedKind === 'image' && isImageFile(f)) return false;
               if (result.consumedKind === 'word' && isWordFile(f)) return false;
+              if (result.consumedKind === 'ppt' && isPptFile(f)) return false;
+              if (result.consumedKind === 'excel' && isExcelFile(f)) return false;
               return true;
             });
             workingFiles = [...result.producedFiles, ...remaining];
@@ -1227,10 +1471,16 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   // Context-aware suggestion chips when files are attached
   const hasAttachedPdf = attachedFiles.some(isPdfFile);
   const hasAttachedWord = attachedFiles.some(isWordFile);
+  const hasAttachedPpt = attachedFiles.some(isPptFile);
+  const hasAttachedExcel = attachedFiles.some(isExcelFile);
   const hasAttachedImg = attachedFiles.some(isImageFile);
 
-  const quickChips: string[] = hasAttachedPdf
-    ? ['Compress this PDF', 'Convert to Word (.docx)', 'Convert PDF to PNG images', 'Open in Cover Studio']
+  const quickChips: string[] = hasAttachedPpt
+    ? ['Convert PPT to PDF', 'Export PPT slides as PNG']
+    : hasAttachedExcel
+    ? ['Convert Excel to PDF', 'Export Excel as PNG images']
+    : hasAttachedPdf
+    ? ['Compress this PDF', 'Convert to Word (.docx)', 'Extract PDF to Excel', 'Convert PDF to PPT']
     : hasAttachedWord
     ? ['Convert Word to PDF', 'Open in Cover Studio']
     : hasAttachedImg
@@ -1249,7 +1499,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".pdf,.docx,.doc,.txt,.md,.rtf,image/*"
+        accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.tsv,.ods,.txt,.md,.rtf,image/*"
         className="hidden"
         onChange={(e) => {
           if (e.target.files) {

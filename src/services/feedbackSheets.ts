@@ -64,6 +64,12 @@ export const TOOL_OPTIONS_BY_CATEGORY: Record<ToolCategory, string[]> = {
     'PDF Editor',
     'Protect / Unlock PDF',
     'PDF to Image',
+    'PPT to PDF (.pptx)',
+    'PPT to Image',
+    'Excel to PDF (.xlsx/.csv)',
+    'Excel to Image',
+    'PDF to Excel (.xlsx/.csv)',
+    'PDF to PPT (.pptx)',
   ],
   'Designer Image Studio': [
     'Background Remover',

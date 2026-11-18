@@ -21,7 +21,7 @@ interface NavbarProps {
 const NAV_ITEMS: { id: AppView; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'studio', label: 'Cover Studio' },
-  { id: 'tools', label: 'PDF Tools' },
+  { id: 'tools', label: 'PDF & Office' },
   { id: 'image-tools', label: 'Image Tools' },
 ];
 
