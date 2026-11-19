@@ -97,6 +97,7 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
   const [showKitSaveInput, setShowKitSaveInput] = useState(false);
   const customLogoInputRef = useRef<HTMLInputElement>(null);
   const customBgInputRef = useRef<HTMLInputElement>(null);
+  const includeQr = coverData.includeQr !== false;
 
   const applyPreset = (preset: ColorPreset) => {
     onChange({
@@ -155,7 +156,9 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
             03. Customize Colors, Copy & Branding
           </h3>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-            Fine-tune palette, fonts, verification stamps, Brand Kits, and QR position
+            {includeQr
+              ? 'Fine-tune palette, fonts, verification stamps, Brand Kits, and QR position'
+              : 'Fine-tune palette, typography, logo, and verification stamps'}
           </p>
         </div>
 
@@ -523,17 +526,19 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              QR Scan Caption
-            </label>
-            <input
-              type="text"
-              value={coverData.qrCallToAction}
-              onChange={(e) => updateField('qrCallToAction', e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 focus:border-yellow-400 focus:outline-none text-zinc-900 dark:text-zinc-200"
-            />
-          </div>
+          {includeQr && (
+            <div>
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                QR Scan Caption
+              </label>
+              <input
+                type="text"
+                value={coverData.qrCallToAction}
+                onChange={(e) => updateField('qrCallToAction', e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 focus:border-yellow-400 focus:outline-none text-zinc-900 dark:text-zinc-200"
+              />
+            </div>
+          )}
 
           {/* Dynamic QR Cover Verification Badge */}
           <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-3">
@@ -644,7 +649,7 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
                     <option value="top-left">Top Left</option>
                     <option value="top-center">Top Center</option>
                     <option value="top-right">Top Right</option>
-                    <option value="qr-center">QR Center Only</option>
+                    {includeQr && <option value="qr-center">QR Center Only</option>}
                   </select>
                 </div>
                 <div>
@@ -753,49 +758,51 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
             </div>
           </div>
 
-          {/* QR Block Placement & Colors */}
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div>
-              <label className="text-zinc-700 dark:text-zinc-300 font-semibold mb-1 flex items-center gap-1.5">
-                <QrCode className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                QR Placement
-              </label>
-              <select
-                value={coverData.qrPosition}
-                onChange={(e) => updateField('qrPosition', e.target.value as QRPosition)}
-                className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white"
-              >
-                <option value="bottom-right">Bottom Right</option>
-                <option value="bottom-center">Bottom Center</option>
-                <option value="bottom-left">Bottom Left</option>
-              </select>
-            </div>
+          {/* QR Block Placement & Colors (only when With QR mode is active) */}
+          {includeQr && (
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="text-zinc-700 dark:text-zinc-300 font-semibold mb-1 flex items-center gap-1.5">
+                  <QrCode className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                  QR Placement
+                </label>
+                <select
+                  value={coverData.qrPosition}
+                  onChange={(e) => updateField('qrPosition', e.target.value as QRPosition)}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white"
+                >
+                  <option value="bottom-right">Bottom Right</option>
+                  <option value="bottom-center">Bottom Center</option>
+                  <option value="bottom-left">Bottom Left</option>
+                </select>
+              </div>
 
-            <div>
-              <span className="text-zinc-600 dark:text-zinc-400 block mb-1">QR Foreground</span>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={coverData.qrColor}
-                  onChange={(e) => updateField('qrColor', e.target.value)}
-                  className="w-7 h-7 rounded border border-zinc-300 dark:border-zinc-700 bg-transparent cursor-pointer"
-                />
-                <span className="font-mono text-zinc-900 dark:text-white uppercase">{coverData.qrColor}</span>
+              <div>
+                <span className="text-zinc-600 dark:text-zinc-400 block mb-1">QR Foreground</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={coverData.qrColor}
+                    onChange={(e) => updateField('qrColor', e.target.value)}
+                    className="w-7 h-7 rounded border border-zinc-300 dark:border-zinc-700 bg-transparent cursor-pointer"
+                  />
+                  <span className="font-mono text-zinc-900 dark:text-white uppercase">{coverData.qrColor}</span>
+                </div>
+              </div>
+
+              <div className="flex items-end pb-1">
+                <label className="flex items-center gap-2 cursor-pointer text-zinc-700 dark:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={coverData.showLogoInQR}
+                    onChange={(e) => updateField('showLogoInQR', e.target.checked)}
+                    className="w-4 h-4 accent-yellow-400"
+                  />
+                  <span>Embed logo inside QR</span>
+                </label>
               </div>
             </div>
-
-            <div className="flex items-end pb-1">
-              <label className="flex items-center gap-2 cursor-pointer text-zinc-700 dark:text-zinc-300">
-                <input
-                  type="checkbox"
-                  checked={coverData.showLogoInQR}
-                  onChange={(e) => updateField('showLogoInQR', e.target.checked)}
-                  className="w-4 h-4 accent-yellow-400"
-                />
-                <span>Embed logo inside QR</span>
-              </label>
-            </div>
-          </div>
+          )}
 
           {/* Appended Document Pages Stamper (Pages 2..N) */}
           <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-3 text-xs">

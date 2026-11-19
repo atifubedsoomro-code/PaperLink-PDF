@@ -32,26 +32,37 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
   CompressionLevel,
+  PdfPageThumb,
+  PdfStampEditElement,
   PdfToWordMode,
   SplitMode,
+  applyPdfEdits,
   compressPdfFile,
   convertImagesToPdf,
   convertPdfToWord,
+  convertTextToPdf,
   convertWordToPdf,
   inspectPdfSource,
   mergeMultiplePdfs,
+  parsePageRange,
   splitPdfFile,
+  transformPdfPages,
 } from '../services/pdfToolkit';
 import {
   BgRemoveEngine,
+  DEFAULT_IMAGE_FILTERS,
+  ImageFiltersConfig,
   ImageOutputFormat,
   ImageResizeFit,
   PdfToImageFormat,
   PdfToImageScale,
+  applyImageFilters,
   compressImageFile,
   convertImageFormat,
   convertPdfToImages,
   createImagesZip,
+  cropRotateFlipImage,
+  extractDominantPalette,
   removeImageBackground,
   resizeImageFile,
 } from '../services/imageToolkit';
@@ -112,7 +123,7 @@ interface GeminiFunctionCall {
   args: Record<string, any>;
 }
 
-type PipelineMediaKind = 'pdf' | 'image' | 'word' | 'ppt' | 'excel' | 'none';
+type PipelineMediaKind = 'pdf' | 'image' | 'word' | 'ppt' | 'excel' | 'text' | 'none';
 
 interface ToolExecutionOutput {
   summaryText: string;
@@ -151,6 +162,11 @@ function isPptFile(file: File): boolean {
 function isExcelFile(file: File): boolean {
   const ext = getFileExt(file.name);
   return ['xlsx', 'xls', 'csv', 'tsv', 'ods'].includes(ext);
+}
+
+function isTextFile(file: File): boolean {
+  const ext = getFileExt(file.name);
+  return file.type.startsWith('text/') || ['txt', 'md', 'markdown', 'rtf'].includes(ext);
 }
 
 function isImageFile(file: File): boolean {
@@ -357,6 +373,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const compactPromptInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastProducedFilesRef = useRef<File[]>([]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -391,6 +408,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     const words = files.filter(isWordFile);
     const ppts = files.filter(isPptFile);
     const excels = files.filter(isExcelFile);
+    const textFiles = files.filter(isTextFile);
     const images = files.filter(isImageFile);
 
     switch (fc.name) {
@@ -1245,6 +1263,412 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         };
       }
 
+      case 'text_to_pdf': {
+        const paperSize: 'a4' | 'letter' = args.paperSize === 'letter' ? 'letter' : 'a4';
+        const pastedContent = typeof args.contentText === 'string' ? args.contentText.trim() : '';
+
+        if (textFiles.length === 0 && !pastedContent) {
+          throw new Error('Attach a .txt/.md file or paste text in your prompt to convert to PDF.');
+        }
+
+        const sources: Array<{ title: string; body: string }> = [];
+        if (textFiles.length > 0) {
+          for (const tf of textFiles) {
+            sources.push({
+              title: tf.name.replace(/\.[^/.]+$/, ''),
+              body: await tf.text(),
+            });
+          }
+        } else {
+          sources.push({
+            title: String(args.title || 'paperlink_notes'),
+            body: pastedContent,
+          });
+        }
+
+        for (const src of sources) {
+          setExecStatus(`${prefix}Converting "${src.title}" text to PDF...`);
+          const res = await convertTextToPdf(src.body, src.title, paperSize);
+          const safeBuf = new Uint8Array(res.bytes).slice().buffer;
+          const outBlob = new Blob([safeBuf], { type: 'application/pdf' });
+          const cleanName =
+            src.title.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'document';
+          const outFileName = `${cleanName}.pdf`;
+          const outFile = new File([outBlob], outFileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `txtpdf_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: outFileName,
+            summary: `${res.pageCount} page(s) · ${paperSize.toUpperCase()} PDF (${formatBytes(outBlob.size)})`,
+            blob: outBlob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(`Created **${outFileName}** (${res.pageCount} page${res.pageCount === 1 ? '' : 's'}).`);
+        }
+
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'Text → PDF',
+          producedFiles,
+          consumedKind: textFiles.length > 0 ? 'text' : 'none',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'organize_pdf_pages': {
+        if (pdfs.length === 0) {
+          throw new Error('Attach or create a PDF first before rotating, keeping, or deleting pages.');
+        }
+        const rotateDegRaw = Number(args.rotateDegrees || 0);
+        const rotateDeg = (((rotateDegRaw % 360) + 360) % 360);
+        const rotatePagesExpr =
+          typeof args.rotatePagesExpr === 'string' ? args.rotatePagesExpr.trim() : '';
+        const deletePagesExpr =
+          typeof args.deletePagesExpr === 'string' ? args.deletePagesExpr.trim() : '';
+        const keepPagesExpr =
+          typeof args.keepPagesExpr === 'string' ? args.keepPagesExpr.trim() : '';
+        const reverseOrder = args.reverseOrder === true;
+
+        for (const pdf of pdfs) {
+          setExecStatus(`${prefix}Organizing pages in ${pdf.name}...`);
+          const info = await inspectPdfSource(pdf);
+          const maxPages = Math.max(1, info.pageCount);
+
+          let pagesOrder: PdfPageThumb[] = Array.from({ length: maxPages }, (_, idx) => ({
+            originalIndex: idx,
+            pageNumber: idx + 1,
+            thumbnailUrl: '',
+            rotationDelta: 0,
+            deleted: false,
+          }));
+
+          if (keepPagesExpr) {
+            const keepSet = new Set(parsePageRange(keepPagesExpr, maxPages));
+            pagesOrder = pagesOrder.map((p) => ({
+              ...p,
+              deleted: !keepSet.has(p.originalIndex),
+            }));
+          }
+
+          if (deletePagesExpr) {
+            const delSet = new Set(parsePageRange(deletePagesExpr, maxPages));
+            pagesOrder = pagesOrder.map((p) => ({
+              ...p,
+              deleted: p.deleted || delSet.has(p.originalIndex),
+            }));
+          }
+
+          if (rotateDeg !== 0) {
+            const rotSet = rotatePagesExpr
+              ? new Set(parsePageRange(rotatePagesExpr, maxPages))
+              : null;
+            pagesOrder = pagesOrder.map((p) => ({
+              ...p,
+              rotationDelta: !rotSet || rotSet.has(p.originalIndex) ? rotateDeg : p.rotationDelta,
+            }));
+          }
+
+          if (reverseOrder) {
+            pagesOrder = [...pagesOrder].reverse();
+          }
+
+          const res = await transformPdfPages(pdf, pagesOrder, (_p, st) =>
+            setExecStatus(`${prefix}${st}`)
+          );
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `org_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${res.pageCount} page(s) · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(
+            `Updated **${pdf.name}** → **${res.fileName}** (${res.pageCount} page${
+              res.pageCount === 1 ? '' : 's'
+            }${rotateDeg ? `, rotated ${rotateDeg}°` : ''}${
+              reverseOrder ? ', reversed order' : ''
+            }).`
+          );
+        }
+
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'PDF Organized',
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'stamp_pdf': {
+        if (pdfs.length === 0) {
+          throw new Error('Attach or create a PDF first so I can apply a stamp.');
+        }
+        const stampText = String(args.text || 'APPROVED').trim().toUpperCase().slice(0, 28) || 'APPROVED';
+        const stampColor =
+          typeof args.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(args.color.trim())
+            ? args.color.trim()
+            : /approved|verified|final/i.test(stampText)
+            ? '#16a34a'
+            : /draft|pending/i.test(stampText)
+            ? '#d97706'
+            : '#dc2626';
+        const pagesArg = String(args.pages || 'all').trim().toLowerCase();
+        const pos = String(args.position || 'top-right').trim().toLowerCase();
+
+        const boxCoords =
+          pos === 'top-left'
+            ? { xFraction: 0.06, yFraction: 0.05 }
+            : pos === 'bottom-right'
+            ? { xFraction: 0.66, yFraction: 0.86 }
+            : pos === 'center'
+            ? { xFraction: 0.34, yFraction: 0.45 }
+            : { xFraction: 0.66, yFraction: 0.05 };
+
+        for (const pdf of pdfs) {
+          setExecStatus(`${prefix}Stamping "${stampText}" onto ${pdf.name}...`);
+          const info = await inspectPdfSource(pdf);
+          const maxPages = Math.max(1, info.pageCount);
+          const targetPageNums: number[] =
+            pagesArg === 'all' || !pagesArg
+              ? Array.from({ length: maxPages }, (_, idx) => idx + 1)
+              : pagesArg === 'first'
+              ? [1]
+              : parsePageRange(pagesArg, maxPages).map((idx) => idx + 1);
+
+          const elements: PdfStampEditElement[] = targetPageNums.map((pageNumber, idx) => ({
+            id: `st_${Date.now()}_${idx}`,
+            kind: 'stamp',
+            pageNumber,
+            xFraction: boxCoords.xFraction,
+            yFraction: boxCoords.yFraction,
+            widthFraction: 0.28,
+            heightFraction: 0.075,
+            text: stampText,
+            color: stampColor,
+          }));
+
+          const res = await applyPdfEdits(pdf, elements, (_p, st) => setExecStatus(`${prefix}${st}`));
+          const stampedName = `${pdf.name.replace(/\.pdf$/i, '')}_stamped.pdf`;
+          const outFile = new File([res.blob], stampedName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+          artifacts.push({
+            id: `stamp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: stampedName,
+            summary: `"${stampText}" on ${targetPageNums.length} page(s) · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+          notes.push(
+            `Stamped **${stampText}** on ${targetPageNums.length} page(s) of **${pdf.name}**.`
+          );
+        }
+
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: `Stamped: ${stampText}`,
+          producedFiles,
+          consumedKind: 'pdf',
+          producedKind: 'pdf',
+        };
+      }
+
+      case 'crop_rotate_image': {
+        if (images.length === 0) {
+          throw new Error('Attach at least one image to rotate, flip, or crop.');
+        }
+        const rotNum = (((Number(args.rotateDeg || 0) % 360) + 360) % 360);
+        const rotateDeg: 0 | 90 | 180 | 270 =
+          rotNum === 90 || rotNum === 180 || rotNum === 270 ? rotNum : 0;
+        const flipH = args.flipH === true;
+        const flipV = args.flipV === true;
+        const ratioStr = String(args.aspectRatio || 'original').trim();
+        const fmtRaw = String(args.format || 'png').toLowerCase();
+        const format: 'png' | 'jpg' | 'webp' =
+          fmtRaw === 'jpg' || fmtRaw === 'jpeg' ? 'jpg' : fmtRaw === 'webp' ? 'webp' : 'png';
+
+        const parseAspect = (r: string): number | null => {
+          const m = /^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/.exec(r);
+          if (!m) return null;
+          const w = parseFloat(m[1]);
+          const h = parseFloat(m[2]);
+          return w > 0 && h > 0 ? w / h : null;
+        };
+        const targetRatio = parseAspect(ratioStr);
+
+        const zipList: { fileName: string; blob: Blob }[] = [];
+        for (const img of images) {
+          setExecStatus(`${prefix}Transforming ${img.name}...`);
+          let cropX = 0;
+          let cropY = 0;
+          let cropW = 1;
+          let cropH = 1;
+
+          if (targetRatio) {
+            const url = URL.createObjectURL(img);
+            try {
+              const el = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const im = new Image();
+                im.onload = () => resolve(im);
+                im.onerror = () => reject(new Error('Image dimensions read failed'));
+                im.src = url;
+              });
+              const swap = rotateDeg === 90 || rotateDeg === 270;
+              const rw = swap ? el.naturalHeight : el.naturalWidth;
+              const rh = swap ? el.naturalWidth : el.naturalHeight;
+              const currentRatio = rw / Math.max(1, rh);
+              if (currentRatio > targetRatio) {
+                cropW = targetRatio / currentRatio;
+                cropX = (1 - cropW) / 2;
+              } else if (currentRatio < targetRatio) {
+                cropH = currentRatio / targetRatio;
+                cropY = (1 - cropH) / 2;
+              }
+            } finally {
+              URL.revokeObjectURL(url);
+            }
+          }
+
+          const res = await cropRotateFlipImage(img, {
+            cropX,
+            cropY,
+            cropW,
+            cropH,
+            rotateDeg,
+            flipH,
+            flipV,
+            format,
+            quality: 0.92,
+          });
+          const outFile = new File([res.blob], res.fileName, { type: res.blob.type || `image/${format}` });
+          producedFiles.push(outFile);
+          zipList.push({ fileName: res.fileName, blob: res.blob });
+          artifacts.push({
+            id: `crp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${res.width}×${res.height}px · ${formatBytes(res.sizeBytes)}`,
+            blob: res.blob,
+            kind: 'image',
+            fileObj: outFile,
+            dataUrl: res.dataUrl,
+          });
+        }
+        if (zipList.length > 1) {
+          const zip = await createImagesZip(zipList);
+          artifacts.unshift({
+            id: `zip_crp_${Date.now()}`,
+            fileName: 'paperlink_edited_images.zip',
+            summary: `${zipList.length} edited images ZIP`,
+            blob: zip,
+            kind: 'zip',
+          });
+        }
+        return {
+          summaryText: `Transformed **${images.length}** image(s)${
+            rotateDeg ? ` (rotated ${rotateDeg}°)` : ''
+          }${targetRatio ? ` · cropped ${ratioStr}` : ''}.`,
+          artifacts,
+          badge: 'Crop / Rotate Image',
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
+        };
+      }
+
+      case 'filter_or_palette_image': {
+        if (images.length === 0) {
+          throw new Error('Attach at least one image to apply filters or extract its hex color palette.');
+        }
+        const preset = String(args.preset || 'none').toLowerCase();
+        const filters: ImageFiltersConfig = { ...DEFAULT_IMAGE_FILTERS };
+        if (preset === 'bw') {
+          filters.grayscale = 100;
+          filters.contrast = 112;
+        } else if (preset === 'vintage') {
+          filters.sepia = 78;
+          filters.contrast = 108;
+          filters.saturate = 85;
+        } else if (preset === 'vivid') {
+          filters.saturate = 142;
+          filters.contrast = 115;
+          filters.brightness = 104;
+        } else if (preset === 'crisp') {
+          filters.sharpen = true;
+          filters.contrast = 108;
+        }
+
+        if (typeof args.grayscale === 'number') filters.grayscale = Math.max(0, Math.min(100, args.grayscale));
+        if (typeof args.sepia === 'number') filters.sepia = Math.max(0, Math.min(100, args.sepia));
+        if (typeof args.brightness === 'number') filters.brightness = Math.max(50, Math.min(180, args.brightness));
+        if (typeof args.contrast === 'number') filters.contrast = Math.max(50, Math.min(180, args.contrast));
+        if (typeof args.saturate === 'number') filters.saturate = Math.max(0, Math.min(200, args.saturate));
+        if (typeof args.blur === 'number') filters.blur = Math.max(0, Math.min(10, args.blur));
+        if (typeof args.sharpen === 'boolean') filters.sharpen = args.sharpen;
+
+        const hasFilterChange =
+          filters.brightness !== DEFAULT_IMAGE_FILTERS.brightness ||
+          filters.contrast !== DEFAULT_IMAGE_FILTERS.contrast ||
+          filters.saturate !== DEFAULT_IMAGE_FILTERS.saturate ||
+          filters.hueRotate !== DEFAULT_IMAGE_FILTERS.hueRotate ||
+          filters.blur !== DEFAULT_IMAGE_FILTERS.blur ||
+          filters.grayscale !== DEFAULT_IMAGE_FILTERS.grayscale ||
+          filters.sepia !== DEFAULT_IMAGE_FILTERS.sepia ||
+          filters.sharpen;
+
+        const extractPalette = args.extractPalette === true || !hasFilterChange;
+        const fmtRaw = String(args.format || 'png').toLowerCase();
+        const format: 'png' | 'jpg' | 'webp' =
+          fmtRaw === 'jpg' || fmtRaw === 'jpeg' ? 'jpg' : fmtRaw === 'webp' ? 'webp' : 'png';
+
+        if (hasFilterChange) {
+          for (const img of images) {
+            setExecStatus(`${prefix}Applying studio filters to ${img.name}...`);
+            const res = await applyImageFilters(img, filters, format, 0.92);
+            const outFile = new File([res.blob], res.fileName, { type: res.blob.type || `image/${format}` });
+            producedFiles.push(outFile);
+            artifacts.push({
+              id: `flt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              fileName: res.fileName,
+              summary: `Filtered · ${res.width}×${res.height}px (${formatBytes(res.sizeBytes)})`,
+              blob: res.blob,
+              kind: 'image',
+              fileObj: outFile,
+              dataUrl: res.dataUrl,
+            });
+          }
+          notes.push(`Applied studio color filters to **${images.length}** image(s).`);
+        }
+
+        if (extractPalette) {
+          setExecStatus(`${prefix}Extracting dominant color palette from ${images[0].name}...`);
+          const swatches = await extractDominantPalette(images[0], 6);
+          if (swatches.length > 0) {
+            notes.push(
+              `Extracted dominant palette for **${images[0].name}**: ${swatches
+                .map((hex) => `\`${hex}\``)
+                .join(' · ')}`
+            );
+          }
+        }
+
+        return {
+          summaryText: notes.join('\n') || 'Image analysis complete.',
+          artifacts,
+          badge: hasFilterChange && extractPalette ? 'Filters + Hex Palette' : hasFilterChange ? 'Image Filters' : 'Hex Palette',
+          producedFiles,
+          consumedKind: hasFilterChange ? 'image' : 'none',
+          producedKind: hasFilterChange ? 'image' : 'none',
+        };
+      }
+
       case 'navigate_workspace': {
         const viewRaw = String(args.view || 'studio');
         if (viewRaw === 'tools') {
@@ -1329,7 +1753,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     setMessages((prev) => [...prev, userMsg]);
     if (!customPrompt) setInput('');
     setIsBusy(true);
-    setExecStatus('Planning workflow...');
+    setExecStatus('Planning multiwork workflow...');
     // Unlock Web Audio inside the user's send gesture so chimes play reliably after async processing
     if (isSoundEnabled) {
       getOrUnlockAudioContext();
@@ -1354,6 +1778,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             sizeBytes: f.size,
             extension: getFileExt(f.name),
             mimeType: f.type,
+          })),
+          previousOutputsSummary: lastProducedFilesRef.current.map((f) => ({
+            name: f.name,
+            sizeBytes: f.size,
+            extension: getFileExt(f.name),
           })),
           inlineImages,
           activeView,
@@ -1383,40 +1812,53 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       const collectedSummaries: string[] = [];
       const badges: string[] = [];
       const stepResults: ToolExecutionOutput[] = [];
+      let failedStepNote: string | null = null;
 
       if (functionCalls.length > 0) {
-        let workingFiles = [...currentFiles];
+        // Seed workingFiles with attached files, or reuse previous turn outputs seamlessly for follow-up commands
+        let workingFiles =
+          currentFiles.length > 0 ? [...currentFiles] : [...lastProducedFilesRef.current];
         const totalSteps = functionCalls.length;
 
         for (let i = 0; i < totalSteps; i++) {
           const fc = functionCalls[i];
           const stepLabel = totalSteps > 1 ? `Step ${i + 1}/${totalSteps}` : undefined;
-          const result = await executeWebsiteTool(fc, workingFiles, stepLabel);
-          stepResults.push(result);
+          try {
+            const result = await executeWebsiteTool(fc, workingFiles, stepLabel);
+            stepResults.push(result);
 
-          if (result.summaryText) {
-            collectedSummaries.push(
-              totalSteps > 1 ? `**${i + 1}.** ${result.summaryText}` : result.summaryText
-            );
-          }
-          if (result.badge) badges.push(result.badge);
+            if (result.summaryText) {
+              collectedSummaries.push(
+                totalSteps > 1 ? `**${i + 1}.** ${result.summaryText}` : result.summaryText
+              );
+            }
+            if (result.badge) badges.push(result.badge);
 
-          // Feed produced output files cleanly into the next step of the chain
-          if (result.producedFiles.length > 0) {
-            const remaining = workingFiles.filter((f) => {
-              if (result.consumedKind === 'pdf' && isPdfFile(f)) return false;
-              if (result.consumedKind === 'image' && isImageFile(f)) return false;
-              if (result.consumedKind === 'word' && isWordFile(f)) return false;
-              if (result.consumedKind === 'ppt' && isPptFile(f)) return false;
-              if (result.consumedKind === 'excel' && isExcelFile(f)) return false;
-              return true;
-            });
-            workingFiles = [...result.producedFiles, ...remaining];
+            // Feed produced output files cleanly into the next step while preserving untouched file types
+            if (result.producedFiles.length > 0) {
+              const remaining = workingFiles.filter((f) => {
+                if (result.consumedKind === 'pdf' && isPdfFile(f)) return false;
+                if (result.consumedKind === 'image' && isImageFile(f)) return false;
+                if (result.consumedKind === 'word' && isWordFile(f)) return false;
+                if (result.consumedKind === 'ppt' && isPptFile(f)) return false;
+                if (result.consumedKind === 'excel' && isExcelFile(f)) return false;
+                if (result.consumedKind === 'text' && isTextFile(f)) return false;
+                return true;
+              });
+              workingFiles = [...result.producedFiles, ...remaining];
+            }
+          } catch (stepErr: any) {
+            const msg = stepErr?.message || `Step ${i + 1} (${fc.name}) could not be completed.`;
+            if (stepResults.length === 0) {
+              throw stepErr;
+            }
+            failedStepNote = `Stopped at **Step ${i + 1}/${totalSteps}** (\`${fc.name}\`): ${msg}`;
+            break;
           }
         }
       }
 
-      // Show only terminal unconsumed artifacts so chained workflows deliver the finished file cleanly
+      // Show terminal unconsumed artifacts so multi-step & parallel workflows return exact final files cleanly
       const terminalArtifacts: ChatArtifact[] = [];
       stepResults.forEach((stepRes, idx) => {
         if (stepRes.artifacts.length === 0) return;
@@ -1424,13 +1866,23 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           stepRes.producedKind !== 'none' &&
           stepResults
             .slice(idx + 1)
-            .some((later) => later.consumedKind === stepRes.producedKind && later.artifacts.length > 0);
+            .some(
+              (later) =>
+                later.consumedKind === stepRes.producedKind && later.producedFiles.length > 0
+            );
         if (!consumedByLaterStep) {
           terminalArtifacts.push(...stepRes.artifacts);
         }
       });
 
-      const modelTextParts = [data.reply, ...collectedSummaries].filter(
+      const producedTurnFiles = terminalArtifacts
+        .map((art) => art.fileObj)
+        .filter((f): f is File => Boolean(f));
+      if (producedTurnFiles.length > 0) {
+        lastProducedFilesRef.current = producedTurnFiles.slice(0, 8);
+      }
+
+      const modelTextParts = [data.reply, ...collectedSummaries, failedStepNote].filter(
         (t) => typeof t === 'string' && t.trim().length > 0
       );
       const finalReply =
@@ -1473,19 +1925,25 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const hasAttachedWord = attachedFiles.some(isWordFile);
   const hasAttachedPpt = attachedFiles.some(isPptFile);
   const hasAttachedExcel = attachedFiles.some(isExcelFile);
+  const hasAttachedText = attachedFiles.some(isTextFile);
   const hasAttachedImg = attachedFiles.some(isImageFile);
 
-  const quickChips: string[] = hasAttachedPpt
-    ? ['Convert PPT to PDF', 'Export PPT slides as PNG']
-    : hasAttachedExcel
-    ? ['Convert Excel to PDF', 'Export Excel as PNG images']
-    : hasAttachedPdf
-    ? ['Compress this PDF', 'Convert to Word (.docx)', 'Extract PDF to Excel', 'Convert PDF to PPT']
-    : hasAttachedWord
-    ? ['Convert Word to PDF', 'Open in Cover Studio']
-    : hasAttachedImg
-    ? ['Remove background', 'Compress to WebP', 'Resize 1080×1080', 'Use as Cover Logo']
-    : ['What can PaperLink do?', 'Who developed PaperLink?', 'Take me to Image Studio'];
+  const quickChips: string[] =
+    attachedFiles.length > 1
+      ? ['Convert all to PDF & merge them', 'Compress all files', 'Convert & add basic cover']
+      : hasAttachedPpt
+      ? ['Convert PPT to PDF', 'Export PPT slides as PNG']
+      : hasAttachedExcel
+      ? ['Convert Excel to PDF', 'Export Excel as PNG images']
+      : hasAttachedText
+      ? ['Convert text to PDF + add basic cover', 'Convert to PDF & stamp APPROVED']
+      : hasAttachedPdf
+      ? ['Compress + add basic cover', 'Stamp CONFIDENTIAL on all pages', 'Convert to Word (.docx)', 'Convert PDF to PPT']
+      : hasAttachedWord
+      ? ['Convert Word to PDF & compress', 'Open in Cover Studio']
+      : hasAttachedImg
+      ? ['Convert to PDF + basic cover (no QR)', 'Remove BG & resize 1080×1080', 'B&W filter + Hex palette']
+      : ['What multiwork chains can you do?', 'Who developed PaperLink?', 'Take me to Image Studio'];
 
   // Avoid overlapping fixed right Cover Studio sidebar on lg+ desktop and mobile step bar
   const dockPositionClass =
@@ -1510,10 +1968,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         }}
       />
 
-      {/* CONSTANT COMPACT BOTTOM-RIGHT "PAPER LINK AI" CARD */}
+      {/* CONSTANT COMPACT BOTTOM-RIGHT "PAPERLINK AI" CRYSTAL GLASS BAR */}
       {!isMinimized && !isOpen && (
         <div
-          className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[344px]`}
+          className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[348px]`}
           onDragOver={(e) => {
             e.preventDefault();
             setIsDragOver(true);
@@ -1529,174 +1987,161 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           }}
         >
           <div className="relative">
-            {/* Ambient Breathing Neon Glow Halo */}
+            {/* Soft Water-Caustic Crystal Halo with Yellow Refraction */}
             {neonGlowMode === 'full' && (
-              <motion.div
+              <div
                 aria-hidden="true"
-                animate={{ opacity: [0.45, 0.8, 0.45], scale: [0.99, 1.015, 0.99] }}
-                transition={{ repeat: Infinity, duration: 6.5, ease: 'easeInOut' }}
-                className="pointer-events-none absolute -inset-1.5 rounded-3xl bg-gradient-to-r from-cyan-400/40 via-yellow-400/35 to-blue-500/40 blur-lg"
+                className="pointer-events-none absolute -inset-2 rounded-[30px] bg-gradient-to-tr from-yellow-300/28 via-white/30 to-amber-200/20 dark:from-yellow-400/14 dark:via-white/[0.05] dark:to-amber-300/10 blur-xl"
               />
             )}
 
-            {/* Neon Frame Border */}
-            <div
-              className={`relative p-[1.5px] rounded-2xl bg-gradient-to-r from-cyan-400 via-yellow-400 to-blue-500 ${
-                neonGlowMode === 'full'
-                  ? 'shadow-[0_0_24px_rgba(34,211,238,0.28),0_0_40px_rgba(250,204,21,0.18)]'
-                  : 'shadow-lg'
-              }`}
-            >
-              {/* Clipped Traveling Top Neon Laser Accent */}
-              {neonGlowMode === 'full' && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
-                >
-                  <motion.div
-                    initial={{ x: '-100%', opacity: 0 }}
-                    animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
-                    transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
-                    className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
-                  />
+            {/* Apple Clear Crystal Water Glass Shell */}
+            <div className="relative rounded-[24px] overflow-hidden bg-white/52 dark:bg-[#0d1420]/50 bg-gradient-to-b from-white/75 via-amber-50/18 to-white/44 dark:from-white/[0.12] dark:via-yellow-300/[0.03] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[190%] border border-white/85 dark:border-white/[0.22] ring-1 ring-inset ring-white/70 dark:ring-white/[0.12] shadow-[0_22px_54px_-14px_rgba(15,23,42,0.18),0_4px_18px_-4px_rgba(250,204,21,0.16),inset_0_1.5px_0_rgba(255,255,255,0.95)] dark:shadow-[0_24px_60px_-12px_rgba(0,0,0,0.68),0_0_24px_-6px_rgba(250,204,21,0.12),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+              {/* Specular Water Meniscus & Surface Refraction */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.65),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.16),transparent_65%)]"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/55 to-transparent"
+              />
+
+              {isDragOver && (
+                <div className="absolute inset-0 z-30 bg-yellow-400/25 dark:bg-yellow-950/60 backdrop-blur-xl border-2 border-dashed border-yellow-400 rounded-[24px] flex items-center justify-center gap-2 p-3">
+                  <Paperclip className="w-4 h-4 text-amber-800 dark:text-yellow-300" />
+                  <span className="text-xs font-bold text-zinc-950 dark:text-white">
+                    Drop file to attach
+                  </span>
                 </div>
               )}
 
-              <div className="relative rounded-[14.5px] bg-white/95 dark:bg-[#0c0c12]/95 backdrop-blur-xl overflow-hidden">
-                {isDragOver && (
-                  <div className="absolute inset-0 z-30 bg-cyan-950/85 backdrop-blur-sm border-2 border-dashed border-cyan-400 rounded-[14.5px] flex items-center justify-center gap-2 p-3">
-                    <Paperclip className="w-4 h-4 text-cyan-300" />
-                    <span className="text-xs font-bold text-white">Drop file to attach</span>
+              {/* Compact Frosted Header Strip */}
+              <div className="relative px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/32 dark:bg-white/[0.03] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
+                    <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
                   </div>
-                )}
-
-                {/* Compact Top Strip: Paper Link AI */}
-                <div className="px-3.5 py-2 border-b border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/90 dark:bg-[#09090e] flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-5 h-5 rounded-md bg-gradient-to-br from-cyan-400 to-yellow-400 text-black flex items-center justify-center shrink-0">
-                      <Bot className="w-3.5 h-3.5 stroke-[2.5]" />
-                    </div>
-                    <span className="text-xs font-extrabold tracking-tight text-zinc-950 dark:text-white truncate">
-                      Paper Link AI
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setIsOpen(true)}
-                      aria-label="Expand PaperLink AI chat"
-                      title="Expand full chat"
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-cyan-400 text-[10px] font-semibold text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
-                    >
-                      <Maximize2 className="w-3 h-3 text-cyan-500" />
-                      <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleMinimizeToTopBar}
-                      aria-label="Minimize chatbot to top bar"
-                      title="Minimize to top bar near PaperLink logo"
-                      className="p-1 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-yellow-400 text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors cursor-pointer shrink-0"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <span className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
+                    PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                  </span>
                 </div>
 
-                {/* Compact Attached Files Strip (if user attached via + before running) */}
-                {attachedFiles.length > 0 && (
-                  <div className="px-2.5 pt-2 flex flex-wrap gap-1">
-                    {attachedFiles.map((file, idx) => (
-                      <div
-                        key={`${file.name}_${idx}`}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-400/15 border border-yellow-400/40 text-[10px] font-mono text-zinc-900 dark:text-yellow-300 max-w-full"
-                      >
-                        <span className="truncate max-w-[155px] font-bold">{file.name}</span>
-                        {onPreviewDocument && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onPreviewDocument({
-                                title: file.name,
-                                fileName: file.name,
-                                blob: file,
-                                subtitle: 'Attached Input Document',
-                              })
-                            }
-                            aria-label={`Preview ${file.name}`}
-                            title="Preview document"
-                            className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 cursor-pointer"
-                          >
-                            <Eye className="w-3 h-3" />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeAttachedFile(idx)}
-                          aria-label={`Remove ${file.name}`}
-                          className="text-zinc-500 hover:text-red-500 cursor-pointer"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Compact Circular (+) Attach & Type Prompt Here Bar */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!input.trim() && attachedFiles.length === 0) {
-                      setIsOpen(true);
-                      return;
-                    }
-                    setIsOpen(true);
-                    void handleSend();
-                  }}
-                  className="px-2.5 py-2.5 flex items-center gap-2"
-                >
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    aria-label="Attach PDF, Word, or Image file"
-                    title="Attach file (PDF, Word, Image)"
-                    className="w-9 h-9 rounded-full border-[1.5px] border-cyan-500/80 dark:border-cyan-400/80 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400 hover:text-black text-cyan-700 dark:text-cyan-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_0_10px_rgba(34,211,238,0.2)] active:scale-95"
+                    onClick={() => setIsOpen(true)}
+                    aria-label="Expand PaperLink AI chat"
+                    title="Expand full chat"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-400/20 dark:bg-yellow-400/[0.12] hover:bg-yellow-400/35 dark:hover:bg-yellow-400/[0.22] border border-yellow-400/60 dark:border-yellow-400/30 text-[10px] font-semibold text-zinc-900 dark:text-yellow-100 transition-all cursor-pointer shrink-0 whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
                   >
-                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                    <Maximize2 className="w-3 h-3 text-amber-700 dark:text-yellow-400" />
+                    <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
                   </button>
-
-                  <input
-                    ref={compactPromptInputRef}
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder={
-                      attachedFiles.length > 0
-                        ? `Prompt for ${attachedFiles.length} file${attachedFiles.length > 1 ? 's' : ''}...`
-                        : 'Type Prompt Here'
-                    }
-                    aria-label="Type Prompt Here"
-                    className="flex-1 min-w-0 px-1.5 py-1.5 text-xs sm:text-[13px] font-medium bg-transparent text-zinc-950 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none"
-                  />
 
                   <button
-                    type="submit"
-                    aria-label="Run PaperLink AI prompt"
-                    className="w-8 h-8 rounded-xl bg-gradient-to-r from-yellow-400 to-cyan-400 hover:brightness-105 text-black flex items-center justify-center shrink-0 cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.3)] active:scale-95"
+                    type="button"
+                    onClick={handleMinimizeToTopBar}
+                    aria-label="Minimize chatbot to top bar"
+                    title="Minimize to top bar near PaperLink logo"
+                    className="p-1.5 rounded-full bg-white/60 dark:bg-white/[0.10] hover:bg-yellow-400/25 dark:hover:bg-yellow-400/[0.18] border border-white/80 dark:border-white/[0.16] text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-yellow-200 transition-all cursor-pointer shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
                   >
-                    <Send className="w-3.5 h-3.5 stroke-[2.25]" />
+                    <Minus className="w-3 h-3" />
                   </button>
-                </form>
+                </div>
               </div>
+
+              {/* Compact Attached Files Strip */}
+              {attachedFiles.length > 0 && (
+                <div className="relative px-3 pt-2 flex flex-wrap gap-1.5">
+                  {attachedFiles.map((file, idx) => (
+                    <div
+                      key={`${file.name}_${idx}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-yellow-400/18 dark:bg-yellow-400/[0.12] border border-yellow-400/50 dark:border-yellow-400/30 text-[10px] font-mono text-zinc-900 dark:text-yellow-100 max-w-full shadow-xs"
+                    >
+                      <span className="truncate max-w-[155px] font-semibold">{file.name}</span>
+                      {onPreviewDocument && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onPreviewDocument({
+                              title: file.name,
+                              fileName: file.name,
+                              blob: file,
+                              subtitle: 'Attached Input Document',
+                            })
+                          }
+                          aria-label={`Preview ${file.name}`}
+                          title="Preview document"
+                          className="text-amber-700 dark:text-yellow-300 hover:opacity-80 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeAttachedFile(idx)}
+                        aria-label={`Remove ${file.name}`}
+                        className="text-zinc-600 dark:text-zinc-300 hover:text-red-500 cursor-pointer"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Compact Circular (+) Attach & Frosted Input Bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!input.trim() && attachedFiles.length === 0) {
+                    setIsOpen(true);
+                    return;
+                  }
+                  setIsOpen(true);
+                  void handleSend();
+                }}
+                className="relative px-3 py-2.5 flex items-center gap-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Attach PDF, Word, or Image file"
+                  title="Attach file (PDF, Word, PPT, Excel, Text, Image)"
+                  className="w-9 h-9 rounded-full bg-yellow-400/24 dark:bg-yellow-400/18 hover:bg-yellow-400/42 dark:hover:bg-yellow-400/30 border border-yellow-400/70 dark:border-yellow-400/40 text-amber-800 dark:text-yellow-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_2px_10px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] active:scale-95"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.25]" />
+                </button>
+
+                <input
+                  ref={compactPromptInputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={
+                    attachedFiles.length > 0
+                      ? `Prompt for ${attachedFiles.length} file${attachedFiles.length > 1 ? 's' : ''}...`
+                      : 'Ask or drop files for multiwork...'
+                  }
+                  aria-label="Type Prompt Here"
+                  className="flex-1 min-w-0 px-3 py-2 rounded-full bg-white/52 dark:bg-white/[0.07] border border-white/80 dark:border-white/[0.16] text-xs sm:text-[13px] font-medium text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:border-yellow-400/85 focus:bg-white/75 dark:focus:bg-white/[0.12] transition-all shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                />
+
+                <button
+                  type="submit"
+                  aria-label="Run PaperLink AI prompt"
+                  className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 text-zinc-950 font-bold flex items-center justify-center shrink-0 cursor-pointer shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5 stroke-[2.25]" />
+                </button>
+              </form>
             </div>
           </div>
         </div>
       )}
 
-      {/* EXPANDED NEON-LIT MULTI-TURN CHATBOT DRAWER */}
+      {/* EXPANDED APPLE CLEAR CRYSTAL WATER TRANSPARENCY CHATBOT DRAWER */}
       <AnimatePresence>
         {!isMinimized && isOpen && (
           <motion.div
@@ -1704,7 +2149,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 14, scale: 0.97 }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[410px] h-[min(78vh,620px)]`}
+            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[416px] h-[min(78vh,630px)]`}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragOver(true);
@@ -1716,475 +2161,456 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               if (e.dataTransfer.files) handleAttachFiles(e.dataTransfer.files);
             }}
           >
-            {/* Outer Breathing Neon Aura */}
+            {/* Soft Water-Caustic Crystal Halo with Yellow Refraction */}
             {neonGlowMode === 'full' && (
-              <motion.div
+              <div
                 aria-hidden="true"
-                animate={{ opacity: [0.6, 0.95, 0.6], scale: [0.99, 1.015, 0.99] }}
-                transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
-                className="pointer-events-none absolute -inset-2 rounded-3xl bg-gradient-to-tr from-yellow-400/45 via-cyan-400/35 to-fuchsia-500/30 blur-2xl"
+                className="pointer-events-none absolute -inset-3 rounded-[34px] bg-gradient-to-tr from-yellow-300/26 via-white/30 to-amber-200/20 dark:from-yellow-400/12 dark:via-white/[0.05] dark:to-amber-300/10 blur-2xl"
               />
             )}
 
-            {/* Neon Rim Frame */}
-            <div
-              className={`relative h-full p-[2px] rounded-2xl bg-gradient-to-br from-yellow-400 via-cyan-400 to-amber-500 ${
-                neonGlowMode === 'full'
-                  ? 'shadow-[0_0_34px_rgba(250,204,21,0.34),0_0_64px_rgba(34,211,238,0.24)]'
-                  : 'shadow-xl'
-              }`}
-            >
-              {/* Clipped Traveling Neon Laser Accent */}
-              {neonGlowMode === 'full' && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 rounded-2xl overflow-hidden z-20"
-                >
-                  <motion.div
-                    initial={{ x: '-100%', opacity: 0 }}
-                    animate={{ x: ['-100%', '340%'], opacity: [0, 1, 1, 0] }}
-                    transition={{ repeat: Infinity, duration: 5.2, repeatDelay: 0.8, ease: 'linear' }}
-                    className="absolute top-0 left-0 h-[2px] w-1/3 bg-gradient-to-r from-transparent via-cyan-300 to-transparent blur-[0.5px] will-change-transform"
-                  />
+            {/* Apple Liquid Crystal Glass Outer Frame */}
+            <div className="relative h-full flex flex-col rounded-[26px] overflow-hidden bg-white/52 dark:bg-[#0d1420]/50 bg-gradient-to-b from-white/75 via-amber-50/18 to-white/44 dark:from-white/[0.12] dark:via-yellow-300/[0.03] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[190%] border border-white/85 dark:border-white/[0.22] ring-1 ring-inset ring-white/70 dark:ring-white/[0.12] shadow-[0_28px_72px_-14px_rgba(15,23,42,0.20),0_6px_22px_-4px_rgba(250,204,21,0.16),inset_0_1.5px_0_rgba(255,255,255,0.95)] dark:shadow-[0_32px_76px_-12px_rgba(0,0,0,0.72),0_0_28px_-6px_rgba(250,204,21,0.14),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+              {/* Top Specular Meniscus & Curved Glass Highlight */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.68),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.16),transparent_65%)]"
+              />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-6 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/55 to-transparent z-20"
+              />
+
+              {/* Frosted Crystal Header */}
+              <div className="relative px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/35 dark:bg-white/[0.04] flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_3px_12px_rgba(250,204,21,0.30),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)]">
+                    <Bot className="w-4 h-4 stroke-[2.25]" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
+                      PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                    </h3>
+                    <p className="text-[10px] text-zinc-600 dark:text-zinc-300/80 truncate">
+                      Multiwork pipelines · Runs locally
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = speedMode === 'balanced' ? 'fast' : 'balanced';
+                      setSpeedMode(next);
+                      onSpeedModeChange?.(next);
+                    }}
+                    title={
+                      speedMode === 'balanced'
+                        ? 'Model: gemini-4-hydrogen (Smart Multiwork Agent)'
+                        : 'Model: gemini-3.1-flash-lite (Fast Chat)'
+                    }
+                    className={`px-2.5 py-1 rounded-full border text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] ${
+                      speedMode === 'fast'
+                        ? 'border-yellow-400/85 dark:border-yellow-400/45 bg-yellow-400/28 text-amber-950 dark:text-yellow-200'
+                        : 'border-yellow-400/60 dark:border-yellow-400/30 bg-yellow-400/16 dark:bg-yellow-400/[0.10] text-zinc-900 dark:text-yellow-100'
+                    }`}
+                  >
+                    <Zap className="w-3 h-3 text-amber-700 dark:text-yellow-400" />
+                    <span>{speedMode === 'fast' ? 'Fast' : 'Smart'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={toggleChatSound}
+                    title={
+                      isSoundEnabled
+                        ? 'Success sound on — click to mute'
+                        : 'Success sound muted — click to unmute'
+                    }
+                    aria-label={isSoundEnabled ? 'Mute output success sound' : 'Unmute output success sound'}
+                    className={`p-1.5 rounded-full border cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ${
+                      isSoundEnabled
+                        ? 'border-yellow-400/80 dark:border-yellow-400/40 bg-yellow-400/24 text-amber-800 dark:text-yellow-300 hover:bg-yellow-400/35'
+                        : 'border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-500 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {isSoundEnabled ? (
+                      <Volume2 className="w-3.5 h-3.5" />
+                    ) : (
+                      <VolumeX className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCredits((p) => !p)}
+                    title="Developer Credits — Team Terminators"
+                    className={`p-1.5 rounded-full border cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ${
+                      showCredits
+                        ? 'border-yellow-400/85 dark:border-yellow-400/45 bg-yellow-400/28 text-amber-900 dark:text-yellow-200'
+                        : 'border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-700 dark:text-zinc-300 hover:bg-yellow-400/18 hover:text-zinc-950 dark:hover:text-yellow-200'
+                    }`}
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      lastProducedFilesRef.current = [];
+                      setMessages([
+                        {
+                          id: 'welcome',
+                          role: 'model',
+                          text: 'Conversation cleared! Drop or attach files below for single or multiwork pipelines.',
+                        },
+                      ]);
+                    }}
+                    title="Clear chat history"
+                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleMinimizeToTopBar}
+                    title="Minimize to top bar near PaperLink logo"
+                    aria-label="Minimize chatbot to top bar"
+                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    title="Collapse to bottom-right compact bar"
+                    aria-label="Collapse AI Assistant"
+                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Developer Credits Strip */}
+              {showCredits && (
+                <div className="relative px-4 py-2.5 bg-yellow-400/12 dark:bg-yellow-400/[0.06] border-b border-black/[0.06] dark:border-white/[0.10] text-[11px] space-y-1 shrink-0">
+                  <p className="font-bold text-amber-800 dark:text-yellow-300">
+                    Developed by Team Terminators:
+                  </p>
+                  <p className="font-mono text-zinc-800 dark:text-zinc-200 leading-relaxed">
+                    Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham · 5. Manahil Shamsi
+                  </p>
                 </div>
               )}
 
-              <div className="relative h-full flex flex-col rounded-[14px] bg-white/95 dark:bg-[#0c0c11]/95 backdrop-blur-xl overflow-hidden">
-                {/* Chat Header */}
-                <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#09090e] flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-yellow-400 to-cyan-400 text-black flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(250,204,21,0.5)]">
-                      <Bot className="w-4 h-4 stroke-[2.5]" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <h3 className="text-xs font-extrabold text-zinc-950 dark:text-white truncate">
-                          PaperLink AI
-                        </h3>
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-                      </div>
-                      <p className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
-                        Attach files · Run tools directly
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = speedMode === 'balanced' ? 'fast' : 'balanced';
-                        setSpeedMode(next);
-                        onSpeedModeChange?.(next);
-                      }}
-                      title={
-                        speedMode === 'balanced'
-                          ? 'Model: gemini-4-hydrogen (Smart Tool Agent)'
-                          : 'Model: gemini-3.1-flash-lite (Fast Chat)'
-                      }
-                      className={`px-2 py-1 rounded-lg border text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer transition-colors ${
-                        speedMode === 'fast'
-                          ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-600 dark:text-cyan-300'
-                          : 'border-yellow-400/60 bg-yellow-400/15 text-amber-700 dark:text-yellow-300'
-                      }`}
-                    >
-                      <Zap className="w-3 h-3" />
-                      <span>{speedMode === 'fast' ? 'Fast' : 'Smart'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={toggleChatSound}
-                      title={
-                        isSoundEnabled
-                          ? 'Success sound on — click to mute'
-                          : 'Success sound muted — click to unmute'
-                      }
-                      aria-label={isSoundEnabled ? 'Mute output success sound' : 'Unmute output success sound'}
-                      className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
-                        isSoundEnabled
-                          ? 'border-emerald-400/50 bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-400/20'
-                          : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {isSoundEnabled ? (
-                        <Volume2 className="w-3.5 h-3.5" />
-                      ) : (
-                        <VolumeX className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowCredits((p) => !p)}
-                      title="Developer Credits — Team Terminators"
-                      className={`p-1.5 rounded-lg border cursor-pointer transition-colors ${
-                        showCredits
-                          ? 'border-yellow-400 bg-yellow-400/15 text-amber-600 dark:text-yellow-400'
-                          : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
-                      }`}
-                    >
-                      <Info className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setMessages([
-                          {
-                            id: 'welcome',
-                            role: 'model',
-                            text: 'Conversation cleared! Drop or attach a file below, or ask me anything about PaperLink.',
-                          },
-                        ])
-                      }
-                      title="Clear chat history"
-                      className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-red-500 cursor-pointer transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleMinimizeToTopBar}
-                      title="Minimize to top bar near PaperLink logo"
-                      aria-label="Minimize chatbot to top bar"
-                      className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-colors"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsOpen(false)}
-                      title="Collapse to bottom-right compact bar"
-                      aria-label="Collapse AI Assistant"
-                      className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white cursor-pointer transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Developer Credits Strip (Expandable or Compact Footer) */}
-                {showCredits && (
-                  <div className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 text-[11px] space-y-1 shrink-0">
-                    <p className="font-bold text-amber-700 dark:text-yellow-400">
-                      Developed by Team Terminators:
-                    </p>
-                    <p className="font-mono text-zinc-700 dark:text-zinc-300 leading-relaxed">
-                      Lead: Atif Ubed · 2. Sufyan Ali · 3. Muhammad Bilal · 4. Muhammad Arham · 5. Manahil Shamsi
+              {/* Scrollable Multi-Turn Conversation Thread */}
+              <div className="relative flex-1 overflow-y-auto p-3.5 space-y-3">
+                {isDragOver && (
+                  <div className="absolute inset-2 rounded-2xl border-2 border-dashed border-yellow-400 bg-yellow-400/22 dark:bg-yellow-950/65 backdrop-blur-xl z-10 flex flex-col items-center justify-center text-center p-4">
+                    <Paperclip className="w-7 h-7 text-amber-700 dark:text-yellow-300 mb-2" />
+                    <p className="text-xs font-bold text-zinc-950 dark:text-white">
+                      Drop PDF, Word, PPT, Excel, Text, or Images to Attach
                     </p>
                   </div>
                 )}
 
-                {/* Scrollable Multi-Turn Conversation Thread */}
-                <div className="flex-1 overflow-y-auto p-3.5 space-y-3 relative">
-                  {isDragOver && (
-                    <div className="absolute inset-2 rounded-xl border-2 border-dashed border-cyan-400 bg-cyan-950/75 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-center p-4">
-                      <Paperclip className="w-7 h-7 text-cyan-300 mb-2" />
-                      <p className="text-xs font-bold text-white">
-                        Drop PDF, Word, or Image to Attach to Chat
-                      </p>
-                    </div>
-                  )}
+                {messages.map((msg) => {
+                  const isUser = msg.role === 'user';
+                  const isCopied = copiedMsgId === msg.id;
+                  return (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                      className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
+                    >
+                      {!isUser && (
+                        <div className="flex items-center justify-between w-full max-w-[92%] mb-1 px-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-yellow-400/85 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/40 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shadow-xs">
+                              <Bot className="w-2.5 h-2.5 stroke-[2.25]" />
+                            </span>
+                            <span className="text-[10px] font-semibold tracking-tight text-zinc-700 dark:text-zinc-300">
+                              PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                            </span>
+                          </div>
+                          {!msg.isError && msg.text && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessage(msg.id, msg.text)}
+                              aria-label="Copy message"
+                              title="Copy response"
+                              className="inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 hover:text-amber-700 dark:hover:text-yellow-300 transition-colors cursor-pointer"
+                            >
+                              {isCopied ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      )}
 
-                  {messages.map((msg) => {
-                    const isUser = msg.role === 'user';
-                    const isCopied = copiedMsgId === msg.id;
-                    return (
-                      <motion.div
-                        key={msg.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                        className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
+                      <div
+                        className={`max-w-[92%] rounded-[20px] px-3.5 py-2.5 text-xs leading-relaxed ${
+                          isUser
+                            ? 'bg-yellow-400/88 dark:bg-yellow-400/24 backdrop-blur-md border border-yellow-300/90 dark:border-yellow-300/35 text-zinc-950 dark:text-yellow-50 font-medium rounded-br-md shadow-[0_8px_22px_-6px_rgba(234,179,8,0.38),inset_0_1px_0_rgba(255,255,255,0.68)] dark:shadow-[0_8px_22px_-6px_rgba(250,204,21,0.18),inset_0_1px_0_rgba(255,255,255,0.22)]'
+                            : msg.isError
+                            ? 'bg-rose-500/15 dark:bg-rose-500/20 backdrop-blur-md border border-rose-300/70 dark:border-rose-400/35 text-rose-800 dark:text-rose-200 rounded-bl-md'
+                            : 'bg-white/65 dark:bg-white/[0.08] backdrop-blur-md border border-white/85 dark:border-white/[0.15] text-zinc-900 dark:text-zinc-100 rounded-bl-md shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
+                        }`}
                       >
-                        {!isUser && (
-                          <div className="flex items-center justify-between w-full max-w-[92%] mb-1 px-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="w-4 h-4 rounded-md bg-gradient-to-br from-cyan-400 to-yellow-400 text-black flex items-center justify-center shadow-xs">
-                                <Bot className="w-2.5 h-2.5 stroke-[2.5]" />
-                              </span>
-                              <span className="text-[10px] font-bold tracking-tight text-zinc-600 dark:text-zinc-400">
-                                PaperLink AI
-                              </span>
-                            </div>
-                            {!msg.isError && msg.text && (
-                              <button
-                                type="button"
-                                onClick={() => handleCopyMessage(msg.id, msg.text)}
-                                aria-label="Copy message"
-                                title="Copy response"
-                                className="inline-flex items-center gap-1 text-[10px] text-zinc-400 hover:text-cyan-500 dark:hover:text-cyan-400 transition-colors cursor-pointer"
-                              >
-                                {isCopied ? (
-                                  <>
-                                    <Check className="w-3 h-3 text-emerald-500" />
-                                    <span className="text-emerald-500 font-semibold">Copied</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3 h-3" />
-                                    <span>Copy</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
+                        {msg.actionBadge && (
+                          <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-yellow-400/22 border border-yellow-500/45 text-amber-900 dark:text-yellow-200 text-[10px] font-bold">
+                            <CheckCircle2 className="w-3 h-3 shrink-0 text-amber-700 dark:text-yellow-300" />
+                            <span>{msg.actionBadge}</span>
                           </div>
                         )}
 
-                        <div
-                          className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                            isUser
-                              ? 'bg-gradient-to-br from-yellow-400 to-amber-400 text-zinc-950 font-medium rounded-br-sm shadow-[0_2px_12px_rgba(250,204,21,0.22)]'
-                              : msg.isError
-                              ? 'bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-500/40 text-red-700 dark:text-red-300 rounded-bl-sm'
-                              : msg.actionBadge
-                              ? 'bg-white dark:bg-[#13131d] border border-cyan-400/35 text-zinc-800 dark:text-zinc-200 rounded-bl-sm shadow-[0_4px_18px_rgba(34,211,238,0.08)]'
-                              : 'bg-zinc-100/90 dark:bg-[#13131b] border border-zinc-200/90 dark:border-zinc-800/90 text-zinc-800 dark:text-zinc-200 rounded-bl-sm shadow-xs'
-                          }`}
-                        >
-                          {msg.actionBadge && (
-                            <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                              <CheckCircle2 className="w-3 h-3 shrink-0" />
-                              <span>{msg.actionBadge}</span>
-                            </div>
-                          )}
+                        {msg.attachedNames && msg.attachedNames.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {msg.attachedNames.map((n) => (
+                              <span
+                                key={n}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/10 dark:bg-yellow-300/15 border border-black/15 dark:border-yellow-300/30 text-[10px] font-mono font-semibold text-zinc-950 dark:text-yellow-50"
+                              >
+                                <Paperclip className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate max-w-[200px]">{n}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
-                          {msg.attachedNames && msg.attachedNames.length > 0 && (
-                            <div className="mb-2 flex flex-wrap gap-1">
-                              {msg.attachedNames.map((n) => (
-                                <span
-                                  key={n}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/10 border border-black/10 text-[10px] font-mono font-semibold text-zinc-950"
-                                >
-                                  <Paperclip className="w-2.5 h-2.5 shrink-0" />
-                                  <span className="truncate max-w-[200px]">{n}</span>
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                        <ChatMarkdown content={msg.text} isUser={isUser} />
 
-                          <ChatMarkdown content={msg.text} isUser={isUser} />
-
-                          {/* Executable Result Download Cards */}
-                          {msg.artifacts && msg.artifacts.length > 0 && (
-                            <div className="mt-3 space-y-2 pt-2.5 border-t border-zinc-200/80 dark:border-zinc-800">
-                              {msg.artifacts.map((art) => (
-                                <div
-                                  key={art.id}
-                                  className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950/90 border border-zinc-200 dark:border-zinc-800 space-y-2"
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    {art.dataUrl ? (
-                                      <img
-                                        src={art.dataUrl}
-                                        alt={art.fileName}
-                                        className="w-9 h-9 rounded-lg object-cover border border-zinc-200 dark:border-zinc-800 shrink-0"
-                                      />
-                                    ) : (
-                                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-yellow-400/20 to-cyan-400/20 border border-yellow-400/30 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
-                                        {art.kind === 'zip' ? (
-                                          <Archive className="w-4 h-4" />
-                                        ) : art.kind === 'image' ? (
-                                          <ImageIcon className="w-4 h-4" />
-                                        ) : (
-                                          <FileText className="w-4 h-4" />
-                                        )}
-                                      </div>
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-[11px] font-bold text-zinc-900 dark:text-white truncate">
-                                        {art.fileName}
-                                      </p>
-                                      <p className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
-                                        {art.summary}
-                                      </p>
+                        {/* Frosted Crystal Output Result Cards */}
+                        {msg.artifacts && msg.artifacts.length > 0 && (
+                          <div className="mt-3 space-y-2 pt-2.5 border-t border-black/[0.06] dark:border-white/[0.10]">
+                            {msg.artifacts.map((art) => (
+                              <div
+                                key={art.id}
+                                className="p-2.5 rounded-2xl bg-white/75 dark:bg-white/[0.07] border border-white/85 dark:border-white/[0.15] space-y-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {art.dataUrl ? (
+                                    <img
+                                      src={art.dataUrl}
+                                      alt={art.fileName}
+                                      className="w-9 h-9 rounded-xl object-cover border border-white/80 dark:border-white/20 shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-xl bg-yellow-400/20 border border-yellow-400/45 text-amber-700 dark:text-yellow-300 flex items-center justify-center shrink-0">
+                                      {art.kind === 'zip' ? (
+                                        <Archive className="w-4 h-4" />
+                                      ) : art.kind === 'image' ? (
+                                        <ImageIcon className="w-4 h-4" />
+                                      ) : (
+                                        <FileText className="w-4 h-4" />
+                                      )}
                                     </div>
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {onPreviewDocument && !art.isEncrypted && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onPreviewDocument({
-                                            title: art.fileName,
-                                            fileName: art.fileName,
-                                            blob: art.blob,
-                                            subtitle: art.summary,
-                                          })
-                                        }
-                                        className="py-1.5 px-2.5 rounded-lg border border-cyan-400/50 bg-cyan-400/10 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
-                                        title="Preview generated document"
-                                      >
-                                        <Eye className="w-3 h-3" />
-                                        <span>Preview</span>
-                                      </button>
-                                    )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => triggerDownload(art.blob, art.fileName)}
-                                      className="flex-1 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-yellow-400 to-amber-400 hover:brightness-105 text-black text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer shadow-xs"
-                                    >
-                                      <Download className="w-3 h-3" />
-                                      <span>Download</span>
-                                    </button>
-
-                                    {art.kind === 'pdf' && art.fileObj && !art.isEncrypted && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          onOpenDocInCoverStudio(art.fileObj!);
-                                          setIsOpen(false);
-                                        }}
-                                        className="py-1.5 px-2.5 rounded-lg bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 text-white text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                                      >
-                                        <ExternalLink className="w-3 h-3 text-yellow-400" />
-                                        <span>Cover Studio</span>
-                                      </button>
-                                    )}
-
-                                    {art.kind === 'image' && art.dataUrl && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          onUseImageAsCoverLogo(art.dataUrl!);
-                                          setIsOpen(false);
-                                        }}
-                                        className="py-1.5 px-2.5 rounded-lg bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 text-white text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                                      >
-                                        <ExternalLink className="w-3 h-3 text-yellow-400" />
-                                        <span>Use as Logo</span>
-                                      </button>
-                                    )}
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[11px] font-bold text-zinc-900 dark:text-white truncate">
+                                      {art.fileName}
+                                    </p>
+                                    <p className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300">
+                                      {art.summary}
+                                    </p>
                                   </div>
                                 </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    );
-                  })}
 
-                  {isBusy && (
-                    <div className="flex items-start">
-                      <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-sm bg-zinc-100 dark:bg-[#13131b] border border-cyan-400/50 text-xs text-zinc-700 dark:text-zinc-200 inline-flex items-center gap-2 shadow-[0_0_16px_rgba(34,211,238,0.12)]">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-500" />
-                        <span className="font-medium">{execStatus || 'Thinking...'}</span>
-                      </div>
-                    </div>
-                  )}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {onPreviewDocument && !art.isEncrypted && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onPreviewDocument({
+                                          title: art.fileName,
+                                          fileName: art.fileName,
+                                          blob: art.blob,
+                                          subtitle: art.summary,
+                                        })
+                                      }
+                                      className="py-1.5 px-2.5 rounded-xl border border-yellow-400/55 dark:border-yellow-400/30 bg-yellow-400/14 dark:bg-yellow-400/[0.10] hover:bg-yellow-400/26 dark:hover:bg-yellow-400/[0.20] text-amber-900 dark:text-yellow-200 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer transition-all"
+                                      title="Preview generated document"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                      <span>Preview</span>
+                                    </button>
+                                  )}
 
-                  <div ref={messagesEndRef} />
-                </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => triggerDownload(art.blob, art.fileName)}
+                                    className="flex-1 py-1.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-zinc-950 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer shadow-[0_4px_12px_rgba(250,204,21,0.32),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>Download</span>
+                                  </button>
 
-                {/* Quick Context Chips */}
-                <div className="px-3 py-1.5 border-t border-zinc-200/70 dark:border-zinc-800/70 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
-                  {quickChips.map((chip) => (
-                    <button
-                      key={chip}
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void handleSend(chip)}
-                      className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-cyan-400 text-[10px] font-semibold text-zinc-700 dark:text-zinc-300 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
+                                  {art.kind === 'pdf' && art.fileObj && !art.isEncrypted && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onOpenDocInCoverStudio(art.fileObj!);
+                                        setIsOpen(false);
+                                      }}
+                                      className="py-1.5 px-2.5 rounded-xl bg-zinc-900/90 dark:bg-white/15 hover:bg-zinc-900 dark:hover:bg-white/25 text-white text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-all"
+                                    >
+                                      <ExternalLink className="w-3 h-3 text-yellow-300" />
+                                      <span>Cover Studio</span>
+                                    </button>
+                                  )}
 
-                {/* Attached Files Strip */}
-                {attachedFiles.length > 0 && (
-                  <div className="px-3 pt-2 flex flex-wrap gap-1.5 shrink-0">
-                    {attachedFiles.map((file, idx) => (
-                      <div
-                        key={`${file.name}_${idx}`}
-                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-yellow-400/15 border border-yellow-400/40 text-[10px] font-mono text-zinc-900 dark:text-yellow-300 max-w-full"
-                      >
-                        <span className="truncate max-w-[145px] font-bold">{file.name}</span>
-                        <span className="text-zinc-500 dark:text-zinc-400 shrink-0">
-                          {formatBytes(file.size)}
-                        </span>
-                        {onPreviewDocument && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onPreviewDocument({
-                                title: file.name,
-                                fileName: file.name,
-                                blob: file,
-                                subtitle: 'Attached Input Document',
-                              })
-                            }
-                            aria-label={`Preview ${file.name}`}
-                            title="Preview document"
-                            className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 cursor-pointer"
-                          >
-                            <Eye className="w-3 h-3" />
-                          </button>
+                                  {art.kind === 'image' && art.dataUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        onUseImageAsCoverLogo(art.dataUrl!);
+                                        setIsOpen(false);
+                                      }}
+                                      className="py-1.5 px-2.5 rounded-xl bg-zinc-900/90 dark:bg-white/15 hover:bg-zinc-900 dark:hover:bg-white/25 text-white text-[10px] font-semibold inline-flex items-center gap-1 cursor-pointer transition-all"
+                                    >
+                                      <ExternalLink className="w-3 h-3 text-yellow-300" />
+                                      <span>Use as Logo</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => removeAttachedFile(idx)}
-                          aria-label={`Remove ${file.name}`}
-                          className="text-zinc-500 hover:text-red-500 cursor-pointer"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
                       </div>
-                    ))}
+                    </motion.div>
+                  );
+                })}
+
+                {isBusy && (
+                  <div className="flex items-start">
+                    <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 text-xs text-zinc-900 dark:text-yellow-100 inline-flex items-center gap-2 shadow-[0_4px_16px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 dark:text-yellow-300" />
+                      <span className="font-semibold">{execStatus || 'Thinking...'}</span>
+                    </div>
                   </div>
                 )}
 
-                {/* Input Composer + Subtle Developer Credit Line */}
-                <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-[#09090e] space-y-2 shrink-0">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void handleSend();
-                    }}
-                    className="flex items-center gap-2"
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Quick Context Frosted Yellow Chips */}
+              <div className="relative px-3 py-1.5 border-t border-black/[0.06] dark:border-white/[0.10] bg-white/20 dark:bg-white/[0.02] flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+                {quickChips.map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => void handleSend(chip)}
+                    className="px-2.5 py-1 rounded-full border border-yellow-400/50 dark:border-yellow-400/28 bg-yellow-400/14 dark:bg-yellow-400/[0.09] hover:bg-yellow-400/30 dark:hover:bg-yellow-400/[0.20] text-[10px] font-semibold text-zinc-900 dark:text-yellow-100 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
                   >
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      title="Attach PDF, Word, or Image file"
-                      aria-label="Attach file"
-                      className="p-2.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-cyan-400 text-zinc-600 dark:text-zinc-300 cursor-pointer shrink-0 transition-colors"
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              {/* Attached Files Strip */}
+              {attachedFiles.length > 0 && (
+                <div className="relative px-3 pt-2 flex flex-wrap gap-1.5 shrink-0">
+                  {attachedFiles.map((file, idx) => (
+                    <div
+                      key={`${file.name}_${idx}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-400/18 dark:bg-yellow-400/[0.12] border border-yellow-400/50 dark:border-yellow-400/30 text-[10px] font-mono text-zinc-900 dark:text-yellow-100 max-w-full shadow-xs"
                     >
-                      <Paperclip className="w-4 h-4" />
-                    </button>
-
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder={
-                        attachedFiles.length > 0
-                          ? 'Tell me what to do with attached file...'
-                          : 'Attach a file or ask PaperLink AI...'
-                      }
-                      className="flex-1 min-w-0 px-3 py-2 text-xs rounded-xl bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 focus:border-cyan-400 focus:outline-none text-zinc-900 dark:text-white"
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={isBusy || (!input.trim() && attachedFiles.length === 0)}
-                      aria-label="Send message"
-                      className="p-2.5 rounded-xl bg-gradient-to-r from-yellow-400 to-cyan-400 hover:brightness-105 disabled:opacity-40 text-black font-bold cursor-pointer shrink-0 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
-                  </form>
-
-                  <p className="text-[10px] text-center text-zinc-500 dark:text-zinc-500 truncate">
-                    Developed by <span className="font-semibold text-zinc-700 dark:text-zinc-300">Team Terminators</span> · Lead: Atif Ubed
-                  </p>
+                      <span className="truncate max-w-[145px] font-semibold">{file.name}</span>
+                      <span className="text-zinc-600 dark:text-zinc-300 shrink-0">
+                        {formatBytes(file.size)}
+                      </span>
+                      {onPreviewDocument && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onPreviewDocument({
+                              title: file.name,
+                              fileName: file.name,
+                              blob: file,
+                              subtitle: 'Attached Input Document',
+                            })
+                          }
+                          aria-label={`Preview ${file.name}`}
+                          title="Preview document"
+                          className="text-amber-700 dark:text-yellow-300 hover:opacity-80 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeAttachedFile(idx)}
+                        aria-label={`Remove ${file.name}`}
+                        className="text-zinc-600 dark:text-zinc-300 hover:text-red-500 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
+              )}
+
+              {/* Frosted Glass Input Composer + Subtle Developer Credit Line */}
+              <div className="relative p-3 border-t border-black/[0.06] dark:border-white/[0.10] bg-white/30 dark:bg-white/[0.03] space-y-2 shrink-0">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleSend();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach PDF, Word, PPT, Excel, Text, or Image files"
+                    aria-label="Attach file"
+                    className="w-9 h-9 rounded-full border border-yellow-400/65 dark:border-yellow-400/35 bg-yellow-400/22 dark:bg-yellow-400/16 hover:bg-yellow-400/38 dark:hover:bg-yellow-400/28 text-amber-800 dark:text-yellow-300 flex items-center justify-center cursor-pointer shrink-0 transition-all shadow-[0_2px_8px_rgba(250,204,21,0.14),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      attachedFiles.length > 0
+                        ? 'Run single or multi-step workflow...'
+                        : 'Ask anything or paste multi-step tasks...'
+                    }
+                    className="flex-1 min-w-0 px-3.5 py-2 text-xs rounded-full bg-white/55 dark:bg-white/[0.08] border border-white/80 dark:border-white/[0.16] focus:border-yellow-400/85 focus:bg-white/82 dark:focus:bg-white/[0.14] focus:outline-none text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 transition-all shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={isBusy || (!input.trim() && attachedFiles.length === 0)}
+                    aria-label="Send message"
+                    className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-zinc-950 font-bold flex items-center justify-center cursor-pointer shrink-0 shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+
+                <p className="text-[10px] text-center text-zinc-600 dark:text-zinc-400 truncate">
+                  Developed by <span className="font-semibold text-zinc-800 dark:text-zinc-200">Team Terminators</span> · Lead: Atif Ubed
+                </p>
               </div>
             </div>
           </motion.div>

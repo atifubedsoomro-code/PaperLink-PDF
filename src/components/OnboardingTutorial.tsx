@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import {
   X,
   UploadCloud,
-  LayoutGrid,
+  QrCode,
   Eye,
   Download,
   ArrowRight,
@@ -30,35 +30,35 @@ interface TourStepConfig {
 
 const STUDIO_TOUR_STEPS: TourStepConfig[] = [
   {
-    id: 'upload',
+    id: 'mode-toggle',
     stepNum: '01',
-    title: 'Upload Your Source Document First',
-    subtitle: 'Required Starting Point',
+    title: 'Choose QR + Drive or No Sign-In Mode',
+    subtitle: 'Neon Mode Switch',
     description:
-      'Uploading a PDF, Word (.docx), or text file here is mandatory before designing your cover. PaperLink automatically counts pages and extracts your document title.',
+      'Switch between "With QR & Drive" (sign in once to bind a live Google Drive QR code) or "Without QR" (no Google sign-in needed — build a clean cover + PDF packet offline).',
+    selectors: ['[data-tour-target="studio-mode-toggle"]'],
+    preferredSide: 'bottom',
+    icon: QrCode,
+  },
+  {
+    id: 'upload',
+    stepNum: '02',
+    title: 'Drop Any PDF, Word, or Text File',
+    subtitle: 'Starting Document',
+    description:
+      'Upload your document here so PaperLink counts pages, extracts the title, and prepares your cover sheet. Notice PaperLink AI stays tucked cleanly at the top-left logo bar whenever you need help.',
     selectors: ['[data-tour-target="studio-upload"]'],
     studioStep: 1,
     preferredSide: 'bottom',
     icon: UploadCloud,
   },
   {
-    id: 'sidebar',
-    stepNum: '02',
-    title: 'Follow the 5 Studio Steps Here',
-    subtitle: 'Always-Visible Workflow Sidebar',
-    description:
-      'Jump cleanly between 01 Upload, 02 Theme, 03 Customize Colors/Logo/QR, 04 Drive QR Sync, and 05 Export PDF right from this fixed navigation panel.',
-    selectors: ['[data-tour-target="studio-sidebar"]', '[data-tour-target="studio-steps-mobile"]'],
-    preferredSide: 'left',
-    icon: LayoutGrid,
-  },
-  {
     id: 'preview',
     stepNum: '03',
-    title: 'Inspect Your 1:1 Print Cover Preview',
-    subtitle: 'Live Multi-Page Sheet',
+    title: 'Live 1:1 Print & Page Preview',
+    subtitle: 'Real-Time Sheet',
     description:
-      'See how your Cover Page (Page 1) pairs with every page of your uploaded file. Changes to theme, fonts, QR position, or logo appear here immediately and export identically.',
+      'Every change to your theme, typography, logo, or QR mode reflects here at exact A4 / US Letter proportions alongside all attached pages.',
     selectors: ['[data-tour-target="studio-preview"]'],
     preferredSide: 'left',
     icon: Eye,
@@ -66,11 +66,11 @@ const STUDIO_TOUR_STEPS: TourStepConfig[] = [
   {
     id: 'download',
     stepNum: '04',
-    title: 'Quick Download & Action Controls',
-    subtitle: 'One-Click PDF Export',
+    title: 'Streamlined Steps & Instant Export',
+    subtitle: 'Finish In Seconds',
     description:
-      'Once your file is uploaded and linked to Google Drive in Step 4, click Download Updated PDF here or in Step 5 to save your complete Cover + Document packet.',
-    selectors: ['[data-tour-target="studio-sidebar-download"]', '[data-tour-target="studio-sidebar"]'],
+      'Step through Theme, Customize, (and Drive Sync if With QR is active), then click Download PDF right here or in the final step.',
+    selectors: ['[data-tour-target="studio-sidebar-download"]', '[data-tour-target="studio-sidebar"]', '[data-tour-target="studio-steps-mobile"]'],
     preferredSide: 'left',
     icon: Download,
   },
@@ -343,14 +343,14 @@ export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
           </p>
 
           {/* Step Dots */}
-          <div className="grid grid-cols-4 gap-1.5 pt-1">
+          <div className="flex items-center gap-1.5 pt-1">
             {STUDIO_TOUR_STEPS.map((st, idx) => (
               <button
                 key={st.id}
                 type="button"
                 onClick={() => setStepIdx(idx)}
                 aria-label={`Highlight step ${idx + 1}`}
-                className={`h-1.5 rounded-full transition-colors cursor-pointer ${
+                className={`flex-1 h-1.5 rounded-full transition-colors cursor-pointer ${
                   idx <= stepIdx ? 'bg-yellow-400' : 'bg-zinc-200 dark:bg-zinc-800'
                 }`}
               />
@@ -377,7 +377,7 @@ export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer transition-colors"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Got It, Start Uploading</span>
+              <span>Start Creating</span>
             </button>
           ) : (
             <button

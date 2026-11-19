@@ -36,6 +36,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const includeQr = coverData.includeQr !== false;
+
   const triggerCelebration = () => {
     confetti({
       particleCount: 60,
@@ -45,22 +47,26 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const handleDownloadMergedPdf = async () => {
-    if (!qrDataUrl) {
+    if (includeQr && !qrDataUrl) {
       setExportError('QR code is still being generated. Please try again in a second.');
       return;
     }
 
     setIsExporting(true);
     setExportError(null);
-    setExportMessage('Generating combined document with Cover Page and QR code...');
+    setExportMessage(
+      includeQr
+        ? 'Generating combined document with Cover Page and QR code...'
+        : 'Generating clean PDF with custom Cover Page...'
+    );
 
     try {
       let pdfBytes: Uint8Array;
 
       if (currentDoc?.pdfArrayBuffer) {
-        pdfBytes = await mergeCoverWithPdf(currentDoc.pdfArrayBuffer, coverData, qrDataUrl);
+        pdfBytes = await mergeCoverWithPdf(currentDoc.pdfArrayBuffer, coverData, qrDataUrl || '');
       } else {
-        const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl);
+        const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl || '');
         pdfBytes = await coverPdf.save();
       }
 
@@ -70,7 +76,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       const a = document.createElement('a');
       a.href = url;
       const safeFilename = (coverData.title || currentDoc?.name || 'Document').replace(/[^a-zA-Z0-9_-]/g, '_');
-      a.download = `${safeFilename}_with_QR_Cover.pdf`;
+      a.download = includeQr ? `${safeFilename}_with_QR_Cover.pdf` : `${safeFilename}_with_Cover.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -92,7 +98,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const handleDownloadCoverOnlyPdf = async () => {
-    if (!qrDataUrl) {
+    if (includeQr && !qrDataUrl) {
       setExportError('QR code is still being generated.');
       return;
     }
@@ -102,7 +108,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     setExportMessage('Generating standalone Cover Page PDF...');
 
     try {
-      const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl);
+      const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl || '');
       const pdfBytes = await coverPdf.save();
 
       const safeBuffer = new Uint8Array(pdfBytes).slice().buffer;
@@ -168,7 +174,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   : 'Complete Cover PDF'}
               </h4>
               <p className="text-xs text-zinc-700 dark:text-zinc-300 mt-1 leading-relaxed">
-                Prepends your custom cover with the active Google Drive QR code as Page 1.
+                {includeQr
+                  ? 'Prepends your custom cover with the active Google Drive QR code as Page 1.'
+                  : 'Prepends your clean custom cover page without any QR block as Page 1.'}
               </p>
             </div>
           </button>

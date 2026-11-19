@@ -11,6 +11,11 @@ export interface ChatRequestBody {
     extension: string;
     mimeType: string;
   }>;
+  previousOutputsSummary?: Array<{
+    name: string;
+    sizeBytes: number;
+    extension: string;
+  }>;
   inlineImages?: Array<{
     name: string;
     mimeType: string;
@@ -83,21 +88,33 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
    - Image Compress (quality slider + live approximate size reducer + max-width cap)
    - Filters & Hex Palette Extractor (brightness/contrast/saturation/hue/blur/grayscale/sepia/sharpen + top 6 dominant hex colors)
 
-### Direct Action & Multi-Step Pipeline Rules (CRITICAL)
-- You have real browser tools declared below that execute PaperLink's local engines directly on the user's attached files.
-- **MULTI-STEP PIPELINED COMMANDS:** Users frequently give 2, 3, or more chained instructions in a single message (e.g., *"convert this png into the pdf, add a basic cover without qr and protect it with the password: example"*, OR *"convert word to pdf, compress it, and add a cover"*, OR *"remove background, resize to 1080x1080, and turn into webp"*).
-- Whenever a prompt asks for multiple operations in one message, **YOU MUST emit ALL matching tool calls in exact execution order in this single turn**:
-  - Example: User attaches a PNG and says *"convert this png into the pdf, add a basic cover without qr and protect it with the password: example"* → immediately call in order:
+### Direct Action, Complex Prompt & Multiwork Pipeline Rules (CRITICAL)
+- You have real browser tools declared below that execute PaperLink's local engines directly on attached files, pasted text, OR previous outputs from this conversation.
+- **MULTIWORK & MULTI-STEP PIPELINED COMMANDS:** Users frequently give complex prompts combining sequential chains AND/OR parallel multi-file jobs in a single message:
+  - Sequential chain example 1: *"convert this png into the pdf, add a basic cover without qr, stamp CONFIDENTIAL on all pages, and protect it with password 123"* → emit in order:
     1. \`images_to_pdf\`
-    2. \`add_cover_to_pdf\` with \`themeStyle: "basic"\`, \`includeQr: false\`
-    3. \`protect_pdf\` with \`password: "example"\`
-- Our client pipeline runner automatically feeds the output file(s) of Step N straight into Step N+1 in memory. **NEVER** stop after Step 1 or tell the user to re-attach a PDF for Step 2/3 when Step 1 (\`images_to_pdf\`, \`word_to_pdf\`, \`ppt_to_pdf\`, \`excel_to_pdf\`, \`merge_pdfs\`, \`split_pdf\`, \`add_cover_to_pdf\`) creates that PDF in the same chain.
+    2. \`add_cover_to_pdf\` (\`themeStyle: "basic"\`, \`includeQr: false\`)
+    3. \`stamp_pdf\` (\`text: "CONFIDENTIAL"\`, \`pages: "all"\`)
+    4. \`protect_pdf\` (\`password: "123"\`)
+  - Sequential chain example 2: *"create a PDF from these meeting notes ..., add an executive corporate cover, rotate page 2 by 90 degrees, and compress it"* → emit \`text_to_pdf\` → \`add_cover_to_pdf\` → \`organize_pdf_pages\` → \`compress_pdf\`.
+  - Parallel mixed-file multiwork example: User attaches \`report.docx\`, \`slides.pptx\`, \`budget.xlsx\`, and \`logo.png\` and says *"convert the word, ppt and excel to PDF, merge them all together, compress the merged PDF, AND remove background from logo.png and resize it to 512x512"* → emit ALL tool calls in logical execution order:
+    1. \`word_to_pdf\`
+    2. \`ppt_to_pdf\`
+    3. \`excel_to_pdf\`
+    4. \`merge_pdfs\`
+    5. \`compress_pdf\`
+    6. \`remove_image_background\`
+    7. \`resize_image\` (\`width: 512\`, \`height: 512\`)
+  - Multi-image creative pipeline example: *"rotate image 90 degrees, crop 1:1 square, apply grayscale + sharpen filter, extract hex palette, and convert to webp"* → emit \`crop_rotate_image\` → \`filter_or_palette_image\` → \`convert_image_format\`.
+- Our client pipeline runner feeds Step N outputs straight into Step N+1 in memory AND preserves unconsumed files of other types for parallel multiwork steps. **NEVER** stop after Step 1 or ask the user to re-attach an intermediate file created inside the same turn.
+- **FOLLOW-UP ON PREVIOUS OUTPUTS:** If \`[Previously Generated Outputs in This Chat]\` lists output file(s) and the user says *"now compress that"*, *"stamp APPROVED on it"*, *"add a cover to the PDF you just made"*, or *"lock it with password 999"* without re-attaching files, STILL emit the requested tool call(s) directly — the client automatically reuses the previously generated file(s)!
+- **TEXT / NOTES TO PDF WITH NO FILE:** If the user pastes notes, a letter, or markdown/plain text directly in chat and asks to make/convert it into a PDF (or attach a \`.txt\`/\`.md\`/\`.rtf\` file), call \`text_to_pdf\` with \`contentText\` (when pasted in prompt) or it will read the attached text file automatically.
 - Distinguish clearly between:
   - \`add_cover_to_pdf\`: Directly generates and prepends Page 1 cover onto the PDF automatically right in chat (set \`includeQr: false\` for "without QR" / "no QR" / "basic cover without QR").
-  - \`open_in_cover_studio\`: Opens the interactive Cover Studio visual editor UI when the user explicitly asks to edit/design in Cover Studio.
-- If the user asks to perform a file operation without attaching any file, ask them to attach or drag-and-drop their file using **+**.
+  - \`open_in_cover_studio\`: Opens the interactive Cover Studio visual editor UI when the user explicitly asks to edit/design inside Cover Studio.
+- Only ask the user to attach a file with **+** if NO matching attached file, NO previous output file of that type, and NO earlier creation step in the same turn can provide it.
 - If the user asks to open a page or tool view, call \`navigate_workspace\`.
-- Keep text replies brief, friendly, and confident so the result cards stand out cleanly.`;
+- Keep text replies brief, confident, and structured cleanly around the steps executed.`;
 
 const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {
@@ -486,6 +503,145 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
     },
   },
   {
+    name: 'text_to_pdf',
+    description:
+      'Create a clean paginated PDF from attached plain-text files (.txt, .md, .rtf) OR directly from text/notes pasted in the user prompt.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: {
+          type: Type.STRING,
+          description: 'Optional document heading / output base filename.',
+        },
+        contentText: {
+          type: Type.STRING,
+          description:
+            'Text body to render into PDF when user pasted text/notes in chat instead of attaching a .txt/.md file.',
+        },
+        paperSize: {
+          type: Type.STRING,
+          description: '"a4" or "letter". Defaults to "a4".',
+        },
+      },
+    },
+  },
+  {
+    name: 'organize_pdf_pages',
+    description:
+      'Rotate pages (90/180/270 degrees), delete specific pages, keep only specific pages, or reverse page order of an attached or pipeline PDF.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        rotateDegrees: {
+          type: Type.NUMBER,
+          description: 'Clockwise rotation degrees to apply: 0, 90, 180, or 270.',
+        },
+        rotatePagesExpr: {
+          type: Type.STRING,
+          description: 'Optional 1-based page list/range to rotate (e.g. "2" or "1-3"). Empty means all pages.',
+        },
+        deletePagesExpr: {
+          type: Type.STRING,
+          description: 'Optional 1-based page list/range to remove (e.g. "1, 4-5").',
+        },
+        keepPagesExpr: {
+          type: Type.STRING,
+          description: 'Optional 1-based page list/range to keep (e.g. "1-3, 5"), deleting all others.',
+        },
+        reverseOrder: {
+          type: Type.BOOLEAN,
+          description: 'Set true to reverse page sequence.',
+        },
+      },
+    },
+  },
+  {
+    name: 'stamp_pdf',
+    description:
+      'Place a crisp visual box stamp (e.g. CONFIDENTIAL, APPROVED, DRAFT, URGENT, COPY, FINAL) onto one or all pages of an attached or pipeline PDF.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        text: {
+          type: Type.STRING,
+          description: 'Short uppercase stamp label such as "CONFIDENTIAL", "APPROVED", or "DRAFT".',
+        },
+        color: {
+          type: Type.STRING,
+          description: 'Optional hex color: "#dc2626" (red), "#16a34a" (green), "#d97706" (amber), "#2563eb" (blue).',
+        },
+        pages: {
+          type: Type.STRING,
+          description: '"all", "first", or a 1-based range like "1, 3". Defaults to "all".',
+        },
+        position: {
+          type: Type.STRING,
+          description: '"top-right" (default), "top-left", "bottom-right", or "center".',
+        },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'crop_rotate_image',
+    description:
+      'Rotate (90/180/270 deg), flip horizontally or vertically, or center-crop an attached or pipeline image to an aspect ratio.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        rotateDeg: {
+          type: Type.NUMBER,
+          description: 'Clockwise rotation: 0, 90, 180, or 270.',
+        },
+        flipH: {
+          type: Type.BOOLEAN,
+          description: 'Flip image horizontally (mirror left-right).',
+        },
+        flipV: {
+          type: Type.BOOLEAN,
+          description: 'Flip image vertically (upside down).',
+        },
+        aspectRatio: {
+          type: Type.STRING,
+          description: 'Optional center-crop ratio: "original", "1:1", "4:5", "16:9", "4:3", or "3:2".',
+        },
+        format: {
+          type: Type.STRING,
+          description: '"png", "jpg", or "webp". Defaults to "png".',
+        },
+      },
+    },
+  },
+  {
+    name: 'filter_or_palette_image',
+    description:
+      'Apply studio color filters (grayscale/black-and-white, vintage sepia, vivid contrast, crisp sharpen, brightness, blur) and/or extract the dominant hex color palette from attached or pipeline images.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        preset: {
+          type: Type.STRING,
+          description: 'Optional preset: "bw" (grayscale), "vintage" (sepia), "vivid", "crisp", or "none".',
+        },
+        grayscale: { type: Type.NUMBER, description: '0 to 100 percent.' },
+        sepia: { type: Type.NUMBER, description: '0 to 100 percent.' },
+        brightness: { type: Type.NUMBER, description: '50 to 180 percent (100 normal).' },
+        contrast: { type: Type.NUMBER, description: '50 to 180 percent (100 normal).' },
+        saturate: { type: Type.NUMBER, description: '0 to 200 percent (100 normal).' },
+        blur: { type: Type.NUMBER, description: '0 to 10 pixels.' },
+        sharpen: { type: Type.BOOLEAN, description: 'Apply crisp sharpen kernel.' },
+        extractPalette: {
+          type: Type.BOOLEAN,
+          description: 'Set true to extract top 6 dominant hex color swatches from the image.',
+        },
+        format: {
+          type: Type.STRING,
+          description: '"png", "jpg", or "webp". Defaults to "png".',
+        },
+      },
+    },
+  },
+  {
     name: 'navigate_workspace',
     description: 'Navigate the PaperLink user interface to a specific section or tool.',
     parameters: {
@@ -530,6 +686,9 @@ export async function executePaperLinkChat(
     const attachedSummary = Array.isArray(body.attachedFilesSummary)
       ? body.attachedFilesSummary
       : [];
+    const previousOutputsSummary = Array.isArray(body.previousOutputsSummary)
+      ? body.previousOutputsSummary
+      : [];
     const inlineImages = Array.isArray(body.inlineImages) ? body.inlineImages : [];
 
     if (!userMessage && attachedSummary.length === 0) {
@@ -540,7 +699,15 @@ export async function executePaperLinkChat(
     }
 
     const speedMode = body.speedMode === 'fast' ? 'fast' : 'balanced';
-    const hasFilesOrActionHint = attachedSummary.length > 0;
+    const isMultiClauseOrComplex =
+      attachedSummary.length > 1 ||
+      userMessage.length > 75 ||
+      /\b(and then|and also|after that|afterwards|then|also|first|finally|both|all of them|merge|stamp|rotate|delete pages|palette|without qr|password)\b/i.test(
+        userMessage
+      ) ||
+      (userMessage.match(/,/g) || []).length >= 2;
+
+    const hasFilesOrActionHint = attachedSummary.length > 0 || previousOutputsSummary.length > 0 || isMultiClauseOrComplex;
     const primaryModel =
       speedMode === 'fast' && !hasFilesOrActionHint
         ? 'gemini-3.1-flash-lite'
@@ -568,6 +735,17 @@ export async function executePaperLinkChat(
         )
         .join('\n');
       contextLines.push(`[Attached Files Ready in Chat Composer:\n${fileList}]`);
+    }
+    if (previousOutputsSummary.length > 0) {
+      const prevList = previousOutputsSummary
+        .map(
+          (f, idx) =>
+            `${idx + 1}. "${f.name}" (.${f.extension}, ${Math.max(1, Math.round(f.sizeBytes / 1024))} KB)`
+        )
+        .join('\n');
+      contextLines.push(
+        `[Previously Generated Outputs in This Chat (automatically reused if user asks a follow-up tool command without attaching a new file):\n${prevList}]`
+      );
     }
 
     const finalTextPrompt = [
@@ -644,6 +822,8 @@ export async function executePaperLinkChat(
                 thinkingLevel:
                   candidate === 'gemini-3.1-flash-lite'
                     ? ThinkingLevel.MINIMAL
+                    : isMultiClauseOrComplex
+                    ? ThinkingLevel.MEDIUM
                     : ThinkingLevel.LOW,
               },
             },

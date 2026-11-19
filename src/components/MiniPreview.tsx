@@ -32,6 +32,7 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
   const theme = COVER_THEMES.find((t) => t.id === coverData.themeId) || COVER_THEMES[0];
   const paperH = paperHeightFor(coverData.paperSize);
   const thumbH = Math.round(paperH * SCALE);
+  const includeQr = coverData.includeQr !== false;
 
   const isDarkModeTheme = !!theme.isDark;
   const isCentered = theme.layoutStyle === 'plain-centered';
@@ -93,7 +94,7 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
       {coverData.date && (
         <div className="text-[11px] font-medium opacity-85 leading-tight">{coverData.date}</div>
       )}
-      <div className="pt-[2px] text-[9px] opacity-60 font-mono">Official Soft Copy</div>
+      {includeQr && <div className="pt-[2px] text-[9px] opacity-60 font-mono">Official Soft Copy</div>}
     </div>
   );
 
@@ -258,7 +259,11 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
                 </div>
               </div>
 
-              {coverData.qrPosition === 'bottom-center' ? (
+              {!includeQr ? (
+                <div className="pt-[16px] border-t border-slate-200/60 flex items-end justify-between gap-[16px]">
+                  {miniMetaBlock}
+                </div>
+              ) : coverData.qrPosition === 'bottom-center' ? (
                 <div className="pt-[16px] border-t border-slate-200/60 flex flex-col items-center gap-[8px]">
                   {miniQrBlock}
                 </div>

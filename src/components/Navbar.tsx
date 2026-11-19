@@ -67,15 +67,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onRestoreChatbot}
-              title="Restore PaperLink AI"
-              aria-label="Restore PaperLink AI"
-              className="p-[1.5px] rounded-xl bg-gradient-to-r from-cyan-400 via-yellow-400 to-blue-500 shadow-[0_0_14px_rgba(34,211,238,0.35)] hover:shadow-[0_0_20px_rgba(34,211,238,0.55)] transition-all cursor-pointer shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              title={
+                activeView === 'studio'
+                  ? 'PaperLink AI is tucked in the top corner — click to open assistant'
+                  : 'Restore PaperLink AI'
+              }
+              aria-label="Open PaperLink AI assistant"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-xl backdrop-saturate-[180%] border text-xs font-bold transition-all cursor-pointer shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${
+                activeView === 'studio'
+                  ? 'bg-yellow-400/28 dark:bg-yellow-400/20 hover:bg-yellow-400/40 border-yellow-400/80 dark:border-yellow-400/50 text-zinc-950 dark:text-yellow-100 shadow-[0_0_16px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.85)]'
+                  : 'bg-yellow-400/20 dark:bg-yellow-400/[0.14] hover:bg-yellow-400/35 dark:hover:bg-yellow-400/[0.24] border-yellow-400/65 dark:border-yellow-400/35 text-zinc-950 dark:text-yellow-100 shadow-[0_4px_14px_rgba(250,204,21,0.22),inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.2)]'
+              }`}
             >
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-[10.5px] bg-white dark:bg-[#0c0c12] text-xs font-bold text-zinc-950 dark:text-white whitespace-nowrap">
-                <Bot className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400 shrink-0" />
-                <span className="hidden sm:inline">PaperLink AI</span>
-                <span className="sm:hidden">AI</span>
-              </span>
+              <Bot className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400 shrink-0" />
+              <span className="hidden sm:inline whitespace-nowrap">PaperLink AI</span>
+              <span className="sm:hidden">AI</span>
             </button>
           )}
         </div>

@@ -28,8 +28,8 @@ function renderInlineTokens(text: string, isUser: boolean): React.ReactNode[] {
           key={`c_${keyIdx++}`}
           className={
             isUser
-              ? 'px-1.5 py-0.5 rounded bg-black/15 text-zinc-950 font-mono text-[11px] font-semibold'
-              : 'px-1.5 py-0.5 rounded bg-zinc-200/80 dark:bg-zinc-800 text-amber-800 dark:text-cyan-300 font-mono text-[11px] font-semibold'
+              ? 'px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/20 text-zinc-950 dark:text-white font-mono text-[11px] font-semibold'
+              : 'px-1.5 py-0.5 rounded bg-black/[0.06] dark:bg-white/[0.12] text-amber-800 dark:text-yellow-300 font-mono text-[11px] font-semibold'
           }
         >
           {token.slice(1, -1)}
@@ -46,8 +46,8 @@ function renderInlineTokens(text: string, isUser: boolean): React.ReactNode[] {
             rel="noopener noreferrer"
             className={
               isUser
-                ? 'underline font-bold text-zinc-950 hover:opacity-80'
-                : 'underline decoration-cyan-500/60 text-cyan-700 dark:text-cyan-300 font-semibold hover:text-cyan-600 dark:hover:text-cyan-200'
+                ? 'underline font-bold text-zinc-950 dark:text-yellow-100 hover:opacity-85'
+                : 'underline decoration-amber-500/70 text-amber-700 dark:text-yellow-300 font-semibold hover:text-amber-600 dark:hover:text-yellow-200'
             }
           >
             {linkMatch[1]}
@@ -61,7 +61,7 @@ function renderInlineTokens(text: string, isUser: boolean): React.ReactNode[] {
         <strong
           key={`bi_${keyIdx++}`}
           className={
-            isUser ? 'font-extrabold italic' : 'font-bold italic text-zinc-950 dark:text-white'
+            isUser ? 'font-extrabold italic text-zinc-950 dark:text-white' : 'font-bold italic text-zinc-950 dark:text-white'
           }
         >
           {token.slice(3, -3)}
@@ -75,7 +75,7 @@ function renderInlineTokens(text: string, isUser: boolean): React.ReactNode[] {
       nodes.push(
         <strong
           key={`b_${keyIdx++}`}
-          className={isUser ? 'font-extrabold' : 'font-bold text-zinc-950 dark:text-white'}
+          className={isUser ? 'font-extrabold text-zinc-950 dark:text-white' : 'font-bold text-zinc-950 dark:text-white'}
         >
           {token.slice(2, -2)}
         </strong>
@@ -95,8 +95,8 @@ function renderInlineTokens(text: string, isUser: boolean): React.ReactNode[] {
           rel="noopener noreferrer"
           className={
             isUser
-              ? 'underline font-semibold break-all'
-              : 'underline decoration-cyan-500/60 text-cyan-700 dark:text-cyan-300 break-all hover:opacity-80'
+              ? 'underline font-semibold break-all text-zinc-950 dark:text-yellow-100'
+              : 'underline decoration-amber-500/70 text-amber-700 dark:text-yellow-300 break-all hover:opacity-80'
           }
         >
           {token}
@@ -143,7 +143,7 @@ export const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content, isUser = fa
       blocks.push(
         <pre
           key={`code_${blockKey++}`}
-          className="p-2.5 rounded-xl bg-zinc-950 text-cyan-300 border border-zinc-800 font-mono text-[11px] leading-relaxed overflow-x-auto"
+          className="p-2.5 rounded-xl bg-zinc-950 text-yellow-300 border border-zinc-800 font-mono text-[11px] leading-relaxed overflow-x-auto"
         >
           <code>{codeLines.join('\n')}</code>
         </pre>
@@ -205,10 +205,10 @@ export const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content, isUser = fa
                 aria-hidden="true"
                 className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
                   isUser
-                    ? 'bg-zinc-900'
+                    ? 'bg-zinc-900 dark:bg-yellow-200'
                     : item.indent
-                    ? 'border border-cyan-500 dark:border-cyan-400'
-                    : 'bg-gradient-to-br from-amber-500 to-cyan-500 dark:from-yellow-400 dark:to-cyan-400'
+                    ? 'border border-amber-500 dark:border-yellow-300'
+                    : 'bg-amber-500 dark:bg-yellow-400'
                 }`}
               />
               <span className="flex-1 min-w-0 leading-relaxed">
@@ -237,8 +237,8 @@ export const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content, isUser = fa
               <span
                 className={`mt-0.5 min-w-[1.25rem] h-4 px-1 rounded text-[10px] font-mono font-bold inline-flex items-center justify-center shrink-0 tabular-nums ${
                   isUser
-                    ? 'bg-black/15 text-zinc-950'
-                    : 'bg-yellow-400/20 text-amber-700 dark:text-yellow-300 border border-yellow-400/30'
+                    ? 'bg-black/10 dark:bg-white/20 text-zinc-950 dark:text-white'
+                    : 'bg-yellow-400/20 text-amber-800 dark:text-yellow-300 border border-yellow-400/45'
                 }`}
               >
                 {item.num}

@@ -14,6 +14,8 @@ import {
   Bot,
   RotateCcw,
   MessageSquarePlus,
+  Puzzle,
+  ExternalLink,
 } from 'lucide-react';
 import { FeedbackSection } from './FeedbackSection';
 
@@ -429,6 +431,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <RotateCcw className="w-3.5 h-3.5 shrink-0" />
               <span>Reset Defaults</span>
             </button>
+          </div>
+
+          {/* 8. Desktop Chrome Extension Companion */}
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-yellow-400/15 border border-yellow-400/30 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
+                <Puzzle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                  PaperLink Mini Chrome Extension
+                </p>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                  Quick PDF &amp; Image tools from your PC toolbar
+                </p>
+              </div>
+            </div>
+            <a
+              href="https://chromewebstore.google.com/detail/paperlink-mini-pdf-image/hihihdajfamblhemnmboanfdfegfhocj"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
+            >
+              <span>Add to Chrome</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
           </div>
             </>
           )}

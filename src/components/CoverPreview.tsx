@@ -88,6 +88,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
   const theme = COVER_THEMES.find((t) => t.id === coverData.themeId) || COVER_THEMES[0];
   const paperH = paperHeightFor(coverData.paperSize);
+  const includeQr = coverData.includeQr !== false;
 
   const getFontStyle = (): React.CSSProperties => {
     switch (coverData.font) {
@@ -207,7 +208,9 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
         </div>
       )}
 
-      <div className="pt-[4px] text-[9px] opacity-60 font-mono">Official Soft Copy · Google Drive</div>
+      {includeQr && (
+        <div className="pt-[4px] text-[9px] opacity-60 font-mono">Official Soft Copy · Google Drive</div>
+      )}
     </div>
   );
 
@@ -398,8 +401,16 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
           )}
         </div>
 
-        {/* Bottom Footer arranged cleanly based on qrPosition */}
-        {coverData.qrPosition === 'bottom-center' ? (
+        {/* Bottom Footer arranged cleanly based on includeQr & qrPosition */}
+        {!includeQr ? (
+          <div
+            className={`pt-[18px] border-t border-slate-200/60 flex ${
+              isCentered ? 'flex-col items-center text-center gap-[6px]' : 'items-end justify-between gap-[16px]'
+            }`}
+          >
+            {metaBlock}
+          </div>
+        ) : coverData.qrPosition === 'bottom-center' ? (
           <div className="pt-[18px] border-t border-slate-200/60 flex flex-col items-center gap-[8px] text-center">
             {qrBlock}
             {(coverData.preparedBy || coverData.date) && (
@@ -495,7 +506,8 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               <p className="text-[12px] text-slate-700 leading-relaxed">{currentDoc.extractedText}</p>
             ) : (
               <p className="text-[12px] text-slate-500 italic">
-                Original content from {currentDoc?.name}. The QR code on Page 1 opens the complete document on Google Drive.
+                Original content from {currentDoc?.name}.
+                {includeQr ? ' The QR code on Page 1 opens the complete document on Google Drive.' : ''}
               </p>
             )}
 
@@ -624,7 +636,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col items-center">
               <span className="text-[11px] font-semibold text-amber-600 dark:text-yellow-400 mb-1.5">
-                Page 1 · Cover & QR
+                {includeQr ? 'Page 1 · Cover & QR' : 'Page 1 · Cover Sheet'}
               </span>
               <FitPage width={PAPER_W} height={paperH} mode="width">
                 {renderCoverPage(false)}
@@ -673,7 +685,14 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
       {/* Status Footer */}
       <div className="flex-shrink-0 mt-2 flex items-center justify-between text-xs px-1 py-1 text-zinc-500 dark:text-zinc-400">
         <span className="flex items-center gap-1.5">
-          {isDriveUploaded ? (
+          {!includeQr ? (
+            <>
+              <CheckCircle2 className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
+              <span className="text-cyan-700 dark:text-cyan-300 font-semibold">
+                Clean cover mode · No sign-in required
+              </span>
+            </>
+          ) : isDriveUploaded ? (
             <>
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold">QR bound to Drive file</span>
