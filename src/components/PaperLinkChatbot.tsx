@@ -30,6 +30,7 @@ import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
 import { ChatMarkdown } from './ChatMarkdown';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { typewriterAudio } from '../services/soundEffects';
 import {
   CompressionLevel,
   PdfPageThumb,
@@ -318,6 +319,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const [isBusy, setIsBusy] = useState(false);
   const [execStatus, setExecStatus] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [typingMsgId, setTypingMsgId] = useState<string | null>(null);
+  const [typedCharCount, setTypedCharCount] = useState(0);
   const [isSoundEnabled, setIsSoundEnabled] = useState<boolean>(() => {
     try {
       return localStorage.getItem('paperlink_chat_sound') !== 'muted';
@@ -325,6 +328,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       return true;
     }
   });
+  const isSoundEnabledRef = useRef(isSoundEnabled);
+
+  useEffect(() => {
+    isSoundEnabledRef.current = isSoundEnabled;
+  }, [isSoundEnabled]);
 
   useEffect(() => {
     setSpeedMode(defaultSpeedMode);
@@ -333,12 +341,14 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const toggleChatSound = () => {
     setIsSoundEnabled((prev) => {
       const next = !prev;
+      isSoundEnabledRef.current = next;
       try {
         localStorage.setItem('paperlink_chat_sound', next ? 'on' : 'muted');
       } catch {
         // ignore storage restrictions
       }
       if (next) {
+        typewriterAudio.unlock();
         playOutputSuccessSound();
       }
       return next;
@@ -379,9 +389,86 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isBusy, execStatus, isOpen]);
 
+  const handleSkipTyping = (hasArtifacts: boolean) => {
+    setTypingMsgId(null);
+    setTypedCharCount(0);
+    if (isSoundEnabledRef.current) {
+      if (hasArtifacts) {
+        playOutputSuccessSound();
+      } else {
+        typewriterAudio.playSoftBell();
+      }
+    }
+  };
+
+  // Slower, deliberate typewriter reveal synchronized with mechanical keystroke audio
+  useEffect(() => {
+    if (!typingMsgId) return;
+    const targetMsg = messages.find((m) => m.id === typingMsgId);
+    if (!targetMsg || !targetMsg.text) {
+      setTypingMsgId(null);
+      return;
+    }
+
+    const fullText = targetMsg.text;
+    const step = fullText.length > 650 ? 2 : 1;
+    const baseTickMs =
+      fullText.length <= 280 ? 54 : fullText.length <= 650 ? 40 : 48;
+
+    let cursor = 0;
+    let timerId: number | null = null;
+    let cancelled = false;
+
+    const tick = () => {
+      if (cancelled) return;
+      cursor = Math.min(fullText.length, cursor + step);
+      setTypedCharCount(cursor);
+
+      const ch = fullText[cursor - 1] || '';
+      if (isSoundEnabledRef.current && ch) {
+        const isSpaceOrPunct = /[\s.,!?;:\n-]/.test(ch);
+        typewriterAudio.playChatKeyStroke(isSpaceOrPunct);
+      }
+
+      if (cursor % 14 === 0 || cursor >= fullText.length) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      }
+
+      if (cursor >= fullText.length) {
+        timerId = window.setTimeout(() => {
+          if (cancelled) return;
+          setTypingMsgId(null);
+          if (isSoundEnabledRef.current && !targetMsg.isError) {
+            if (targetMsg.artifacts && targetMsg.artifacts.length > 0) {
+              playOutputSuccessSound();
+            } else {
+              typewriterAudio.playSoftBell();
+            }
+          }
+        }, 140);
+        return;
+      }
+
+      // Slight human pause after sentence punctuation or newline
+      const extraPause = /[.!?\n]/.test(ch) ? 65 : /[,;:]/.test(ch) ? 32 : 0;
+      timerId = window.setTimeout(tick, baseTickMs + extraPause);
+    };
+
+    timerId = window.setTimeout(tick, 90);
+
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
+  }, [typingMsgId]);
+
   const handleAttachFiles = (list: FileList | File[]) => {
     const incoming = Array.from(list);
     if (incoming.length === 0) return;
+    if (isSoundEnabledRef.current) {
+      typewriterAudio.unlock();
+      typewriterAudio.playSendTick();
+    }
     setAttachedFiles((prev) => {
       const existingKeys = new Set(prev.map((f) => `${f.name}_${f.size}`));
       const unique = incoming.filter((f) => !existingKeys.has(`${f.name}_${f.size}`));
@@ -1754,9 +1841,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     if (!customPrompt) setInput('');
     setIsBusy(true);
     setExecStatus('Planning multiwork workflow...');
-    // Unlock Web Audio inside the user's send gesture so chimes play reliably after async processing
-    if (isSoundEnabled) {
+    // Unlock Web Audio inside the user's send gesture so typewriter clicks & chimes play reliably
+    if (isSoundEnabledRef.current) {
       getOrUnlockAudioContext();
+      typewriterAudio.unlock();
+      typewriterAudio.playSendTick();
     }
 
     try {
@@ -1889,10 +1978,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         modelTextParts.join('\n\n') ||
         'Completed cleanly! Download your output file below.';
 
+      const replyMsgId = `m_${Date.now()}`;
       setMessages((prev) => [
         ...prev,
         {
-          id: `m_${Date.now()}`,
+          id: replyMsgId,
           role: 'model',
           text: finalReply,
           artifacts: terminalArtifacts,
@@ -1900,20 +1990,21 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           modelUsed: data.modelUsed,
         },
       ]);
-
-      if (terminalArtifacts.length > 0 && isSoundEnabled) {
-        playOutputSuccessSound();
-      }
+      setTypedCharCount(0);
+      setTypingMsgId(replyMsgId);
     } catch (err: any) {
+      const errMsgId = `err_${Date.now()}`;
       setMessages((prev) => [
         ...prev,
         {
-          id: `err_${Date.now()}`,
+          id: errMsgId,
           role: 'model',
           text: err?.message || 'Something went wrong while communicating with PaperLink AI.',
           isError: true,
         },
       ]);
+      setTypedCharCount(0);
+      setTypingMsgId(errMsgId);
     } finally {
       setIsBusy(false);
       setExecStatus(null);
@@ -2225,10 +2316,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     onClick={toggleChatSound}
                     title={
                       isSoundEnabled
-                        ? 'Success sound on — click to mute'
-                        : 'Success sound muted — click to unmute'
+                        ? 'Typewriter & completion sound on — click to mute'
+                        : 'Typewriter & completion sound muted — click to unmute'
                     }
-                    aria-label={isSoundEnabled ? 'Mute output success sound' : 'Unmute output success sound'}
+                    aria-label={isSoundEnabled ? 'Mute typewriter and output sound' : 'Unmute typewriter and output sound'}
                     className={`p-1.5 rounded-full border cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ${
                       isSoundEnabled
                         ? 'border-yellow-400/80 dark:border-yellow-400/40 bg-yellow-400/24 text-amber-800 dark:text-yellow-300 hover:bg-yellow-400/35'
@@ -2259,6 +2350,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     type="button"
                     onClick={() => {
                       lastProducedFilesRef.current = [];
+                      setTypingMsgId(null);
+                      setTypedCharCount(0);
                       setMessages([
                         {
                           id: 'welcome',
@@ -2321,6 +2414,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 {messages.map((msg) => {
                   const isUser = msg.role === 'user';
                   const isCopied = copiedMsgId === msg.id;
+                  const isActivelyTyping =
+                    !isUser && typingMsgId === msg.id && typedCharCount < msg.text.length;
+                  const visibleText = isActivelyTyping ? msg.text.slice(0, typedCharCount) : msg.text;
                   return (
                     <motion.div
                       key={msg.id}
@@ -2393,10 +2489,31 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                           </div>
                         )}
 
-                        <ChatMarkdown content={msg.text} isUser={isUser} />
+                        <ChatMarkdown content={visibleText} isUser={isUser} />
+
+                        {isActivelyTyping && (
+                          <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-amber-700 dark:text-yellow-300">
+                              <span
+                                aria-hidden="true"
+                                className="inline-block w-1.5 h-3.5 bg-amber-600 dark:bg-yellow-300 rounded-[1px] animate-pulse"
+                              />
+                              <span>Typing...</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSkipTyping(Boolean(msg.artifacts && msg.artifacts.length > 0))
+                              }
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-400/20 hover:bg-yellow-400/35 border border-yellow-500/35 text-amber-900 dark:text-yellow-200 cursor-pointer transition-colors"
+                            >
+                              Skip →
+                            </button>
+                          </div>
+                        )}
 
                         {/* Frosted Crystal Output Result Cards */}
-                        {msg.artifacts && msg.artifacts.length > 0 && (
+                        {msg.artifacts && msg.artifacts.length > 0 && !isActivelyTyping && (
                           <div className="mt-3 space-y-2 pt-2.5 border-t border-black/[0.06] dark:border-white/[0.10]">
                             {msg.artifacts.map((art) => (
                               <div
