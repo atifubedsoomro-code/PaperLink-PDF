@@ -79,12 +79,17 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 shadow-xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-white">01. Upload Document Source</h3>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-            Supports PDF, Microsoft Word (.docx, .doc), and text files
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
+              Step 1
+            </span>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-white">Pick Your File</h3>
+          </div>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+            Drop any PDF, Word doc (.docx, .doc), or text note to begin
           </p>
         </div>
 

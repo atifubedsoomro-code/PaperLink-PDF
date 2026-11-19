@@ -52,7 +52,7 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
   onDownloadMergedPdf,
   isDownloadingMerged = false,
   totalPages = 1,
-  uploadMode = 'source',
+  uploadMode = 'merged',
   onUploadModeChange,
   tokenExpiry,
   qrDataUrl,
@@ -86,22 +86,27 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4">
+    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
       {/* Step Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-            04. Google Drive & Public QR Link
-          </h3>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-            Upload your document to Google Drive so its live public link powers the cover QR code
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
+              Step 4
+            </span>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+              Save to Google Drive &amp; QR
+            </h3>
+          </div>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+            Save your file to Google Drive so scanning the cover opens it right away
           </p>
         </div>
 
         {uploadResult && (
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Public Viewer Active
+            Public Link Ready
           </span>
         )}
       </div>
@@ -192,20 +197,6 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <button
                 type="button"
-                onClick={() => onUploadModeChange('source')}
-                className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
-                  uploadMode === 'source'
-                    ? 'border-yellow-400 bg-yellow-400/15 text-zinc-950 dark:text-white'
-                    : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
-                }`}
-              >
-                <p className="text-xs font-bold">Upload Source File Only</p>
-                <p className="text-[11px] opacity-80 mt-0.5">
-                  QR opens the clean original soft copy in Drive.
-                </p>
-              </button>
-              <button
-                type="button"
                 onClick={() => onUploadModeChange('merged')}
                 className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
                   uploadMode === 'merged'
@@ -216,6 +207,20 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
                 <p className="text-xs font-bold">Upload Merged PDF (With Cover)</p>
                 <p className="text-[11px] opacity-80 mt-0.5">
                   QR opens the full {totalPages}-page packet including Page 1 cover.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => onUploadModeChange('source')}
+                className={`p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                  uploadMode === 'source'
+                    ? 'border-yellow-400 bg-yellow-400/15 text-zinc-950 dark:text-white'
+                    : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
+                }`}
+              >
+                <p className="text-xs font-bold">Upload Source File Only</p>
+                <p className="text-[11px] opacity-80 mt-0.5">
+                  QR opens the clean original soft copy in Drive.
                 </p>
               </button>
             </div>

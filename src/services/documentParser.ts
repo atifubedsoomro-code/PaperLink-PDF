@@ -23,8 +23,11 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
       const title = pdfDoc.getTitle();
 
       let renderedPagePreviews: string[] = [];
+      let extractedText = '';
       try {
-        renderedPagePreviews = await renderPdfPages(arrayBuffer);
+        const extracted = await renderPdfPagesAndExtractText(arrayBuffer);
+        renderedPagePreviews = extracted.pageImageUrls;
+        extractedText = extracted.extractedText;
       } catch (e) {
         console.warn('Page preview extraction skipped:', e);
       }
@@ -33,6 +36,7 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
         ...baseInfo,
         pageCount,
         extractedTitle: title || cleanFileName(file.name),
+        extractedText: extractedText || undefined,
         pdfArrayBuffer: arrayBuffer,
         renderedPagePreviews,
       };
@@ -44,7 +48,7 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
       const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
       const firstLine = lines[0] || '';
       const wordCount = rawText.split(/\s+/).filter(Boolean).length;
-      const sampleSnippet = lines.slice(1, 4).join(' ').slice(0, 220);
+      const sampleSnippet = lines.join(' ').replace(/\s+/g, ' ').slice(0, 4000);
 
       // Automatically convert .docx into a real paginated PDF buffer so downloads & previews include all pages!
       let pdfArrayBuffer: ArrayBuffer | undefined;
@@ -76,7 +80,7 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
       const text = new TextDecoder('utf-8').decode(arrayBuffer);
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
       const wordCount = text.split(/\s+/).filter(Boolean).length;
-      const sampleSnippet = lines.slice(1, 4).join(' ').slice(0, 220);
+      const sampleSnippet = lines.join(' ').replace(/\s+/g, ' ').slice(0, 4000);
 
       let pdfArrayBuffer: ArrayBuffer | undefined;
       let pageCount = Math.max(1, Math.ceil(wordCount / 400));
@@ -130,11 +134,13 @@ declare global {
   }
 }
 
-/**
- * Render PDF pages onto canvas and return data URLs for multi-page print preview.
- */
-export async function renderPdfPages(arrayBuffer: ArrayBuffer, maxPages = 12): Promise<string[]> {
-  if (typeof window === 'undefined') return [];
+async function renderPdfPagesAndExtractText(
+  arrayBuffer: ArrayBuffer,
+  maxPages = 12
+): Promise<{ pageImageUrls: string[]; extractedText: string }> {
+  if (typeof window === 'undefined') {
+    return { pageImageUrls: [], extractedText: '' };
+  }
 
   if (!window.pdfjsLib) {
     let waited = 0;
@@ -144,7 +150,9 @@ export async function renderPdfPages(arrayBuffer: ArrayBuffer, maxPages = 12): P
     }
   }
 
-  if (!window.pdfjsLib) return [];
+  if (!window.pdfjsLib) {
+    return { pageImageUrls: [], extractedText: '' };
+  }
 
   try {
     try {
@@ -165,10 +173,25 @@ export async function renderPdfPages(arrayBuffer: ArrayBuffer, maxPages = 12): P
     const pdf = await loadingTask.promise;
     const totalPages = Math.min(pdf.numPages, maxPages);
     const pageImageUrls: string[] = [];
+    const textChunks: string[] = [];
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       try {
         const page = await pdf.getPage(pageNum);
+        if (pageNum <= 5 && textChunks.join(' ').length < 4000) {
+          try {
+            const textContent = await page.getTextContent();
+            const pageStr = (textContent?.items || [])
+              .map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (pageStr) textChunks.push(pageStr);
+          } catch {
+            // ignore per-page text extraction errors
+          }
+        }
+
         const viewport = page.getViewport({ scale: 1.0 });
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
@@ -183,9 +206,20 @@ export async function renderPdfPages(arrayBuffer: ArrayBuffer, maxPages = 12): P
       }
     }
 
-    return pageImageUrls;
+    return {
+      pageImageUrls,
+      extractedText: textChunks.join(' ').slice(0, 4000),
+    };
   } catch (err) {
     console.warn('PDF page rendering caught error (safe fallback):', err);
-    return [];
+    return { pageImageUrls: [], extractedText: '' };
   }
+}
+
+/**
+ * Render PDF pages onto canvas and return data URLs for multi-page print preview.
+ */
+export async function renderPdfPages(arrayBuffer: ArrayBuffer, maxPages = 12): Promise<string[]> {
+  const result = await renderPdfPagesAndExtractText(arrayBuffer, maxPages);
+  return result.pageImageUrls;
 }

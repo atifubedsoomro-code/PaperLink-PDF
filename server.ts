@@ -7,6 +7,8 @@ import { executePaperLinkChat } from './api/chat.ts';
 import type { ChatRequestBody } from './api/chat.ts';
 import { executeFeedbackSubmission, getFeedbackHealthStatus } from './api/feedback.ts';
 import type { FeedbackSubmissionPayload } from './api/feedback.ts';
+import { executeCoverSuggestions } from './api/cover-suggestions.ts';
+import type { CoverSuggestionsStartRequest } from './api/cover-suggestions.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,11 +17,17 @@ const PORT = Number(process.env.PORT || 3000);
 
 async function createAppServer() {
   const app = express();
-  app.use(express.json({ limit: '15mb' }));
+  app.use(express.json({ limit: '20mb' }));
 
   app.post('/api/chat', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ChatRequestBody;
     const result = await executePaperLinkChat(body);
+    res.status(result.status).json(result.payload);
+  });
+
+  app.post('/api/cover-suggestions', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as CoverSuggestionsStartRequest;
+    const result = await executeCoverSuggestions(body);
     res.status(result.status).json(result.payload);
   });
 

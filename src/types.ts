@@ -137,6 +137,28 @@ export interface BatchItem {
   progress?: number;
 }
 
+export type CoverSuggestionEngine = 'ai' | 'ai-sites';
+
+export interface CoverPictureSuggestion {
+  id: string;
+  label: string;
+  visualStyle: string;
+  prompt: string;
+  searchQuery: string;
+  palette: {
+    primary: string;
+    accent: string;
+    background: string;
+  };
+  status: 'queued' | 'ready' | 'error';
+  jobId?: string;
+  imageDataUrl?: string;
+  sourceType?: 'sd35' | 'flux' | 'ai-horde' | 'civitai-ai' | 'wikimedia-ai';
+  queuePosition?: number;
+  waitTimeSec?: number;
+  errorMessage?: string;
+}
+
 export interface SavedDocRecord {
   id: string;
   title: string;
@@ -154,3 +176,4 @@ export interface SavedDocRecord {
     subject: string;
   }>;
 }
+

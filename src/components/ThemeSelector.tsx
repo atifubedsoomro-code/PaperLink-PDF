@@ -10,7 +10,7 @@ interface ThemeSelectorProps {
 
 const PlainThumb: React.FC<{ theme: CoverTheme }> = ({ theme }) => {
   const ink = theme.isDark ? '#ffffff' : theme.primaryColor;
-  const centered = theme.layoutStyle === 'plain-centered';
+  const centered = theme.layoutStyle === 'plain-centered' || theme.layoutStyle === 'card-centered';
   const leftBar = theme.layoutStyle === 'plain-left-bar';
 
   return (
@@ -61,14 +61,19 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
       : COVER_THEMES.filter((t) => t.category === filterCategory);
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5">
+    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 shadow-xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-            02. Select Cover Theme
-          </h3>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 tabular-nums">
-            {COVER_THEMES.length} styles including ink-friendly plain paper layouts
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
+              Step 2
+            </span>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+              Pick a Cover Look
+            </h3>
+          </div>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 tabular-nums">
+            {COVER_THEMES.length} ready-to-print styles, including clean ink-friendly plain sheets
           </p>
         </div>
 
@@ -78,9 +83,9 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
               key={cat}
               type="button"
               onClick={() => setFilterCategory(cat)}
-              className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-all cursor-pointer ${
                 filterCategory === cat
-                  ? 'bg-yellow-400 text-black font-bold'
+                  ? 'bg-yellow-400 text-black font-bold shadow-xs'
                   : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white border border-zinc-200 dark:border-zinc-800'
               }`}
             >
@@ -98,10 +103,10 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
               key={theme.id}
               type="button"
               onClick={() => onSelectTheme(theme)}
-              className={`group text-left rounded-xl p-3 border transition-colors relative overflow-hidden flex flex-col justify-between cursor-pointer ${
+              className={`group text-left rounded-xl p-3 border transition-all duration-150 relative overflow-hidden flex flex-col justify-between cursor-pointer hover:-translate-y-0.5 ${
                 isSelected
-                  ? 'border-yellow-400 bg-yellow-400/10'
-                  : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-700 bg-zinc-50 dark:bg-zinc-950/60'
+                  ? 'border-yellow-400 bg-yellow-400/10 ring-1 ring-yellow-400/40'
+                  : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 bg-zinc-50 dark:bg-zinc-950/60'
               }`}
             >
               {isSelected && (

@@ -19,10 +19,10 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { LegalPagesView } from './components/LegalPagesView';
 import { LandingPage } from './components/LandingPage';
 import { DocumentUploader } from './components/DocumentUploader';
+import { CoverSuggestionsCard } from './components/CoverSuggestionsCard';
 import { ThemeSelector } from './components/ThemeSelector';
 import { ColorCarousel } from './components/ColorCarousel';
 import { CoverPreview } from './components/CoverPreview';
-import { MiniPreview } from './components/MiniPreview';
 import { DriveSyncPanel } from './components/DriveSyncPanel';
 import { ExportModal } from './components/ExportModal';
 import { EmailShareModal } from './components/EmailShareModal';
@@ -57,6 +57,8 @@ import {
 import {
   BrandKitPreset,
   CoverData,
+  CoverPictureSuggestion,
+  CoverSuggestionEngine,
   CoverTheme,
   DriveUploadMode,
   DriveUploadResult,
@@ -73,7 +75,7 @@ import {
 } from './services/googleDrive';
 import { generateCoverPagePdf, mergeCoverWithPdf } from './services/pdfService';
 import confetti from 'canvas-confetti';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   HardDrive,
   ArrowRight,
@@ -123,7 +125,7 @@ function createDefaultCoverData(
   defaultPaperSize: DefaultPaperSize,
   defaultQrPosition: DefaultQrCorner
 ): CoverData {
-  const initialTheme = COVER_THEMES[0];
+  const initialTheme = COVER_THEMES.find((t) => t.id === 'plain-centered') || COVER_THEMES[0];
   return {
     title: '',
     subtitle: '',
@@ -136,7 +138,7 @@ function createDefaultCoverData(
     imageUrl: initialTheme.defaultImage,
     themeId: initialTheme.id,
     primaryColor: initialTheme.primaryColor,
-    accentColor: '#facc15',
+    accentColor: initialTheme.accentColor,
     titleColor: undefined,
     subtitleColor: undefined,
     textColor: undefined,
@@ -146,7 +148,7 @@ function createDefaultCoverData(
     logoUrl: undefined,
     logoSize: 'medium',
     logoPosition: 'top-left',
-    font: 'inter',
+    font: initialTheme.defaultFont,
     paperSize: defaultPaperSize,
     qrPosition: defaultQrPosition,
     qrColor: '#000000',
@@ -401,6 +403,15 @@ export default function App() {
   const [currentDoc, setCurrentDoc] = useState<UploadedDocInfo | null>(null);
   const [isLoadingDoc, setIsLoadingDoc] = useState(false);
 
+  // Free Document-Tailored Cover Picture Suggestions state
+  const [coverSuggestions, setCoverSuggestions] = useState<CoverPictureSuggestion[]>([]);
+  const [suggestionCount, setSuggestionCount] = useState<1 | 2 | 3>(3);
+  const [suggestionEngine, setSuggestionEngine] = useState<CoverSuggestionEngine>('ai');
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
+  const [detectedSuggestionTopic, setDetectedSuggestionTopic] = useState<string | null>(null);
+  const lastSuggestedDocIdRef = useRef<string | null>(null);
+
   const initialDraft = useRef<{ coverData: CoverData; savedAt: number | null } | null>(null);
   if (initialDraft.current === null) {
     initialDraft.current = loadSavedCoverDraft(defaultPaperSize, defaultQrPosition);
@@ -455,7 +466,7 @@ export default function App() {
   }, []);
 
   // Google Drive & QR state
-  const [uploadMode, setUploadMode] = useState<DriveUploadMode>('source');
+  const [uploadMode, setUploadMode] = useState<DriveUploadMode>('merged');
   const [uploadResult, setUploadResult] = useState<DriveUploadResult | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ percent: 0, status: '' });
@@ -974,6 +985,76 @@ export default function App() {
     setCurrentStep(5);
   };
 
+  const handleGenerateCoverSuggestions = useCallback(
+    async (opts?: {
+      count?: 1 | 2 | 3;
+      engine?: CoverSuggestionEngine;
+      customPrompt?: string;
+      docOverride?: UploadedDocInfo | null;
+    }) => {
+      const targetDoc = opts?.docOverride !== undefined ? opts.docOverride : currentDoc;
+      const targetCount = opts?.count ?? suggestionCount;
+      const targetEngine = opts?.engine ?? suggestionEngine;
+      const activeTitle =
+        coverDataRef.current.title?.trim() || targetDoc?.extractedTitle || targetDoc?.name || '';
+      const activeSubtitle = coverDataRef.current.subtitle?.trim() || '';
+
+      setIsGeneratingSuggestions(true);
+      setSuggestionsError(null);
+
+      try {
+        const res = await fetch('/api/cover-suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'start',
+            title: activeTitle,
+            subtitle: activeSubtitle,
+            documentName: targetDoc?.name || '',
+            documentText: targetDoc?.extractedText || '',
+            customPrompt: opts?.customPrompt || '',
+            count: targetCount,
+            preferredEngine: targetEngine,
+          }),
+        });
+
+        const payload = (await res.json().catch(() => ({}))) as {
+          suggestions?: CoverPictureSuggestion[];
+          detectedTopic?: string;
+          error?: string;
+        };
+
+        if (!res.ok || !Array.isArray(payload?.suggestions)) {
+          throw new Error(payload?.error || 'Could not generate free cover background suggestions.');
+        }
+
+        setCoverSuggestions(payload.suggestions);
+        setDetectedSuggestionTopic(payload.detectedTopic || null);
+      } catch (err: any) {
+        setSuggestionsError(err?.message || 'Unable to generate cover picture suggestions.');
+      } finally {
+        setIsGeneratingSuggestions(false);
+      }
+    },
+    [currentDoc, suggestionCount, suggestionEngine]
+  );
+
+  const handleApplyCoverSuggestion = (suggestion: CoverPictureSuggestion) => {
+    if (!suggestion.imageDataUrl) return;
+    setCoverData((prev) => ({
+      ...prev,
+      backgroundImageUrl: suggestion.imageDataUrl,
+      backgroundImageOpacity: prev.backgroundImageOpacity ?? 0.42,
+    }));
+  };
+
+  const handleClearCoverBackground = () => {
+    setCoverData((prev) => ({
+      ...prev,
+      backgroundImageUrl: undefined,
+    }));
+  };
+
   const handleDocumentParsed = (doc: UploadedDocInfo) => {
     setCurrentDoc(doc);
     setUploadResult(null);
@@ -989,6 +1070,11 @@ export default function App() {
     }));
 
     setCurrentStep(2);
+
+    if (lastSuggestedDocIdRef.current !== doc.id) {
+      lastSuggestedDocIdRef.current = doc.id;
+      void handleGenerateCoverSuggestions({ docOverride: doc });
+    }
   };
 
   const handleReceivePdfFromTools = async (file: File) => {
@@ -1129,6 +1215,10 @@ export default function App() {
     setCurrentDoc(null);
     setUploadResult(null);
     setUploadError(null);
+    setCoverSuggestions([]);
+    setSuggestionsError(null);
+    setDetectedSuggestionTopic(null);
+    lastSuggestedDocIdRef.current = null;
     clearCoverDraftFromStorage();
     setLastAutoSavedAt(null);
     setCoverData(createDefaultCoverData(defaultPaperSize, defaultQrPosition));
@@ -1147,17 +1237,17 @@ export default function App() {
 
   const STEPS_NAV = includeQr
     ? [
-        { num: 1 as Step, displayNum: 1, label: 'Upload File', short: 'Upload', icon: UploadCloud },
-        { num: 2 as Step, displayNum: 2, label: 'Choose Theme', short: 'Theme', icon: Layout },
-        { num: 3 as Step, displayNum: 3, label: 'Customize', short: 'Style', icon: Palette },
-        { num: 4 as Step, displayNum: 4, label: 'Drive & QR', short: 'Drive QR', icon: HardDrive },
-        { num: 5 as Step, displayNum: 5, label: 'Export PDF', short: 'Export', icon: FileCheck2 },
+        { num: 1 as Step, displayNum: 1, label: 'Pick Your File', short: 'File', icon: UploadCloud },
+        { num: 2 as Step, displayNum: 2, label: 'Cover Look', short: 'Look', icon: Layout },
+        { num: 3 as Step, displayNum: 3, label: 'Customize', short: 'Customize', icon: Palette },
+        { num: 4 as Step, displayNum: 4, label: 'Save to Drive', short: 'Drive QR', icon: HardDrive },
+        { num: 5 as Step, displayNum: 5, label: 'Download PDF', short: 'Save', icon: FileCheck2 },
       ]
     : [
-        { num: 1 as Step, displayNum: 1, label: 'Upload File', short: 'Upload', icon: UploadCloud },
-        { num: 2 as Step, displayNum: 2, label: 'Choose Theme', short: 'Theme', icon: Layout },
-        { num: 3 as Step, displayNum: 3, label: 'Customize', short: 'Style', icon: Palette },
-        { num: 5 as Step, displayNum: 4, label: 'Export PDF', short: 'Export', icon: FileCheck2 },
+        { num: 1 as Step, displayNum: 1, label: 'Pick Your File', short: 'File', icon: UploadCloud },
+        { num: 2 as Step, displayNum: 2, label: 'Cover Look', short: 'Look', icon: Layout },
+        { num: 3 as Step, displayNum: 3, label: 'Customize', short: 'Customize', icon: Palette },
+        { num: 5 as Step, displayNum: 4, label: 'Download PDF', short: 'Save', icon: FileCheck2 },
       ];
 
   const currentDisplayStep =
@@ -1173,7 +1263,7 @@ export default function App() {
       case 1:
         return {
           next: {
-            text: 'Next: Choose Theme',
+            text: 'Next: Pick Cover Look',
             icon: nextIcon,
             onClick: goTo(2),
             variant: 'primary',
@@ -1182,23 +1272,23 @@ export default function App() {
         };
       case 2:
         return {
-          back: { text: 'Back: Upload', icon: backIcon, onClick: goTo(1), variant: 'dark' },
-          next: { text: 'Next: Customize', icon: nextIcon, onClick: goTo(3), variant: 'primary' },
+          back: { text: 'Back: File', icon: backIcon, onClick: goTo(1), variant: 'dark' },
+          next: { text: 'Next: Customize Cover', icon: nextIcon, onClick: goTo(3), variant: 'primary' },
         };
       case 3:
         return {
-          back: { text: 'Back: Theme', icon: backIcon, onClick: goTo(2), variant: 'dark' },
+          back: { text: 'Back: Cover Look', icon: backIcon, onClick: goTo(2), variant: 'dark' },
           next: includeQr
-            ? { text: 'Next: Drive & QR', icon: nextIcon, onClick: goTo(4), variant: 'primary' }
-            : { text: 'Next: Export PDF', icon: nextIcon, onClick: goTo(5), variant: 'primary' },
+            ? { text: 'Next: Save to Drive', icon: nextIcon, onClick: goTo(4), variant: 'primary' }
+            : { text: 'Next: Download PDF', icon: nextIcon, onClick: goTo(5), variant: 'primary' },
         };
       case 4:
         return {
           back: { text: 'Back: Customize', icon: backIcon, onClick: goTo(3), variant: 'dark' },
           next: uploadResult
-            ? { text: 'Next: Export PDF', icon: nextIcon, onClick: goTo(5), variant: 'primary' }
+            ? { text: 'Next: Download PDF', icon: nextIcon, onClick: goTo(5), variant: 'primary' }
             : {
-                text: isUploading ? 'Uploading...' : 'Upload & Bind QR',
+                text: isUploading ? 'Saving to Drive...' : 'Save & Create QR',
                 icon: <HardDrive className="w-4 h-4" />,
                 onClick: handleUploadToDrive,
                 variant: 'primary',
@@ -1209,9 +1299,9 @@ export default function App() {
       case 5:
       default:
         return {
-          back: { text: 'Edit Cover Design', icon: backIcon, onClick: goTo(3), variant: 'dark' },
+          back: { text: 'Edit Design', icon: backIcon, onClick: goTo(3), variant: 'dark' },
           next: {
-            text: 'New Document',
+            text: 'Start Another File',
             icon: <RotateCcw className="w-3.5 h-3.5" />,
             onClick: handleStartOver,
             variant: 'secondary',
@@ -1484,13 +1574,13 @@ export default function App() {
                       )}
                       <QrCode className="w-3.5 h-3.5 relative z-10 shrink-0 stroke-[2.25]" />
                       <span className="relative z-10 flex flex-col leading-none">
-                        <span className="text-[11px] font-extrabold">With QR &amp; Drive</span>
+                        <span className="text-[11px] font-extrabold">Cover + QR Code</span>
                         <span
                           className={`text-[9px] font-mono mt-0.5 ${
                             includeQr ? 'text-black/75 font-semibold' : 'text-zinc-400'
                           }`}
                         >
-                          Sign in required
+                          Saves to Google Drive
                         </span>
                       </span>
                     </button>
@@ -1520,7 +1610,7 @@ export default function App() {
                             !includeQr ? 'text-slate-950/75 font-semibold' : 'text-zinc-400'
                           }`}
                         >
-                          No sign in
+                          No sign-in needed
                         </span>
                       </span>
                     </button>
@@ -1659,173 +1749,231 @@ export default function App() {
                       </div>
                     )}
 
-                    {currentStep === 1 && (
-                      <div data-tour-target="studio-upload">
-                        <DocumentUploader
-                          currentDoc={currentDoc}
-                          onDocumentParsed={handleDocumentParsed}
-                          isLoading={isLoadingDoc}
-                          setIsLoading={setIsLoadingDoc}
-                          onSwitchToBatch={() => setStudioSection('batch')}
-                          onPreviewDoc={
-                            currentDoc
-                              ? () =>
-                                  setPreviewTarget({
-                                    title: currentDoc.name,
-                                    fileName: currentDoc.name,
-                                    blob: currentDoc.file,
-                                    subtitle: `${currentDoc.pageCount || 1} page(s) · Source Upload`,
-                                  })
-                              : undefined
-                          }
-                        />
-                      </div>
-                    )}
-
-                    {/* Compact MiniPreview only on mobile/tablet since sticky CoverPreview sits beside Editor on lg+ */}
-                    {currentStep >= 2 && (
-                      <div className="lg:hidden">
-                        <MiniPreview
-                          coverData={coverData}
-                          currentDoc={currentDoc}
-                          qrDataUrl={qrDataUrl}
-                          activeStep={currentStep}
-                          onJumpToThemes={() => setCurrentStep(2)}
-                          onJumpToColors={() => setCurrentStep(3)}
-                          onOpenFullPreview={!includeQr || qrDataUrl ? handlePreviewMergedPdf : undefined}
-                        />
-                      </div>
-                    )}
-
-                    {currentStep === 2 && (
-                      <ThemeSelector selectedThemeId={coverData.themeId} onSelectTheme={handleSelectTheme} />
-                    )}
-
-                    {currentStep === 3 && (
-                      <ColorCarousel
-                        coverData={coverData}
-                        onChange={setCoverData}
-                        brandKits={brandKits}
-                        onSaveBrandKit={handleSaveBrandKit}
-                        onApplyBrandKit={handleApplyBrandKit}
-                        onDeleteBrandKit={handleDeleteBrandKit}
-                      />
-                    )}
-
-                    {currentStep === 4 && includeQr && (
-                      <DriveSyncPanel
-                        uploadResult={uploadResult}
-                        isUploading={isUploading}
-                        uploadProgress={uploadProgress}
-                        uploadError={uploadError}
-                        onUploadClick={handleUploadToDrive}
-                        canUpload={!!currentDoc && !isUploading}
-                        needsAuth={!token}
-                        onLoginClick={() => {
-                          setAuthGateAction(
-                            forceConsent
-                              ? 'Reconnect Google Drive (Allow Drive File Permission)'
-                              : 'Connect Google Drive to Upload Document'
-                          );
-                          setIsAuthGateOpen(true);
-                        }}
-                        onManualLinkSubmit={handleManualLinkSubmit}
-                        onDownloadMergedPdf={handleDirectDownloadMergedPdf}
-                        isDownloadingMerged={isDownloading}
-                        totalPages={totalPages}
-                        uploadMode={uploadMode}
-                        onUploadModeChange={setUploadMode}
-                        tokenExpiry={tokenExpiry}
-                        qrDataUrl={qrDataUrl}
-                      />
-                    )}
-
-                    {currentStep === 5 && (
-                      <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4">
-                        <div>
-                          <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-                            0{currentDisplayStep}. Download Combined PDF &amp; Share
-                          </h3>
-                          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 tabular-nums">
-                            {includeQr
-                              ? `Page 1 includes your QR-linked cover prepended to all original document pages (${totalPages} pages total).`
-                              : `Page 1 attaches your clean cover sheet in front of all original pages (${totalPages} pages total · No sign-in required).`}
-                          </p>
-                        </div>
-
-                        {downloadSuccessMsg && (
-                          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-                            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                            <span>{downloadSuccessMsg}</span>
-                          </div>
-                        )}
-
-                        {downloadErrorMsg && (
-                          <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                            <span>{downloadErrorMsg}</span>
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <TypewriterButton
-                            onClick={handleDirectDownloadMergedPdf}
-                            disabled={isDownloading}
-                            loading={isDownloading}
-                            variant="primary"
-                            size="lg"
-                            className="w-full"
-                            icon={<Download className="w-5 h-5 stroke-[2.5]" />}
-                            text={`Download PDF (${totalPages} Pages)`}
-                          />
-
-                          <TypewriterButton
-                            onClick={handlePreviewMergedPdf}
-                            disabled={isPreparingPreview || (includeQr && !qrDataUrl)}
-                            loading={isPreparingPreview}
-                            variant="dark"
-                            size="lg"
-                            className="w-full"
-                            icon={<Eye className="w-5 h-5 text-cyan-400" />}
-                            text={`Preview All ${totalPages} Pages`}
-                          />
-                        </div>
-
-                        <div
-                          className={`grid gap-2.5 pt-1 ${
-                            includeQr ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
-                          }`}
-                        >
-                          <TypewriterButton
-                            onClick={handlePrint}
-                            variant="dark"
-                            icon={<Printer className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                            text="Print"
-                          />
-
-                          {includeQr && (
-                            <TypewriterButton
-                              onClick={() => {
-                                setEmailShareTarget({
-                                  title: coverData.title || currentDoc?.name || 'Document',
-                                  link: uploadResult?.webViewLink || 'https://drive.google.com',
-                                  qrUrl: qrDataUrl || undefined,
-                                });
-                                setIsEmailModalOpen(true);
-                              }}
-                              variant="dark"
-                              icon={<Mail className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                              text="Share Email"
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={`studio-step-${currentStep}`}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                        className="space-y-4"
+                      >
+                        {currentStep === 1 && (
+                          <div data-tour-target="studio-upload">
+                            <DocumentUploader
+                              currentDoc={currentDoc}
+                              onDocumentParsed={handleDocumentParsed}
+                              isLoading={isLoadingDoc}
+                              setIsLoading={setIsLoadingDoc}
+                              onSwitchToBatch={() => setStudioSection('batch')}
+                              onPreviewDoc={
+                                currentDoc
+                                  ? () =>
+                                      setPreviewTarget({
+                                        title: currentDoc.name,
+                                        fileName: currentDoc.name,
+                                        blob: currentDoc.file,
+                                        subtitle: `${currentDoc.pageCount || 1} page(s) · Source Upload`,
+                                      })
+                                  : undefined
+                              }
                             />
-                          )}
+                          </div>
+                        )}
 
-                          <TypewriterButton
-                            onClick={() => setIsExportModalOpen(true)}
-                            variant="dark"
-                            icon={<Layers className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                            text="Export Options"
+                        {currentStep === 2 && (
+                          <div className="space-y-4">
+                            <ThemeSelector selectedThemeId={coverData.themeId} onSelectTheme={handleSelectTheme} />
+                            <CoverSuggestionsCard
+                              currentDoc={currentDoc}
+                              coverData={coverData}
+                              suggestions={coverSuggestions}
+                              setSuggestions={setCoverSuggestions}
+                              suggestionCount={suggestionCount}
+                              setSuggestionCount={setSuggestionCount}
+                              engine={suggestionEngine}
+                              setEngine={setSuggestionEngine}
+                              isLoading={isGeneratingSuggestions}
+                              errorMsg={suggestionsError}
+                              detectedTopic={detectedSuggestionTopic}
+                              onGenerate={(opts) => handleGenerateCoverSuggestions(opts)}
+                              onApplySuggestion={handleApplyCoverSuggestion}
+                              onClearBackground={handleClearCoverBackground}
+                              onChangeOpacity={(opacity) =>
+                                setCoverData((prev) => ({ ...prev, backgroundImageOpacity: opacity }))
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {currentStep === 3 && (
+                          <ColorCarousel
+                            coverData={coverData}
+                            onChange={setCoverData}
+                            brandKits={brandKits}
+                            onSaveBrandKit={handleSaveBrandKit}
+                            onApplyBrandKit={handleApplyBrandKit}
+                            onDeleteBrandKit={handleDeleteBrandKit}
                           />
-                        </div>
+                        )}
+
+                        {currentStep === 4 && includeQr && (
+                          <DriveSyncPanel
+                            uploadResult={uploadResult}
+                            isUploading={isUploading}
+                            uploadProgress={uploadProgress}
+                            uploadError={uploadError}
+                            onUploadClick={handleUploadToDrive}
+                            canUpload={!!currentDoc && !isUploading}
+                            needsAuth={!token}
+                            onLoginClick={() => {
+                              setAuthGateAction(
+                                forceConsent
+                                  ? 'Reconnect Google Drive (Allow Drive File Permission)'
+                                  : 'Connect Google Drive to Upload Document'
+                              );
+                              setIsAuthGateOpen(true);
+                            }}
+                            onManualLinkSubmit={handleManualLinkSubmit}
+                            onDownloadMergedPdf={handleDirectDownloadMergedPdf}
+                            isDownloadingMerged={isDownloading}
+                            totalPages={totalPages}
+                            uploadMode={uploadMode}
+                            onUploadModeChange={setUploadMode}
+                            tokenExpiry={tokenExpiry}
+                            qrDataUrl={qrDataUrl}
+                          />
+                        )}
+
+                        {currentStep === 5 && (
+                          <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
+                                  Step {currentDisplayStep}
+                                </span>
+                                <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+                                  Download &amp; Share Your PDF
+                                </h3>
+                              </div>
+                              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 tabular-nums">
+                                {includeQr
+                                  ? `Your QR cover attaches cleanly to Page 1 of your file (${totalPages} pages total).`
+                                  : `Your clean cover attaches to Page 1 of your file (${totalPages} pages total · No sign-in required).`}
+                              </p>
+                            </div>
+
+                            {downloadSuccessMsg && (
+                              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                                <span>{downloadSuccessMsg}</span>
+                              </div>
+                            )}
+
+                            {downloadErrorMsg && (
+                              <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                <span>{downloadErrorMsg}</span>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              <TypewriterButton
+                                onClick={handleDirectDownloadMergedPdf}
+                                disabled={isDownloading}
+                                loading={isDownloading}
+                                variant="primary"
+                                size="lg"
+                                className="w-full"
+                                icon={<Download className="w-5 h-5 stroke-[2.5]" />}
+                                text={`Download PDF (${totalPages} Pages)`}
+                              />
+
+                              <TypewriterButton
+                                onClick={handlePreviewMergedPdf}
+                                disabled={isPreparingPreview || (includeQr && !qrDataUrl)}
+                                loading={isPreparingPreview}
+                                variant="dark"
+                                size="lg"
+                                className="w-full"
+                                icon={<Eye className="w-5 h-5 text-cyan-400" />}
+                                text={`Preview All ${totalPages} Pages`}
+                              />
+                            </div>
+
+                            <div
+                              className={`grid gap-2.5 pt-1 ${
+                                includeQr ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
+                              }`}
+                            >
+                              <TypewriterButton
+                                onClick={handlePrint}
+                                variant="dark"
+                                icon={<Printer className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
+                                text="Print"
+                              />
+
+                              {includeQr && (
+                                <TypewriterButton
+                                  onClick={() => {
+                                    setEmailShareTarget({
+                                      title: coverData.title || currentDoc?.name || 'Document',
+                                      link: uploadResult?.webViewLink || 'https://drive.google.com',
+                                      qrUrl: qrDataUrl || undefined,
+                                    });
+                                    setIsEmailModalOpen(true);
+                                  }}
+                                  variant="dark"
+                                  icon={<Mail className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
+                                  text="Share Email"
+                                />
+                              )}
+
+                              <TypewriterButton
+                                onClick={() => setIsExportModalOpen(true)}
+                                variant="dark"
+                                icon={<Layers className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
+                                text="More Formats"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+
+                    {(footer.back || footer.next) && (
+                      <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center justify-between gap-3 shadow-xs">
+                        {footer.back ? (
+                          <button
+                            type="button"
+                            onClick={footer.back.onClick}
+                            disabled={footer.back.disabled}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {footer.back.icon}
+                            <span>{footer.back.text}</span>
+                          </button>
+                        ) : (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Pick a file to unlock the next steps
+                          </span>
+                        )}
+
+                        {footer.next && (
+                          <button
+                            type="button"
+                            onClick={footer.next.onClick}
+                            disabled={footer.next.disabled}
+                            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap ${
+                              footer.next.variant === 'primary'
+                                ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-xs'
+                                : 'bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-white hover:border-yellow-400'
+                            }`}
+                          >
+                            <span>{footer.next.text}</span>
+                            {footer.next.icon}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1842,6 +1990,8 @@ export default function App() {
                         driveLink={includeQr ? uploadResult?.webViewLink || null : null}
                         qrDataUrl={includeQr ? qrDataUrl : null}
                         onPrint={handlePrint}
+                        onFullPreview={handlePreviewMergedPdf}
+                        isPreparingFullPreview={isPreparingPreview}
                         isDriveUploaded={includeQr && !!uploadResult}
                       />
                     </div>
@@ -1864,10 +2014,10 @@ export default function App() {
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
               <div>
                 <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white">
-                  Workflow Steps
+                  Your Steps
                 </h2>
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  {includeQr ? 'With QR & Drive' : 'Clean Cover · No Sign-In'}
+                  {includeQr ? 'Cover + QR Code' : 'Clean Cover · No Sign-In'}
                 </p>
               </div>
               <span className="text-xs font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
@@ -1875,7 +2025,7 @@ export default function App() {
               </span>
             </div>
 
-            <nav className="space-y-2" aria-label="Workflow steps">
+            <nav className="space-y-2" aria-label="Cover Studio steps">
               {STEPS_NAV.map((step) => {
                 const Icon = step.icon;
                 const isActive = studioSection === 'editor' && currentStep === step.num;
@@ -1895,7 +2045,7 @@ export default function App() {
                       setCurrentStep(step.num);
                     }}
                     aria-current={isActive ? 'step' : undefined}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all duration-150 cursor-pointer disabled:cursor-not-allowed ${
                       isActive
                         ? 'border-yellow-400 bg-yellow-400 text-black font-bold shadow-sm'
                         : isCompleted
@@ -1921,7 +2071,7 @@ export default function App() {
 
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold leading-tight truncate">
-                        0{step.displayNum}. {step.label}
+                        {step.displayNum}. {step.label}
                       </p>
                       <p
                         className={`text-[10px] truncate mt-0.5 ${
@@ -1930,10 +2080,10 @@ export default function App() {
                             : 'text-zinc-500 dark:text-zinc-400'
                         }`}
                       >
-                        {step.num === 1 && (currentDoc ? currentDoc.name : 'Select PDF or Word')}
+                        {step.num === 1 && (currentDoc ? currentDoc.name : 'Choose a PDF or Word file')}
                         {step.num === 2 && coverData.themeId}
                         {step.num === 3 && `${coverData.paperSize.toUpperCase()} · ${coverData.font}`}
-                        {step.num === 4 && (uploadResult ? 'Drive QR bound' : 'Sync & bind link')}
+                        {step.num === 4 && (uploadResult ? 'Drive QR ready' : 'Save & create QR')}
                         {step.num === 5 && `${totalPages} ${totalPages === 1 ? 'page' : 'pages'} ready`}
                       </p>
                     </div>
@@ -1967,36 +2117,6 @@ export default function App() {
                   {!includeQr ? 'No Sign-In Mode' : uploadResult ? 'Verified Link' : 'Pending Upload'}
                 </span>
               </div>
-
-              {(uploadResult || currentDoc || !includeQr) && (
-                <button
-                  type="button"
-                  onClick={handleDirectDownloadMergedPdf}
-                  disabled={isDownloading || (includeQr && !qrDataUrl)}
-                  className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50 ${
-                    !includeQr
-                      ? 'bg-cyan-400 hover:bg-cyan-300 text-slate-950 shadow-sm'
-                      : uploadResult
-                      ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-sm'
-                      : 'bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 dark:hover:bg-zinc-700 text-white border border-zinc-700'
-                  }`}
-                >
-                  {isDownloading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5 stroke-[2.5]" />
-                  )}
-                  <span>
-                    {isDownloading
-                      ? 'Preparing PDF...'
-                      : !includeQr
-                      ? 'Download Clean PDF'
-                      : uploadResult
-                      ? 'Download Updated PDF'
-                      : 'Download Draft PDF'}
-                  </span>
-                </button>
-              )}
             </div>
           </div>
 

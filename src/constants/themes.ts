@@ -6,6 +6,20 @@ import heroStudioImg from '../assets/images/hero_qr_studio_1794726300193.jpg';
 
 export const COVER_THEMES: CoverTheme[] = [
   {
+    id: 'plain-centered',
+    name: 'Centered Title',
+    description: 'Balanced book-cover typography with an understated centered rule.',
+    category: 'Plain',
+    primaryColor: '#0f172a',
+    secondaryColor: '#334155',
+    accentColor: '#0f766e',
+    textColor: '#334155',
+    backgroundColor: '#ffffff',
+    defaultFont: 'merriweather',
+    defaultImage: '',
+    layoutStyle: 'plain-centered',
+  },
+  {
     id: 'executive-horizon',
     name: 'Executive Horizon',
     description: 'Corporate slate with architectural framing, structured typography, and clean contrast.',
@@ -190,20 +204,6 @@ export const COVER_THEMES: CoverTheme[] = [
     defaultFont: 'inter',
     defaultImage: '',
     layoutStyle: 'plain-left-bar',
-  },
-  {
-    id: 'plain-centered',
-    name: 'Centered Title',
-    description: 'Balanced book-cover typography with an understated centered rule.',
-    category: 'Plain',
-    primaryColor: '#0f172a',
-    secondaryColor: '#334155',
-    accentColor: '#0f766e',
-    textColor: '#334155',
-    backgroundColor: '#ffffff',
-    defaultFont: 'merriweather',
-    defaultImage: '',
-    layoutStyle: 'plain-centered',
   },
   {
     id: 'plain-cream',

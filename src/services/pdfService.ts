@@ -474,7 +474,7 @@ export async function generateCoverPagePdf(
   }
 
   const layout = theme.layoutStyle;
-  const isCentered = layout === 'plain-centered';
+  const isCentered = layout === 'plain-centered' || layout === 'card-centered';
   const isLeftBar = layout === 'plain-left-bar';
   const hasBanner =
     (layout === 'banner-top' || layout === 'split-vertical') && !coverData.backgroundImageUrl;

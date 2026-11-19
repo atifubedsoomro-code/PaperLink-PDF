@@ -69,7 +69,7 @@ const STUDIO_TOUR_STEPS: TourStepConfig[] = [
     title: 'Streamlined Steps & Instant Export',
     subtitle: 'Finish In Seconds',
     description:
-      'Step through Theme, Customize, (and Drive Sync if With QR is active), then click Download PDF right here or in the final step.',
+      'Step through Theme, Customize (and Drive Sync when With QR is active), then download your finished PDF in the final step.',
     selectors: ['[data-tour-target="studio-sidebar-download"]', '[data-tour-target="studio-sidebar"]', '[data-tour-target="studio-steps-mobile"]'],
     preferredSide: 'left',
     icon: Download,

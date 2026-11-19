@@ -92,7 +92,7 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
   onApplyBrandKit,
   onDeleteBrandKit,
 }) => {
-  const [subTab, setSubTab] = useState<'colors' | 'details' | 'branding'>('colors');
+  const [subTab, setSubTab] = useState<'details' | 'colors' | 'branding'>('details');
   const [newKitName, setNewKitName] = useState('');
   const [showKitSaveInput, setShowKitSaveInput] = useState(false);
   const customLogoInputRef = useRef<HTMLInputElement>(null);
@@ -148,25 +148,30 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-5">
+    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-5 shadow-xs">
       {/* Header & Section Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-            03. Customize Colors, Copy & Branding
-          </h3>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
+              Step 3
+            </span>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+              Customize Your Cover
+            </h3>
+          </div>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
             {includeQr
-              ? 'Fine-tune palette, fonts, verification stamps, Brand Kits, and QR position'
-              : 'Fine-tune palette, typography, logo, and verification stamps'}
+              ? '1. Cover text · 2. Palette & fonts · 3. Logo, stamps & QR position'
+              : '1. Cover text · 2. Palette & fonts · 3. Logo & stamps'}
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shrink-0">
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shrink-0 overflow-x-auto scrollbar-none">
           {[
-            { id: 'colors' as const, label: 'Palette & Fonts' },
-            { id: 'details' as const, label: 'Cover Text' },
-            { id: 'branding' as const, label: 'Logo & Stamps' },
+            { id: 'details' as const, label: '1. Cover Text' },
+            { id: 'colors' as const, label: '2. Palette & Fonts' },
+            { id: 'branding' as const, label: '3. Logo & Stamps' },
           ].map((tab) => (
             <button
               key={tab.id}

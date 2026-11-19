@@ -13,6 +13,8 @@ import {
   FileText,
   CheckCircle2,
   Info,
+  Eye,
+  Loader2,
 } from 'lucide-react';
 
 interface CoverPreviewProps {
@@ -21,6 +23,8 @@ interface CoverPreviewProps {
   driveLink: string | null;
   qrDataUrl: string | null;
   onPrint?: () => void;
+  onFullPreview?: () => void;
+  isPreparingFullPreview?: boolean;
   isDriveUploaded: boolean;
 }
 
@@ -80,6 +84,8 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   driveLink,
   qrDataUrl,
   onPrint,
+  onFullPreview,
+  isPreparingFullPreview = false,
   isDriveUploaded,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -110,7 +116,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   };
 
   const isDarkModeTheme = !!theme.isDark;
-  const isCentered = theme.layoutStyle === 'plain-centered';
+  const isCentered = theme.layoutStyle === 'plain-centered' || theme.layoutStyle === 'card-centered';
   const isLeftBar = theme.layoutStyle === 'plain-left-bar';
 
   const effectiveTitleColor = coverData.titleColor || (isDarkModeTheme ? '#ffffff' : coverData.primaryColor);
@@ -602,6 +608,23 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               <ExternalLink className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Drive Link</span>
             </a>
+          )}
+
+          {onFullPreview && (
+            <button
+              type="button"
+              onClick={onFullPreview}
+              disabled={isPreparingFullPreview}
+              className="px-2.5 py-1 text-xs font-bold rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 whitespace-nowrap shadow-xs"
+              title={`Open full ${totalExportPages}-page PDF preview`}
+            >
+              {isPreparingFullPreview ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Eye className="w-3.5 h-3.5" />
+              )}
+              <span>{isPreparingFullPreview ? 'Preparing...' : 'Full Preview'}</span>
+            </button>
           )}
 
           <button
