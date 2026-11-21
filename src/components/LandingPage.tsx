@@ -32,6 +32,10 @@ import {
   Sliders,
   Table2,
   UploadCloud,
+  Droplets,
+  EyeOff,
+  ImagePlus,
+  Stamp,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppView } from './Navbar';
@@ -121,6 +125,9 @@ const PDF_OFFICE_TOOLS: Array<{
   { id: 'pdf-organize', title: 'Organize Pages', desc: 'Rotate 90°, delete, and reorder sheets.', icon: LayoutGrid },
   { id: 'pdf-to-image', title: 'PDF to Image', desc: 'Up to 3× sharp PNG/JPG/WebP + ZIP.', icon: FileImage },
   { id: 'image-to-pdf', title: 'Images to PDF', desc: 'Combine scans into A4/Letter PDF.', icon: ImageIcon },
+  { id: 'pdf-add-images', title: 'Add Pictures to PDF', desc: 'Place photos, IDs & logos onto pages.', icon: ImagePlus },
+  { id: 'pdf-watermark-remove', title: 'PDF Watermark Remover', desc: 'Clean diagonal stamps & scanner logos.', icon: Droplets },
+  { id: 'pdf-watermark-add', title: 'Watermark & Page #', desc: 'Stamp CONFIDENTIAL/DRAFT & page numbers.', icon: Stamp },
 ];
 
 const DESIGNER_IMAGE_TOOLS: Array<{
@@ -131,6 +138,9 @@ const DESIGNER_IMAGE_TOOLS: Array<{
 }> = [
   { id: 'bg-remove', title: 'Background Remover', desc: 'Strip backgrounds cleanly with split preview.', icon: Eraser },
   { id: 'bulk-bg-remove', title: 'Bulk BG Remover', desc: 'Batch-cut product shots into one ZIP.', icon: Layers },
+  { id: 'watermark-remove', title: 'Watermark Remover', desc: 'Brush or box erase unwanted text & logos.', icon: Droplets },
+  { id: 'blur-redact', title: 'Blur & Redact', desc: 'Hide faces, phones & sensitive info.', icon: EyeOff },
+  { id: 'grid-collage', title: 'Photo Grid / IDs', desc: 'Join ID front+back or photo collages.', icon: LayoutGrid },
   { id: 'pdf-to-image', title: 'PDF to Image', desc: 'Render PDF flyers into sharp images.', icon: FileImage },
   { id: 'resize', title: 'Image Resize', desc: 'Social, print & custom pixel presets.', icon: Maximize2 },
   { id: 'convert', title: 'Format Converter', desc: 'PNG, JPG, WebP, BMP & ICO Favicons.', icon: RefreshCw },
@@ -525,7 +535,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* 2. UNIFIED ANIMATED TOOLKIT EXPLORER (17 PDF/OFFICE + 8 IMAGE TOOLS) */}
+        {/* 2. UNIFIED ANIMATED TOOLKIT EXPLORER (20 PDF/OFFICE + 11 IMAGE TOOLS) */}
         <section className="border-t border-zinc-200 dark:border-zinc-900 py-14 lg:py-16">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-7">
             <motion.div
@@ -537,7 +547,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               <div>
                 <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider mb-1.5 font-semibold">
-                  25 Offline Document &amp; Image Utilities
+                  31 Offline Document &amp; Image Utilities
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-bold text-zinc-950 dark:text-white tracking-tight">
                   Switch tools below — everything runs inside your browser.
@@ -547,8 +557,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {/* Animated Category Switcher */}
               <div className="inline-grid grid-cols-2 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 shrink-0 self-start md:self-auto">
                 {[
-                  { id: 'pdf' as const, label: 'PDF & Office (17)' },
-                  { id: 'image' as const, label: 'Image Studio (8)' },
+                  { id: 'pdf' as const, label: 'PDF & Office (20)' },
+                  { id: 'image' as const, label: 'Image Studio (11)' },
                 ].map((tab) => {
                   const isActive = activeSuiteTab === tab.id;
                   return (

@@ -66,6 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isChatbotMinimized && (
             <button
               type="button"
+              data-paperlink-minimized-btn="true"
               onClick={onRestoreChatbot}
               title={
                 activeView === 'studio'

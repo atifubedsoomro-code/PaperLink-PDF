@@ -30,6 +30,9 @@ import {
   Presentation,
   FileSpreadsheet,
   Table2,
+  ImagePlus,
+  Droplets,
+  Stamp,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -63,6 +66,8 @@ import { renderPdfPages } from '../services/documentParser';
 import { PdfEditorTool } from './PdfEditorTool';
 import { PdfProtectTool } from './PdfProtectTool';
 import { PdfToImageTool } from './PdfToImageTool';
+import { PdfAddImagesTool } from './PdfAddImagesTool';
+import { PdfWatermarkTools } from './PdfWatermarkTools';
 import { OfficeUtilityTools, OfficeUtilityTabId } from './OfficeUtilityTools';
 
 export type PdfToolTab =
@@ -73,6 +78,9 @@ export type PdfToolTab =
   | 'pdf-compress'
   | 'pdf-split'
   | 'image-to-pdf'
+  | 'pdf-add-images'
+  | 'pdf-watermark-remove'
+  | 'pdf-watermark-add'
   | 'pdf-organize'
   | 'pdf-sign'
   | 'pdf-edit'
@@ -112,6 +120,9 @@ const PDF_TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<
   { id: 'pdf-compress', label: 'Compress', icon: Minimize2 },
   { id: 'pdf-split', label: 'Split / Extract', icon: Scissors },
   { id: 'image-to-pdf', label: 'Images to PDF', icon: ImageIcon },
+  { id: 'pdf-add-images', label: 'Add Pictures', icon: ImagePlus },
+  { id: 'pdf-watermark-remove', label: 'Watermark Remover', icon: Droplets },
+  { id: 'pdf-watermark-add', label: 'Watermark & Page #', icon: Stamp },
   { id: 'pdf-organize', label: 'Rotate & Delete', icon: RotateCw },
   { id: 'pdf-sign', label: 'Sign & Stamp', icon: PenTool },
   { id: 'pdf-edit', label: 'Edit PDF', icon: Edit3 },
@@ -677,7 +688,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             PaperLink Local PDF &amp; Office Utility Toolkit
           </h1>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            17 private PDF, Word, PowerPoint, and Excel utilities executing locally in your browser — send any PDF straight into Cover Studio.
+            20 private PDF, Word, PowerPoint, and Excel utilities executing locally in your browser — send any PDF straight into Cover Studio.
           </p>
         </div>
 
@@ -2636,7 +2647,34 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         />
       )}
 
-      {/* TOOLS 12-17: OFFICE PRESENTATION & SPREADSHEET UTILITIES */}
+      {/* TOOL 12: ADD PICTURES TO PDF */}
+      {activeTool === 'pdf-add-images' && (
+        <PdfAddImagesTool
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
+        />
+      )}
+
+      {/* TOOLS 13-14: PDF WATERMARK REMOVER & WATERMARK/PAGE # ADDER */}
+      {(activeTool === 'pdf-watermark-remove' || activeTool === 'pdf-watermark-add') && (
+        <PdfWatermarkTools
+          mode={activeTool === 'pdf-watermark-remove' ? 'remove' : 'add'}
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
+        />
+      )}
+
+      {/* TOOLS 15-20: OFFICE PRESENTATION & SPREADSHEET UTILITIES */}
       {OFFICE_TAB_IDS.has(activeTool) && (
         <OfficeUtilityTools
           activeTool={activeTool as OfficeUtilityTabId}

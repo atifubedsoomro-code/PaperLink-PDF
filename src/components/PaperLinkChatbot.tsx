@@ -24,13 +24,14 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { AppView } from './Navbar';
 import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
 import { ChatMarkdown } from './ChatMarkdown';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { typewriterAudio } from '../services/soundEffects';
+import { LiquidDropletOverlay, DropletBurstState } from './LiquidDropletEffect';
 import {
   CompressionLevel,
   PdfPageThumb,
@@ -80,6 +81,7 @@ import {
   convertPptToImages,
   convertPptToPdf,
 } from '../services/officeToolkit';
+import { solveDocumentWithAI, SolverInkStyle } from '../services/pdfSolverService';
 
 export interface PaperLinkChatbotProps {
   activeView: AppView;
@@ -330,6 +332,170 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   });
   const isSoundEnabledRef = useRef(isSoundEnabled);
 
+  // Resizable & draggable floating window geometry
+  type ResizeDir = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se' | 'move';
+  interface WindowRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }
+
+  const getDefaultRect = (customSize?: { width: number; height: number } | null): WindowRect => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const minW = Math.min(320, Math.max(260, vw - 16));
+    const minH = Math.min(360, Math.max(280, vh - 24));
+    const maxW = Math.max(minW, vw - 16);
+    const maxH = Math.max(minH, vh - 24);
+    const baseW = customSize?.width ?? (vw < 640 ? vw - 24 : 416);
+    const baseH = customSize?.height ?? Math.min(Math.round(vh * 0.78), 630);
+    const width = Math.max(minW, Math.min(maxW, baseW));
+    const height = Math.max(minH, Math.min(maxH, baseH));
+    const rightGap = activeView === 'studio' && vw >= 1024 ? 312 : vw < 640 ? 12 : 20;
+    const bottomGap = activeView === 'studio' && vw < 1024 ? 64 : vw < 640 ? 16 : 20;
+    const left = Math.max(8, Math.min(vw - width - 8, vw - rightGap - width));
+    const top = Math.max(8, Math.min(vh - height - 8, vh - bottomGap - height));
+    return { left, top, width, height };
+  };
+
+  const [windowRect, setWindowRect] = useState<WindowRect>(() => {
+    try {
+      const saved = localStorage.getItem('paperlink_chat_window_size');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed?.width === 'number' && typeof parsed?.height === 'number') {
+          return getDefaultRect({ width: parsed.width, height: parsed.height });
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return getDefaultRect();
+  });
+  const [activeResizeDir, setActiveResizeDir] = useState<ResizeDir | null>(null);
+  const windowRectRef = useRef(windowRect);
+  useEffect(() => {
+    windowRectRef.current = windowRect;
+  }, [windowRect]);
+
+  const hasCustomMovedRef = useRef(false);
+
+  // Re-anchor cleanly when activeView changes (unless user dragged it manually) & clamp on viewport resize
+  useEffect(() => {
+    const syncToViewport = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setWindowRect((prev) => {
+        if (!hasCustomMovedRef.current) {
+          return getDefaultRect({ width: prev.width, height: prev.height });
+        }
+        const minW = Math.min(320, Math.max(260, vw - 16));
+        const minH = Math.min(360, Math.max(280, vh - 24));
+        const width = Math.max(minW, Math.min(vw - 16, prev.width));
+        const height = Math.max(minH, Math.min(vh - 24, prev.height));
+        const left = Math.max(8, Math.min(vw - width - 8, prev.left));
+        const top = Math.max(8, Math.min(vh - height - 8, prev.top));
+        return { left, top, width, height };
+      });
+    };
+    syncToViewport();
+    window.addEventListener('resize', syncToViewport);
+    return () => window.removeEventListener('resize', syncToViewport);
+  }, [activeView, isOpen]);
+
+  const startWindowInteraction = (dir: ResizeDir, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startRect = { ...windowRectRef.current };
+    setActiveResizeDir(dir);
+    if (dir === 'move') {
+      hasCustomMovedRef.current = true;
+    }
+
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const minW = Math.min(320, Math.max(260, vw - 16));
+      const minH = Math.min(360, Math.max(280, vh - 24));
+      const maxRight = vw - 8;
+      const maxBottom = vh - 8;
+
+      if (dir === 'move') {
+        const left = Math.max(8, Math.min(vw - startRect.width - 8, startRect.left + dx));
+        const top = Math.max(8, Math.min(vh - startRect.height - 8, startRect.top + dy));
+        setWindowRect({ left, top, width: startRect.width, height: startRect.height });
+        return;
+      }
+
+      let { left, top, width, height } = startRect;
+      const rightEdge = startRect.left + startRect.width;
+      const bottomEdge = startRect.top + startRect.height;
+
+      if (dir.includes('w')) {
+        const clampedLeft = Math.max(8, Math.min(rightEdge - minW, startRect.left + dx));
+        left = clampedLeft;
+        width = rightEdge - clampedLeft;
+      }
+      if (dir.includes('e')) {
+        width = Math.max(minW, Math.min(maxRight - startRect.left, startRect.width + dx));
+      }
+      if (dir.includes('n')) {
+        const clampedTop = Math.max(8, Math.min(bottomEdge - minH, startRect.top + dy));
+        top = clampedTop;
+        height = bottomEdge - clampedTop;
+      }
+      if (dir.includes('s')) {
+        height = Math.max(minH, Math.min(maxBottom - startRect.top, startRect.height + dy));
+      }
+
+      setWindowRect({ left, top, width, height });
+    };
+
+    const onPointerUp = () => {
+      document.body.style.userSelect = prevUserSelect;
+      setActiveResizeDir(null);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      try {
+        localStorage.setItem(
+          'paperlink_chat_window_size',
+          JSON.stringify({
+            width: Math.round(windowRectRef.current.width),
+            height: Math.round(windowRectRef.current.height),
+          })
+        );
+      } catch {
+        // ignore storage restrictions
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  };
+
+  const resetWindowSize = () => {
+    hasCustomMovedRef.current = false;
+    const def = getDefaultRect(null);
+    setWindowRect(def);
+    try {
+      localStorage.removeItem('paperlink_chat_window_size');
+    } catch {
+      // ignore storage errors
+    }
+  };
+
   useEffect(() => {
     isSoundEnabledRef.current = isSoundEnabled;
   }, [isSoundEnabled]);
@@ -367,6 +533,87 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     }
   };
 
+  const prefersReducedMotion = useReducedMotion();
+  const [openOrigin, setOpenOrigin] = useState<'minimized' | 'closed'>('closed');
+  const [dropletBurst, setDropletBurst] = useState<DropletBurstState | null>(null);
+  const prevMinimizedRef = useRef(isMinimized);
+  const prevOpenRef = useRef(isOpen);
+  const lastMinBtnCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const lastDockCenterRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const captureOrigins = () => {
+      const minBtn = document.querySelector('[data-paperlink-minimized-btn="true"]');
+      if (minBtn) {
+        const r = minBtn.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          lastMinBtnCenterRef.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }
+      }
+      const dockEl = document.querySelector('[data-paperlink-compact-dock="true"]');
+      if (dockEl) {
+        const r = dockEl.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          lastDockCenterRef.current = { x: r.left + r.width * 0.56, y: r.top + r.height * 0.5 };
+        }
+      }
+    };
+    const raf = window.requestAnimationFrame(captureOrigins);
+    window.addEventListener('resize', captureOrigins);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', captureOrigins);
+    };
+  }, [isMinimized, isOpen, activeView]);
+
+  useEffect(() => {
+    const wasMin = prevMinimizedRef.current;
+    const wasOpen = prevOpenRef.current;
+    prevMinimizedRef.current = isMinimized;
+    prevOpenRef.current = isOpen;
+
+    let timer: number | null = null;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+    if (wasMin && !isMinimized) {
+      setOpenOrigin('minimized');
+      const dockW = vw < 640 ? vw - 24 : 348;
+      const dockH = 108;
+      const rightGap = activeView === 'studio' && vw >= 1024 ? 312 : vw < 640 ? 12 : 20;
+      const bottomGap = activeView === 'studio' && vw < 1024 ? 64 : vw < 640 ? 16 : 20;
+      const targetRect = isOpen
+        ? { ...windowRectRef.current }
+        : {
+            left: vw - rightGap - dockW,
+            top: vh - bottomGap - dockH,
+            width: dockW,
+            height: dockH,
+          };
+
+      setDropletBurst({
+        id: Date.now(),
+        mode: isOpen ? 'from-minimized-to-window' : 'from-minimized-to-dock',
+        originPoint: lastMinBtnCenterRef.current ?? undefined,
+        targetRect,
+      });
+      timer = window.setTimeout(() => setDropletBurst(null), 820);
+    } else if (!isMinimized && !wasOpen && isOpen) {
+      setOpenOrigin('closed');
+      setDropletBurst({
+        id: Date.now(),
+        mode: 'from-closed-to-window',
+        originPoint: lastDockCenterRef.current ?? undefined,
+        targetRect: { ...windowRectRef.current },
+      });
+      timer = window.setTimeout(() => setDropletBurst(null), 740);
+    }
+
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [isMinimized, isOpen, activeView]);
+
   const handleMinimizeToTopBar = () => {
     setIsOpen(false);
     onMinimizeChange?.(true);
@@ -376,7 +623,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     {
       id: 'welcome',
       role: 'model',
-      text: `Hi! I am **PaperLink AI**, trained on every tool inside this website.\n\nAttach a PDF, Word file, or image using **+** below and tell me what to do:\n- **Compress** a PDF or shrink an image\n- **Convert** PDF to Word or Word to PDF\n- **Remove backgrounds** or resize graphics\n- **Open** files directly in **Cover Studio**`,
+      text: `Hi! I am **PaperLink AI**, trained on every tool inside this website.\n\nAttach a PDF, Word file, or image using **+** below and tell me what to do:\n- **AI Solver**: Fill empty Lab Manual tables, answers & diagrams in-place — OR attach 100% authentic separate Answer Sheet pages to Question Papers\n- **Compress** a PDF or shrink an image\n- **Convert** PDF to Word, Word, PPT, Excel & more\n- **Open** files directly in **Cover Studio**`,
     },
   ]);
 
@@ -401,7 +648,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     }
   };
 
-  // Slower, deliberate typewriter reveal synchronized with mechanical keystroke audio
+  // 2x faster typewriter text reveal while keeping the slower 1x mechanical keystroke sound cadence
   useEffect(() => {
     if (!typingMsgId) return;
     const targetMsg = messages.find((m) => m.id === typingMsgId);
@@ -413,9 +660,12 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     const fullText = targetMsg.text;
     const step = fullText.length > 650 ? 2 : 1;
     const baseTickMs =
-      fullText.length <= 280 ? 54 : fullText.length <= 650 ? 40 : 48;
+      fullText.length <= 280 ? 27 : fullText.length <= 650 ? 20 : 24;
+    const minSoundIntervalMs =
+      fullText.length <= 280 ? 54 : fullText.length <= 650 ? 44 : 48;
 
     let cursor = 0;
+    let lastSoundAt = 0;
     let timerId: number | null = null;
     let cancelled = false;
 
@@ -426,11 +676,15 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
       const ch = fullText[cursor - 1] || '';
       if (isSoundEnabledRef.current && ch) {
-        const isSpaceOrPunct = /[\s.,!?;:\n-]/.test(ch);
-        typewriterAudio.playChatKeyStroke(isSpaceOrPunct);
+        const now = performance.now();
+        if (lastSoundAt === 0 || now - lastSoundAt >= minSoundIntervalMs) {
+          lastSoundAt = now;
+          const isSpaceOrPunct = /[\s.,!?;:\n-]/.test(ch);
+          typewriterAudio.playChatKeyStroke(isSpaceOrPunct);
+        }
       }
 
-      if (cursor % 14 === 0 || cursor >= fullText.length) {
+      if (cursor % 20 === 0 || cursor >= fullText.length) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
       }
 
@@ -445,16 +699,16 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               typewriterAudio.playSoftBell();
             }
           }
-        }, 140);
+        }, 75);
         return;
       }
 
-      // Slight human pause after sentence punctuation or newline
-      const extraPause = /[.!?\n]/.test(ch) ? 65 : /[,;:]/.test(ch) ? 32 : 0;
+      // 2x faster pause after sentence punctuation or newline
+      const extraPause = /[.!?\n]/.test(ch) ? 32 : /[,;:]/.test(ch) ? 16 : 0;
       timerId = window.setTimeout(tick, baseTickMs + extraPause);
     };
 
-    timerId = window.setTimeout(tick, 90);
+    timerId = window.setTimeout(tick, 45);
 
     return () => {
       cancelled = true;
@@ -1803,6 +2057,94 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         };
       }
 
+      case 'solve_document_ai': {
+        const solvableFiles = [...pdfs, ...words, ...images];
+        if (solvableFiles.length === 0) {
+          throw new Error(
+            'Attach a Lab Manual, Worksheet, or Question Paper (PDF, Word .docx, or Image) first so I can solve it.'
+          );
+        }
+
+        const modeRaw = String(args.mode || 'auto').toLowerCase();
+        const mode: 'auto' | 'fill-in-place' | 'separate-answer-sheet' =
+          modeRaw === 'fill-in-place' || modeRaw === 'fill' || modeRaw === 'in-place'
+            ? 'fill-in-place'
+            : modeRaw === 'separate-answer-sheet' || modeRaw === 'answer-sheet' || modeRaw === 'separate'
+            ? 'separate-answer-sheet'
+            : 'auto';
+
+        const inkRaw = String(args.inkStyle || 'blue-ink').toLowerCase();
+        const inkStyle: SolverInkStyle = inkRaw === 'black' ? 'black' : 'blue-ink';
+        const instruction =
+          typeof args.instruction === 'string' && args.instruction.trim()
+            ? args.instruction.trim()
+            : undefined;
+
+        let lastConsumedKind: PipelineMediaKind = 'pdf';
+        if (pdfs.length === 0 && words.length > 0) lastConsumedKind = 'word';
+        else if (pdfs.length === 0 && words.length === 0 && images.length > 0) lastConsumedKind = 'image';
+
+        for (let idx = 0; idx < solvableFiles.length; idx++) {
+          const targetFile = solvableFiles[idx];
+          setExecStatus(
+            `${prefix}AI Solving ${targetFile.name}${
+              solvableFiles.length > 1 ? ` (${idx + 1}/${solvableFiles.length})` : ''
+            }...`
+          );
+
+          const res = await solveDocumentWithAI(
+            targetFile,
+            { userInstruction: instruction, mode, inkStyle },
+            (st) => setExecStatus(`${prefix}${st}`)
+          );
+
+          const outFile = new File([res.blob], res.fileName, { type: 'application/pdf' });
+          producedFiles.push(outFile);
+
+          const modeSummary =
+            res.answerSectionsCount > 0 && res.fillsApplied === 0
+              ? `${res.answerSectionsCount} Qs solved · ${res.outputPageCount} pages`
+              : res.answerSectionsCount > 0
+              ? `${res.fillsApplied} in-place + ${res.answerSectionsCount} answer sheet Qs`
+              : `${res.fillsApplied} fields filled${
+                  res.diagramsDrawn > 0 ? ` + ${res.diagramsDrawn} diagram(s)` : ''
+                }`;
+
+          artifacts.push({
+            id: `solve_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${modeSummary} · ${formatBytes(res.blob.size)}`,
+            blob: res.blob,
+            kind: 'pdf',
+            fileObj: outFile,
+          });
+
+          const details: string[] = [];
+          if (res.fillsApplied > 0) details.push(`**${res.fillsApplied}** blank field(s)/table cell(s) filled in-place`);
+          if (res.diagramsDrawn > 0) details.push(`**${res.diagramsDrawn}** diagram(s) drawn`);
+          if (res.answerSectionsCount > 0) {
+            details.push(
+              `**${res.answerSectionsCount}** authentic answer section(s) attached as separate page(s) (${res.outputPageCount} total pages)`
+            );
+          }
+
+          notes.push(
+            `Solved **${targetFile.name}** (${
+              res.chosenMode === 'separate-answer-sheet' ? 'Question Paper + Separate Answer Sheet' : 'Same-Format In-Place Fill'
+            }): ${details.join(', ') || res.summaryNote}.`
+          );
+        }
+
+        return {
+          summaryText: notes.join('\n'),
+          artifacts,
+          badge: 'AI Document Solved',
+          producedFiles,
+          consumedKind: lastConsumedKind,
+          producedKind: 'pdf',
+        };
+      }
+
       default:
         return {
           summaryText: `Recognized action \`${fc.name}\`.`,
@@ -1840,7 +2182,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     setMessages((prev) => [...prev, userMsg]);
     if (!customPrompt) setInput('');
     setIsBusy(true);
-    setExecStatus('Planning multiwork workflow...');
+    setExecStatus('Analyzing… Wait patiently, AI may take a moment to work on it.');
     // Unlock Web Audio inside the user's send gesture so typewriter clicks & chimes play reliably
     if (isSoundEnabledRef.current) {
       getOrUnlockAudioContext();
@@ -1849,17 +2191,54 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     }
 
     try {
-      const encodedResults = await Promise.all(
-        currentFiles.filter(isImageFile).slice(0, 3).map(createInlinePreviewBase64)
+      const availableSolveInputs =
+        currentFiles.length > 0 ? currentFiles : lastProducedFilesRef.current;
+      const hasSolvableAttachment = availableSolveInputs.some(
+        (f) => isPdfFile(f) || isWordFile(f) || isImageFile(f)
       );
-      const inlineImages = encodedResults.filter(
-        (item): item is { name: string; mimeType: string; base64Data: string } => item !== null
-      );
+      const isDirectSolvePrompt =
+        hasSolvableAttachment &&
+        !(/\b(compress|merge|split|stamp|protect|lock|encrypt|cover\s+studio|convert\s+to\s+word|convert\s+word|convert\s+ppt|convert\s+excel|resize|crop|rotate|remove\s+bg)\b/i.test(
+          trimmed
+        )) &&
+        (/^(?:ai\s+)?solve\b/i.test(trimmed) ||
+          /fill\s+blanks|answer\s+sheet|solve\s+(?:this|my|the|all)\s+(?:lab|manual|sheet|paper|worksheet|assignment|pdf|doc)/i.test(
+            trimmed
+          ));
 
-      const resp = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      let data: any = {};
+
+      if (isDirectSolvePrompt) {
+        const requestedMode = /separate\s+answer|only\s+answer\s+sheet|question\s+paper/i.test(
+          trimmed
+        )
+          ? 'separate-answer-sheet'
+          : /in[-\s]?place|fill\s+blanks\s+only/i.test(trimmed)
+          ? 'fill-in-place'
+          : 'auto';
+        const inkStyle = /black\s+ink/i.test(trimmed) ? 'black' : 'blue-ink';
+        data = {
+          reply: '',
+          functionCalls: [
+            {
+              name: 'solve_document_ai',
+              args: {
+                mode: requestedMode,
+                inkStyle,
+                instruction: trimmed,
+              },
+            },
+          ],
+        };
+      } else {
+        const encodedResults = await Promise.all(
+          currentFiles.filter(isImageFile).slice(0, 3).map(createInlinePreviewBase64)
+        );
+        const inlineImages = encodedResults.filter(
+          (item): item is { name: string; mimeType: string; base64Data: string } => item !== null
+        );
+
+        const chatPayloadStr = JSON.stringify({
           history: historySnapshot,
           message: trimmed,
           attachedFilesSummary: currentFiles.map((f) => ({
@@ -1876,23 +2255,38 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           inlineImages,
           activeView,
           speedMode,
-        }),
-      });
+        });
 
-      const rawText = await resp.text();
-      let data: any = {};
-      try {
-        data = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        throw new Error(
-          resp.status === 404
-            ? 'Chat API route (/api/chat) was not found on this deployment. Please redeploy so /api/chat is published.'
-            : `Unexpected server response (HTTP ${resp.status}). Please try again.`
-        );
-      }
+        let resp: Response | null = null;
+        let rawText = '';
 
-      if (!resp.ok) {
-        throw new Error(data?.error || `Server error (${resp.status})`);
+        for (let chatAttempt = 0; chatAttempt < 2; chatAttempt++) {
+          resp = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: chatPayloadStr,
+          });
+          rawText = await resp.text();
+          try {
+            data = rawText ? JSON.parse(rawText) : {};
+            break;
+          } catch {
+            const looksHtml = /^\s*</.test(rawText);
+            if (looksHtml && chatAttempt === 0) {
+              await new Promise((r) => setTimeout(r, 1200));
+              continue;
+            }
+            throw new Error(
+              resp.status === 404
+                ? 'Chat API route (/api/chat) was not found on this deployment. Please redeploy so /api/chat is published.'
+                : `Unexpected server response (HTTP ${resp.status}). Please try again.`
+            );
+          }
+        }
+
+        if (!resp || !resp.ok) {
+          throw new Error(data?.error || `Server error (${resp?.status ?? 500})`);
+        }
       }
 
       const functionCalls: GeminiFunctionCall[] = Array.isArray(data.functionCalls)
@@ -2021,7 +2415,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
   const quickChips: string[] =
     attachedFiles.length > 1
-      ? ['Convert all to PDF & merge them', 'Compress all files', 'Convert & add basic cover']
+      ? ['Solve & fill all attached sheets', 'Convert all to PDF & merge them', 'Compress all files']
       : hasAttachedPpt
       ? ['Convert PPT to PDF', 'Export PPT slides as PNG']
       : hasAttachedExcel
@@ -2029,12 +2423,25 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       : hasAttachedText
       ? ['Convert text to PDF + add basic cover', 'Convert to PDF & stamp APPROVED']
       : hasAttachedPdf
-      ? ['Compress + add basic cover', 'Stamp CONFIDENTIAL on all pages', 'Convert to Word (.docx)', 'Convert PDF to PPT']
+      ? [
+          'AI Solve (Fill blanks / Answer sheet)',
+          'Solve with diagrams & blue ink',
+          'Compress + add basic cover',
+          'Convert to Word (.docx)',
+        ]
       : hasAttachedWord
-      ? ['Convert Word to PDF & compress', 'Open in Cover Studio']
+      ? ['AI Solve Word worksheet', 'Convert Word to PDF & compress', 'Open in Cover Studio']
       : hasAttachedImg
-      ? ['Convert to PDF + basic cover (no QR)', 'Remove BG & resize 1080×1080', 'B&W filter + Hex palette']
-      : ['What multiwork chains can you do?', 'Who developed PaperLink?', 'Take me to Image Studio'];
+      ? [
+          'AI Solve Paper / Worksheet',
+          'Convert to PDF + basic cover (no QR)',
+          'Remove BG & resize 1080×1080',
+        ]
+      : [
+          'How does AI Lab Manual Solver work?',
+          'What multiwork chains can you do?',
+          'Take me to Image Studio',
+        ];
 
   // Avoid overlapping fixed right Cover Studio sidebar on lg+ desktop and mobile step bar
   const dockPositionClass =
@@ -2059,188 +2466,291 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         }}
       />
 
+      {/* LIQUID CRYSTAL DROPLET STRETCHING & COALESCING OVERLAY */}
+      <LiquidDropletOverlay burst={dropletBurst} />
+
       {/* CONSTANT COMPACT BOTTOM-RIGHT "PAPERLINK AI" CRYSTAL GLASS BAR */}
-      {!isMinimized && !isOpen && (
-        <div
-          className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[348px]`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragOver(true);
-          }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragOver(false);
-            if (e.dataTransfer.files) {
-              handleAttachFiles(e.dataTransfer.files);
-              setTimeout(() => compactPromptInputRef.current?.focus(), 60);
+      <AnimatePresence>
+        {!isMinimized && !isOpen && (
+          <motion.div
+            key="paperlink-compact-dock"
+            data-paperlink-compact-dock="true"
+            initial={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : openOrigin === 'minimized'
+                ? {
+                    opacity: 0,
+                    x: -140,
+                    y: -90,
+                    scaleX: 0.48,
+                    scaleY: 0.4,
+                  }
+                : {
+                    opacity: 0,
+                    y: 14,
+                    scaleX: 0.9,
+                    scaleY: 0.8,
+                  }
             }
-          }}
-        >
-          <div className="relative">
-            {/* Soft Water-Caustic Crystal Halo with Yellow Refraction */}
-            {neonGlowMode === 'full' && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute -inset-2 rounded-[30px] bg-gradient-to-tr from-yellow-300/28 via-white/30 to-amber-200/20 dark:from-yellow-400/14 dark:via-white/[0.05] dark:to-amber-300/10 blur-xl"
-              />
-            )}
-
-            {/* Apple Clear Crystal Water Glass Shell */}
-            <div className="relative rounded-[24px] overflow-hidden bg-white/52 dark:bg-[#0d1420]/50 bg-gradient-to-b from-white/75 via-amber-50/18 to-white/44 dark:from-white/[0.12] dark:via-yellow-300/[0.03] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[190%] border border-white/85 dark:border-white/[0.22] ring-1 ring-inset ring-white/70 dark:ring-white/[0.12] shadow-[0_22px_54px_-14px_rgba(15,23,42,0.18),0_4px_18px_-4px_rgba(250,204,21,0.16),inset_0_1.5px_0_rgba(255,255,255,0.95)] dark:shadow-[0_24px_60px_-12px_rgba(0,0,0,0.68),0_0_24px_-6px_rgba(250,204,21,0.12),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
-              {/* Specular Water Meniscus & Surface Refraction */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.65),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.16),transparent_65%)]"
-              />
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/55 to-transparent"
-              />
-
-              {isDragOver && (
-                <div className="absolute inset-0 z-30 bg-yellow-400/25 dark:bg-yellow-950/60 backdrop-blur-xl border-2 border-dashed border-yellow-400 rounded-[24px] flex items-center justify-center gap-2 p-3">
-                  <Paperclip className="w-4 h-4 text-amber-800 dark:text-yellow-300" />
-                  <span className="text-xs font-bold text-zinc-950 dark:text-white">
-                    Drop file to attach
-                  </span>
-                </div>
+            animate={
+              prefersReducedMotion
+                ? { opacity: 1 }
+                : openOrigin === 'minimized'
+                ? {
+                    opacity: [0, 0.94, 1, 1],
+                    x: [-140, 4, -2, 0],
+                    y: [-90, 5, -2, 0],
+                    scaleX: [0.48, 1.055, 0.985, 1],
+                    scaleY: [0.4, 0.9, 1.03, 1],
+                  }
+                : {
+                    opacity: 1,
+                    y: [14, -2, 0],
+                    scaleX: [0.9, 1.02, 1],
+                    scaleY: [0.8, 0.98, 1],
+                  }
+            }
+            exit={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : { opacity: 0, scaleX: 0.82, scaleY: 0.58, y: 10, transition: { duration: 0.18 } }
+            }
+            transition={{
+              duration: openOrigin === 'minimized' ? 0.62 : 0.42,
+              times: openOrigin === 'minimized' ? [0, 0.56, 0.82, 1] : [0, 0.64, 1],
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            style={{ transformOrigin: openOrigin === 'minimized' ? 'top left' : 'bottom right' }}
+            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[348px]`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              if (e.dataTransfer.files) {
+                handleAttachFiles(e.dataTransfer.files);
+                setTimeout(() => compactPromptInputRef.current?.focus(), 60);
+              }
+            }}
+          >
+            <div className="relative">
+              {/* Soft Water-Caustic Crystal Halo with Yellow & Sky Refraction */}
+              {neonGlowMode === 'full' && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -inset-2 rounded-[30px] bg-gradient-to-tr from-sky-200/30 via-white/35 to-yellow-300/24 dark:from-sky-400/14 dark:via-white/[0.05] dark:to-yellow-400/12 blur-xl"
+                />
               )}
 
-              {/* Compact Frosted Header Strip */}
-              <div className="relative px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/32 dark:bg-white/[0.03] flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
-                    <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
+              {/* Apple Clear Crystal Water Glass Shell */}
+              <div className="relative rounded-[24px] overflow-hidden bg-white/54 dark:bg-[#0d1420]/52 bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_22px_54px_-14px_rgba(15,23,42,0.18),0_4px_18px_-4px_rgba(125,211,252,0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_24px_60px_-12px_rgba(0,0,0,0.68),0_0_24px_-6px_rgba(125,211,252,0.14),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+                {/* Specular Water Meniscus & Surface Refraction */}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.72),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_55%_at_16%_0%,rgba(255,255,255,0.18),transparent_65%)]"
+                />
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/60 to-transparent"
+                />
+                {dropletBurst && !prefersReducedMotion && (
+                  <motion.div
+                    key={`dock_caustic_${dropletBurst.id}`}
+                    aria-hidden="true"
+                    initial={{ x: '-110%', opacity: 0.7 }}
+                    animate={{ x: '130%', opacity: 0 }}
+                    transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }}
+                    className="pointer-events-none absolute inset-y-0 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/70 to-transparent z-10"
+                  />
+                )}
+
+                {isDragOver && (
+                  <div className="absolute inset-0 z-30 bg-yellow-400/25 dark:bg-yellow-950/60 backdrop-blur-xl border-2 border-dashed border-yellow-400 rounded-[24px] flex items-center justify-center gap-2 p-3">
+                    <Paperclip className="w-4 h-4 text-amber-800 dark:text-yellow-300" />
+                    <span className="text-xs font-bold text-zinc-950 dark:text-white">
+                      Drop file to attach
+                    </span>
                   </div>
-                  <span className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
-                    PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
-                  </span>
-                </div>
+                )}
 
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsOpen(true)}
-                    aria-label="Expand PaperLink AI chat"
-                    title="Expand full chat"
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-400/20 dark:bg-yellow-400/[0.12] hover:bg-yellow-400/35 dark:hover:bg-yellow-400/[0.22] border border-yellow-400/60 dark:border-yellow-400/30 text-[10px] font-semibold text-zinc-900 dark:text-yellow-100 transition-all cursor-pointer shrink-0 whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
-                  >
-                    <Maximize2 className="w-3 h-3 text-amber-700 dark:text-yellow-400" />
-                    <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
-                  </button>
+                {/* Compact Frosted Header Strip */}
+                <div className="relative px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/32 dark:bg-white/[0.03] flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
+                      <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
+                    </div>
+                    <span className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
+                      PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                    </span>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={handleMinimizeToTopBar}
-                    aria-label="Minimize chatbot to top bar"
-                    title="Minimize to top bar near PaperLink logo"
-                    className="p-1.5 rounded-full bg-white/60 dark:bg-white/[0.10] hover:bg-yellow-400/25 dark:hover:bg-yellow-400/[0.18] border border-white/80 dark:border-white/[0.16] text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-yellow-200 transition-all cursor-pointer shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Compact Attached Files Strip */}
-              {attachedFiles.length > 0 && (
-                <div className="relative px-3 pt-2 flex flex-wrap gap-1.5">
-                  {attachedFiles.map((file, idx) => (
-                    <div
-                      key={`${file.name}_${idx}`}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-yellow-400/18 dark:bg-yellow-400/[0.12] border border-yellow-400/50 dark:border-yellow-400/30 text-[10px] font-mono text-zinc-900 dark:text-yellow-100 max-w-full shadow-xs"
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsOpen(true)}
+                      aria-label="Expand PaperLink AI chat"
+                      title="Expand full chat"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-400/20 dark:bg-yellow-400/[0.12] hover:bg-yellow-400/35 dark:hover:bg-yellow-400/[0.22] border border-yellow-400/60 dark:border-yellow-400/30 text-[10px] font-semibold text-zinc-900 dark:text-yellow-100 transition-all cursor-pointer shrink-0 whitespace-nowrap shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
                     >
-                      <span className="truncate max-w-[155px] font-semibold">{file.name}</span>
-                      {onPreviewDocument && (
+                      <Maximize2 className="w-3 h-3 text-amber-700 dark:text-yellow-400" />
+                      <span>{messages.length > 1 ? `Chat (${messages.length - 1})` : 'Expand'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleMinimizeToTopBar}
+                      aria-label="Minimize chatbot to top bar"
+                      title="Minimize to top bar near PaperLink logo"
+                      className="p-1.5 rounded-full bg-white/60 dark:bg-white/[0.10] hover:bg-yellow-400/25 dark:hover:bg-yellow-400/[0.18] border border-white/80 dark:border-white/[0.16] text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-yellow-200 transition-all cursor-pointer shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Compact Attached Files Strip */}
+                {attachedFiles.length > 0 && (
+                  <div className="relative px-3 pt-2 flex flex-wrap gap-1.5">
+                    {attachedFiles.map((file, idx) => (
+                      <div
+                        key={`${file.name}_${idx}`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-yellow-400/18 dark:bg-yellow-400/[0.12] border border-yellow-400/50 dark:border-yellow-400/30 text-[10px] font-mono text-zinc-900 dark:text-yellow-100 max-w-full shadow-xs"
+                      >
+                        <span className="truncate max-w-[155px] font-semibold">{file.name}</span>
+                        {onPreviewDocument && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onPreviewDocument({
+                                title: file.name,
+                                fileName: file.name,
+                                blob: file,
+                                subtitle: 'Attached Input Document',
+                              })
+                            }
+                            aria-label={`Preview ${file.name}`}
+                            title="Preview document"
+                            className="text-amber-700 dark:text-yellow-300 hover:opacity-80 cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() =>
-                            onPreviewDocument({
-                              title: file.name,
-                              fileName: file.name,
-                              blob: file,
-                              subtitle: 'Attached Input Document',
-                            })
-                          }
-                          aria-label={`Preview ${file.name}`}
-                          title="Preview document"
-                          className="text-amber-700 dark:text-yellow-300 hover:opacity-80 cursor-pointer"
+                          onClick={() => removeAttachedFile(idx)}
+                          aria-label={`Remove ${file.name}`}
+                          className="text-zinc-600 dark:text-zinc-300 hover:text-red-500 cursor-pointer"
                         >
-                          <Eye className="w-3 h-3" />
+                          <X className="w-2.5 h-2.5" />
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => removeAttachedFile(idx)}
-                        aria-label={`Remove ${file.name}`}
-                        className="text-zinc-600 dark:text-zinc-300 hover:text-red-500 cursor-pointer"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-              {/* Compact Circular (+) Attach & Frosted Input Bar */}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!input.trim() && attachedFiles.length === 0) {
+                {/* Compact Circular (+) Attach & Frosted Input Bar */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!input.trim() && attachedFiles.length === 0) {
+                      setIsOpen(true);
+                      return;
+                    }
                     setIsOpen(true);
-                    return;
-                  }
-                  setIsOpen(true);
-                  void handleSend();
-                }}
-                className="relative px-3 py-2.5 flex items-center gap-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Attach PDF, Word, or Image file"
-                  title="Attach file (PDF, Word, PPT, Excel, Text, Image)"
-                  className="w-9 h-9 rounded-full bg-yellow-400/24 dark:bg-yellow-400/18 hover:bg-yellow-400/42 dark:hover:bg-yellow-400/30 border border-yellow-400/70 dark:border-yellow-400/40 text-amber-800 dark:text-yellow-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_2px_10px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] active:scale-95"
+                    void handleSend();
+                  }}
+                  className="relative px-3 py-2.5 flex items-center gap-2"
                 >
-                  <Plus className="w-4 h-4 stroke-[2.25]" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label="Attach PDF, Word, or Image file"
+                    title="Attach file (PDF, Word, PPT, Excel, Text, Image)"
+                    className="w-9 h-9 rounded-full bg-yellow-400/24 dark:bg-yellow-400/18 hover:bg-yellow-400/42 dark:hover:bg-yellow-400/30 border border-yellow-400/70 dark:border-yellow-400/40 text-amber-800 dark:text-yellow-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_2px_10px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 stroke-[2.25]" />
+                  </button>
 
-                <input
-                  ref={compactPromptInputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    attachedFiles.length > 0
-                      ? `Prompt for ${attachedFiles.length} file${attachedFiles.length > 1 ? 's' : ''}...`
-                      : 'Ask or drop files for multiwork...'
-                  }
-                  aria-label="Type Prompt Here"
-                  className="flex-1 min-w-0 px-3 py-2 rounded-full bg-white/52 dark:bg-white/[0.07] border border-white/80 dark:border-white/[0.16] text-xs sm:text-[13px] font-medium text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:border-yellow-400/85 focus:bg-white/75 dark:focus:bg-white/[0.12] transition-all shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
-                />
+                  <input
+                    ref={compactPromptInputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      attachedFiles.length > 0
+                        ? `Prompt for ${attachedFiles.length} file${attachedFiles.length > 1 ? 's' : ''}...`
+                        : 'Ask or drop files for multiwork...'
+                    }
+                    aria-label="Type Prompt Here"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-full bg-white/52 dark:bg-white/[0.07] border border-white/80 dark:border-white/[0.16] text-xs sm:text-[13px] font-medium text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:outline-none focus:border-yellow-400/85 focus:bg-white/75 dark:focus:bg-white/[0.12] transition-all shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  />
 
-                <button
-                  type="submit"
-                  aria-label="Run PaperLink AI prompt"
-                  className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 text-zinc-950 font-bold flex items-center justify-center shrink-0 cursor-pointer shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
-                >
-                  <Send className="w-3.5 h-3.5 stroke-[2.25]" />
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    aria-label="Run PaperLink AI prompt"
+                    className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 text-zinc-950 font-bold flex items-center justify-center shrink-0 cursor-pointer shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
+                  >
+                    <Send className="w-3.5 h-3.5 stroke-[2.25]" />
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* EXPANDED APPLE CLEAR CRYSTAL WATER TRANSPARENCY CHATBOT DRAWER */}
+      {/* EXPANDED RESIZABLE APPLE CLEAR CRYSTAL WATER CHATBOT WINDOW */}
       <AnimatePresence>
         {!isMinimized && isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 18, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 14, scale: 0.97 }}
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[416px] h-[min(78vh,630px)]`}
+            key="paperlink-expanded-window"
+            initial={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : openOrigin === 'minimized'
+                ? { opacity: 0, x: -140, y: -110, scaleX: 0.42, scaleY: 0.28 }
+                : { opacity: 0, y: 34, scaleX: 0.74, scaleY: 0.24 }
+            }
+            animate={
+              prefersReducedMotion
+                ? { opacity: 1 }
+                : openOrigin === 'minimized'
+                ? {
+                    opacity: [0, 0.95, 1, 1],
+                    x: [-140, 5, -2, 0],
+                    y: [-110, 6, -2, 0],
+                    scaleX: [0.42, 1.035, 0.99, 1],
+                    scaleY: [0.28, 1.045, 0.985, 1],
+                  }
+                : {
+                    opacity: [0, 0.96, 1, 1],
+                    y: [34, -5, 1, 0],
+                    scaleX: [0.74, 1.03, 0.992, 1],
+                    scaleY: [0.24, 1.04, 0.988, 1],
+                  }
+            }
+            exit={
+              prefersReducedMotion
+                ? { opacity: 0 }
+                : { opacity: 0, y: 20, scaleX: 0.78, scaleY: 0.28, transition: { duration: 0.2 } }
+            }
+            transition={{
+              duration: activeResizeDir ? 0 : openOrigin === 'minimized' ? 0.64 : 0.52,
+              times: [0, 0.56, 0.84, 1],
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            style={{
+              left: `${windowRect.left}px`,
+              top: `${windowRect.top}px`,
+              width: `${windowRect.width}px`,
+              height: `${windowRect.height}px`,
+              transformOrigin: openOrigin === 'minimized' ? 'top left' : 'bottom right',
+            }}
+            className="no-print fixed z-40"
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragOver(true);
@@ -2252,28 +2762,116 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               if (e.dataTransfer.files) handleAttachFiles(e.dataTransfer.files);
             }}
           >
-            {/* Soft Water-Caustic Crystal Halo with Yellow Refraction */}
+            {/* OS-Style Edge & Corner Resize Handles */}
+            <div
+              onPointerDown={(e) => startWindowInteraction('n', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag to resize height (double-click to reset size)"
+              className="absolute -top-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
+            />
+            <div
+              onPointerDown={(e) => startWindowInteraction('s', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag to resize height (double-click to reset size)"
+              className="absolute -bottom-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
+            />
+            <div
+              onPointerDown={(e) => startWindowInteraction('w', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag to resize width (double-click to reset size)"
+              className="absolute top-4 bottom-4 -left-1.5 w-3 z-30 cursor-ew-resize touch-none"
+            />
+            <div
+              onPointerDown={(e) => startWindowInteraction('e', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag to resize width (double-click to reset size)"
+              className="absolute top-4 bottom-4 -right-1.5 w-3 z-30 cursor-ew-resize touch-none"
+            />
+
+            {/* 4 Corner Handles (Top-Left, Top-Right, Bottom-Left, Bottom-Right) */}
+            <div
+              onPointerDown={(e) => startWindowInteraction('nw', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag corner to stretch window (double-click to reset)"
+              className="group absolute -top-1.5 -left-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none flex items-start justify-start p-1"
+            >
+              <span className="w-2.5 h-2.5 rounded-tl-[5px] border-t-2 border-l-2 border-amber-500/45 dark:border-yellow-400/45 group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
+            </div>
+            <div
+              onPointerDown={(e) => startWindowInteraction('ne', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag corner to stretch window (double-click to reset)"
+              className="group absolute -top-1.5 -right-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none flex items-start justify-end p-1"
+            >
+              <span className="w-2.5 h-2.5 rounded-tr-[5px] border-t-2 border-r-2 border-transparent group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
+            </div>
+            <div
+              onPointerDown={(e) => startWindowInteraction('sw', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag corner to stretch window (double-click to reset)"
+              className="group absolute -bottom-1.5 -left-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none flex items-end justify-start p-1"
+            >
+              <span className="w-2.5 h-2.5 rounded-bl-[5px] border-b-2 border-l-2 border-transparent group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
+            </div>
+            <div
+              onPointerDown={(e) => startWindowInteraction('se', e)}
+              onDoubleClick={resetWindowSize}
+              title="Drag corner to stretch window (double-click to reset)"
+              className="group absolute -bottom-1.5 -right-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none flex items-end justify-end p-1"
+            >
+              <span className="w-2.5 h-2.5 rounded-br-[5px] border-b-2 border-r-2 border-amber-500/45 dark:border-yellow-400/45 group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
+            </div>
+
+            {/* Live Resize Dimension Badge */}
+            {activeResizeDir && activeResizeDir !== 'move' && (
+              <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded-full bg-zinc-950/90 text-yellow-300 border border-yellow-400/40 text-[10px] font-mono font-bold shadow-lg whitespace-nowrap">
+                {Math.round(windowRect.width)} × {Math.round(windowRect.height)} px
+              </div>
+            )}
+
+            {/* Soft Water-Caustic Crystal Halo with Sky & Yellow Refraction */}
             {neonGlowMode === 'full' && (
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute -inset-3 rounded-[34px] bg-gradient-to-tr from-yellow-300/26 via-white/30 to-amber-200/20 dark:from-yellow-400/12 dark:via-white/[0.05] dark:to-amber-300/10 blur-2xl"
+                className="pointer-events-none absolute -inset-3 rounded-[34px] bg-gradient-to-tr from-sky-200/28 via-white/35 to-yellow-300/22 dark:from-sky-400/14 dark:via-white/[0.05] dark:to-yellow-400/12 blur-2xl"
               />
             )}
 
             {/* Apple Liquid Crystal Glass Outer Frame */}
-            <div className="relative h-full flex flex-col rounded-[26px] overflow-hidden bg-white/52 dark:bg-[#0d1420]/50 bg-gradient-to-b from-white/75 via-amber-50/18 to-white/44 dark:from-white/[0.12] dark:via-yellow-300/[0.03] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[190%] border border-white/85 dark:border-white/[0.22] ring-1 ring-inset ring-white/70 dark:ring-white/[0.12] shadow-[0_28px_72px_-14px_rgba(15,23,42,0.20),0_6px_22px_-4px_rgba(250,204,21,0.16),inset_0_1.5px_0_rgba(255,255,255,0.95)] dark:shadow-[0_32px_76px_-12px_rgba(0,0,0,0.72),0_0_28px_-6px_rgba(250,204,21,0.14),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+            <div className="relative h-full flex flex-col rounded-[26px] overflow-hidden bg-white/54 dark:bg-[#0d1420]/52 bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_28px_72px_-14px_rgba(15,23,42,0.20),0_6px_24px_-4px_rgba(125,211,252,0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_32px_76px_-12px_rgba(0,0,0,0.72),0_0_28px_-6px_rgba(125,211,252,0.16),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
               {/* Top Specular Meniscus & Curved Glass Highlight */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.68),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.16),transparent_65%)]"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.72),transparent_65%)] dark:bg-[radial-gradient(ellipse_90%_42%_at_18%_0%,rgba(255,255,255,0.18),transparent_65%)]"
               />
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-6 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/55 to-transparent z-20"
+                className="pointer-events-none absolute inset-x-6 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/60 to-transparent z-20"
               />
+              {dropletBurst && !prefersReducedMotion && (
+                <motion.div
+                  key={`win_caustic_${dropletBurst.id}`}
+                  aria-hidden="true"
+                  initial={{ x: '-110%', opacity: 0.72 }}
+                  animate={{ x: '130%', opacity: 0 }}
+                  transition={{ duration: 0.78, ease: [0.16, 1, 0.3, 1] }}
+                  className="pointer-events-none absolute inset-y-0 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/65 to-transparent z-20"
+                />
+              )}
 
-              {/* Frosted Crystal Header */}
-              <div className="relative px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/35 dark:bg-white/[0.04] flex items-center justify-between gap-2 shrink-0">
+              {/* Frosted Crystal Header (Drag to Move · Double-Click to Reset Size) */}
+              <div
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).closest('button')) return;
+                  startWindowInteraction('move', e);
+                }}
+                onDoubleClick={(e) => {
+                  if ((e.target as HTMLElement).closest('button')) return;
+                  resetWindowSize();
+                }}
+                title="Drag to move window · Drag corners/edges to resize · Double-click to reset"
+                className="relative px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/35 dark:bg-white/[0.04] flex items-center justify-between gap-2 shrink-0 cursor-grab active:cursor-grabbing select-none"
+              >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-8 h-8 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_3px_12px_rgba(250,204,21,0.30),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)]">
                     <Bot className="w-4 h-4 stroke-[2.25]" />
@@ -2283,7 +2881,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
                     </h3>
                     <p className="text-[10px] text-zinc-600 dark:text-zinc-300/80 truncate">
-                      Multiwork pipelines · Runs locally
+                      Multiwork pipelines · Drag corners to resize
                     </p>
                   </div>
                 </div>
@@ -2617,8 +3215,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 {isBusy && (
                   <div className="flex items-start">
                     <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 text-xs text-zinc-900 dark:text-yellow-100 inline-flex items-center gap-2 shadow-[0_4px_16px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 dark:text-yellow-300" />
-                      <span className="font-semibold">{execStatus || 'Thinking...'}</span>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 dark:text-yellow-300 shrink-0" />
+                      <span className="font-semibold">
+                        {execStatus || 'Analyzing… Wait patiently, AI may take a moment to work on it.'}
+                      </span>
                     </div>
                   </div>
                 )}

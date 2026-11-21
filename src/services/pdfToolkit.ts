@@ -1,4 +1,14 @@
-import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFName,
+  PDFDict,
+  PDFArray,
+  PDFRawStream,
+  decodePDFRawStream,
+  StandardFonts,
+  rgb,
+  degrees,
+} from 'pdf-lib';
 import * as mammoth from 'mammoth';
 import {
   Document as DocxDocument,
@@ -1528,4 +1538,735 @@ export async function applyPdfEdits(
     editCount: elements.length,
   };
 }
+
+// ==========================================
+// Tool 10: Dedicated Add Pictures to PDF
+// ==========================================
+
+export type PictureCornerStyle = 'square' | 'rounded' | 'circle';
+
+export interface PdfPicturePlacement {
+  id: string;
+  pageNumber: number; // 1-based
+  xFraction: number; // 0..1 from left
+  yFraction: number; // 0..1 from top
+  widthFraction: number; // 0.04..0.95
+  heightFraction: number; // 0.04..0.95
+  dataUrl: string;
+  rotationDeg: number; // 0, 90, 180, 270
+  opacity: number; // 0.1..1
+  cornerStyle: PictureCornerStyle;
+  borderWidth: number; // 0..8 px
+  borderColor: string;
+  label: string;
+}
+
+export interface PdfAddPicturesResult {
+  blob: Blob;
+  bytes: Uint8Array;
+  fileName: string;
+  pageCount: number;
+  picturesCount: number;
+}
+
+async function prepareStyledPicturePng(item: PdfPicturePlacement): Promise<Uint8Array> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error(`Could not decode picture "${item.label}"`));
+    el.src = item.dataUrl;
+  });
+
+  const swap = item.rotationDeg === 90 || item.rotationDeg === 270;
+  const natW = img.naturalWidth || img.width || 400;
+  const natH = img.naturalHeight || img.height || 300;
+  const outW = Math.min(1600, swap ? natH : natW);
+  const outH = Math.min(1600, swap ? natW : natH);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(20, outW);
+  canvas.height = Math.max(20, outH);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas unavailable');
+
+  ctx.save();
+  if (item.cornerStyle === 'circle') {
+    const r = Math.min(canvas.width, canvas.height) / 2;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+  } else if (item.cornerStyle === 'rounded') {
+    const rad = Math.min(canvas.width, canvas.height) * 0.1;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, canvas.width, canvas.height, rad);
+    ctx.closePath();
+    ctx.clip();
+  }
+
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((item.rotationDeg * Math.PI) / 180);
+  const drawW = swap ? canvas.height : canvas.width;
+  const drawH = swap ? canvas.width : canvas.height;
+  ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+  ctx.restore();
+
+  if (item.borderWidth > 0) {
+    const bw = Math.max(2, (item.borderWidth / 200) * Math.min(canvas.width, canvas.height));
+    ctx.strokeStyle = item.borderColor || '#09090b';
+    ctx.lineWidth = bw;
+    if (item.cornerStyle === 'circle') {
+      const r = Math.min(canvas.width, canvas.height) / 2 - bw / 2;
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2, canvas.height / 2, Math.max(4, r), 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (item.cornerStyle === 'rounded') {
+      const rad = Math.min(canvas.width, canvas.height) * 0.1;
+      ctx.beginPath();
+      ctx.roundRect(bw / 2, bw / 2, canvas.width - bw, canvas.height - bw, rad);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(bw / 2, bw / 2, canvas.width - bw, canvas.height - bw);
+    }
+  }
+
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Image encode failed'))), 'image/png')
+  );
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+export async function applyPicturesToPdf(
+  file: File,
+  placements: PdfPicturePlacement[],
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfAddPicturesResult> {
+  if (placements.length === 0) {
+    throw new Error('Place at least one picture onto a PDF page before exporting.');
+  }
+
+  onProgress?.(12, 'Loading source PDF...');
+  const buf = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+  const pdfDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  pdfDoc.setProducer('PaperLink');
+  pdfDoc.setCreator('PaperLink');
+  const pages = pdfDoc.getPages();
+
+  for (let i = 0; i < placements.length; i++) {
+    const item = placements[i];
+    onProgress?.(
+      18 + Math.round(((i + 1) / placements.length) * 68),
+      `Embedding picture ${i + 1} of ${placements.length}: ${item.label}`
+    );
+
+    const pageIdx = Math.min(pages.length - 1, Math.max(0, item.pageNumber - 1));
+    const page = pages[pageIdx];
+    const { width: pageW, height: pageH } = page.getSize();
+
+    const needsCanvasStyle =
+      item.rotationDeg !== 0 ||
+      item.cornerStyle !== 'square' ||
+      item.borderWidth > 0 ||
+      (!item.dataUrl.startsWith('data:image/jpeg') && !item.dataUrl.startsWith('data:image/png'));
+
+    let embedded;
+    if (needsCanvasStyle) {
+      const pngBytes = await prepareStyledPicturePng(item);
+      embedded = await pdfDoc.embedPng(pngBytes);
+    } else {
+      const rawBytes = await fetch(item.dataUrl).then((r) => r.arrayBuffer());
+      embedded = item.dataUrl.startsWith('data:image/jpeg')
+        ? await pdfDoc.embedJpg(new Uint8Array(rawBytes))
+        : await pdfDoc.embedPng(new Uint8Array(rawBytes));
+    }
+
+    const boxW = Math.max(12, item.widthFraction * pageW);
+    const boxH = Math.max(12, item.heightFraction * pageH);
+    const pdfX = Math.max(0, Math.min(pageW - boxW, item.xFraction * pageW));
+    const pdfTopY = item.yFraction * pageH;
+    const pdfBottomY = Math.max(0, Math.min(pageH - boxH, pageH - pdfTopY - boxH));
+
+    page.drawImage(embedded, {
+      x: pdfX,
+      y: pdfBottomY,
+      width: boxW,
+      height: boxH,
+      opacity: Math.max(0.1, Math.min(1, item.opacity)),
+    });
+  }
+
+  onProgress?.(92, 'Saving PDF with embedded pictures...');
+  const bytes = await pdfDoc.save({ useObjectStreams: true });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'PDF pictures applied');
+
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${baseName(file.name)}_with_pictures.pdf`,
+    pageCount: pages.length,
+    picturesCount: placements.length,
+  };
+}
+
+// ==========================================
+// Tool 11: Add PDF Watermark & Page Numbers
+// ==========================================
+
+export interface PdfWatermarkAddOptions {
+  watermarkText: string;
+  layout: 'diagonal' | 'center' | 'tiled';
+  fontSize: number;
+  colorHex: string;
+  opacity: number; // 0.05..0.9
+  rotationDeg: number; // -75..75
+  logoDataUrl?: string | null;
+  logoScale?: number; // 0.1..0.5
+  showPageNumbers: boolean;
+  pageNumberFormat: 'Page X of Y' | 'X / Y' | 'X';
+  pageNumberPosition: 'bottom-right' | 'bottom-center' | 'bottom-left' | 'top-right';
+  pageRangeExpr?: string;
+}
+
+export interface PdfWatermarkResult {
+  blob: Blob;
+  bytes: Uint8Array;
+  fileName: string;
+  pageCount: number;
+  processedPages: number;
+}
+
+export async function applyPdfWatermarkAndNumbers(
+  file: File,
+  options: PdfWatermarkAddOptions,
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfWatermarkResult> {
+  if (!options.watermarkText.trim() && !options.logoDataUrl && !options.showPageNumbers) {
+    throw new Error('Enter watermark text, upload a watermark logo, or enable page numbers.');
+  }
+
+  onProgress?.(14, 'Loading PDF...');
+  const buf = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+  const pdfDoc = await PDFDocument.load(buf, { ignoreEncryption: true });
+  pdfDoc.setProducer('PaperLink');
+  pdfDoc.setCreator('PaperLink');
+
+  const totalPages = pdfDoc.getPageCount();
+  const targetIndices = parsePageRange(options.pageRangeExpr, totalPages);
+  const targetSet = new Set(targetIndices);
+
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  let embeddedLogo: Awaited<ReturnType<typeof pdfDoc.embedPng>> | null = null;
+  if (options.logoDataUrl) {
+    const logoResp = await fetch(options.logoDataUrl);
+    const logoAb = await logoResp.arrayBuffer();
+    const logoBytes = new Uint8Array(logoAb);
+    embeddedLogo = options.logoDataUrl.startsWith('data:image/jpeg')
+      ? await pdfDoc.embedJpg(logoBytes)
+      : await pdfDoc.embedPng(logoBytes);
+  }
+
+  const [wr, wg, wb] = hexToRgbTuple(options.colorHex || '#64748b');
+  const cleanText = sanitizeWinAnsi(options.watermarkText.trim());
+  const pages = pdfDoc.getPages();
+
+  for (let idx = 0; idx < totalPages; idx++) {
+    if (!targetSet.has(idx)) continue;
+    onProgress?.(
+      20 + Math.round(((idx + 1) / totalPages) * 68),
+      `Applying stamps to page ${idx + 1} of ${totalPages}...`
+    );
+
+    const page = pages[idx];
+    const { width: pw, height: ph } = page.getSize();
+
+    if (embeddedLogo) {
+      const lScale = Math.max(0.08, Math.min(0.55, options.logoScale || 0.24));
+      const lw = pw * lScale;
+      const lh = lw * (embeddedLogo.height / Math.max(1, embeddedLogo.width));
+      page.drawImage(embeddedLogo, {
+        x: (pw - lw) / 2,
+        y: (ph - lh) / 2,
+        width: lw,
+        height: lh,
+        opacity: Math.max(0.05, Math.min(0.9, options.opacity)),
+      });
+    }
+
+    if (cleanText) {
+      const fSize = Math.max(12, Math.min(96, options.fontSize || 44));
+      const textW = fontBold.widthOfTextAtSize(cleanText, fSize);
+      const angle = options.layout === 'center' ? 0 : options.rotationDeg || 40;
+      const rad = (angle * Math.PI) / 180;
+
+      const drawAt = (cx: number, cy: number) => {
+        const dx = (textW / 2) * Math.cos(rad) - (fSize * 0.35) * Math.sin(rad);
+        const dy = (textW / 2) * Math.sin(rad) + (fSize * 0.35) * Math.cos(rad);
+        page.drawText(cleanText, {
+          x: cx - dx,
+          y: cy - dy,
+          size: fSize,
+          font: fontBold,
+          color: rgb(wr, wg, wb),
+          opacity: Math.max(0.05, Math.min(0.9, options.opacity)),
+          rotate: degrees(angle),
+        });
+      };
+
+      if (options.layout === 'tiled') {
+        const cols = [pw * 0.24, pw * 0.74];
+        const rows = [ph * 0.2, ph * 0.5, ph * 0.8];
+        for (const cy of rows) {
+          for (const cx of cols) {
+            drawAt(cx, cy);
+          }
+        }
+      } else {
+        drawAt(pw / 2, ph / 2);
+      }
+    }
+
+    if (options.showPageNumbers) {
+      const label =
+        options.pageNumberFormat === 'Page X of Y'
+          ? `Page ${idx + 1} of ${totalPages}`
+          : options.pageNumberFormat === 'X / Y'
+          ? `${idx + 1} / ${totalPages}`
+          : `${idx + 1}`;
+      const numSize = 9.5;
+      const numW = fontRegular.widthOfTextAtSize(label, numSize);
+      let nx = pw - 36 - numW;
+      let ny = 24;
+      if (options.pageNumberPosition === 'bottom-center') {
+        nx = (pw - numW) / 2;
+        ny = 24;
+      } else if (options.pageNumberPosition === 'bottom-left') {
+        nx = 36;
+        ny = 24;
+      } else if (options.pageNumberPosition === 'top-right') {
+        nx = pw - 36 - numW;
+        ny = ph - 28;
+      }
+      page.drawText(label, {
+        x: nx,
+        y: ny,
+        size: numSize,
+        font: fontRegular,
+        color: rgb(0.28, 0.31, 0.36),
+      });
+    }
+  }
+
+  onProgress?.(92, 'Saving watermarked PDF...');
+  const bytes = await pdfDoc.save({ useObjectStreams: true });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'PDF watermark applied');
+
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${baseName(file.name)}_stamped.pdf`,
+    pageCount: totalPages,
+    processedPages: targetIndices.length,
+  };
+}
+
+// ==========================================
+// Tool 12: PDF Watermark Remover (Vector + Pixel Clean)
+// ==========================================
+
+export type PdfWatermarkRemoveEngine = 'pixel-clean' | 'vector-layer';
+
+export interface PdfExcludeBox {
+  id: string;
+  pageNumber: number | 'all';
+  xFraction: number;
+  yFraction: number;
+  widthFraction: number;
+  heightFraction: number;
+}
+
+export interface PdfWatermarkRemoveOptions {
+  engine: PdfWatermarkRemoveEngine;
+  luminanceCutoff: number; // 115..245 — pixels lighter than this with watermark characteristics lift to white
+  textDarkenBoost: number; // 0..100 — deepens true dark ink
+  targetTintHex?: string; // optional targeted watermark color
+  tintSensitivity: number; // 0..80
+  removeLightGreyWatermarks: boolean;
+  watermarkKeywords?: string; // comma-separated strings for vector-layer stripping
+  pageRangeExpr?: string;
+  excludeBoxes?: PdfExcludeBox[];
+}
+
+export interface PdfWatermarkRemoveResult {
+  blob: Blob;
+  bytes: Uint8Array;
+  fileName: string;
+  pageCount: number;
+  cleanedPages: number;
+  strippedVectorItems: number;
+}
+
+export function cleanWatermarkImageData(
+  imgData: ImageData,
+  opts: {
+    luminanceCutoff: number;
+    textDarkenBoost: number;
+    targetTintHex?: string;
+    tintSensitivity: number;
+    removeLightGreyWatermarks: boolean;
+    excludeBoxes?: Array<{ xFraction: number; yFraction: number; widthFraction: number; heightFraction: number }>;
+  }
+): void {
+  const { width: w, height: h, data } = imgData;
+
+  if (opts.excludeBoxes && opts.excludeBoxes.length > 0) {
+    for (const box of opts.excludeBoxes) {
+      const x0 = Math.max(0, Math.floor(box.xFraction * w));
+      const y0 = Math.max(0, Math.floor(box.yFraction * h));
+      const x1 = Math.min(w, Math.ceil((box.xFraction + box.widthFraction) * w));
+      const y1 = Math.min(h, Math.ceil((box.yFraction + box.heightFraction) * h));
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) {
+          const i = (py * w + px) * 4;
+          data[i] = 255;
+          data[i + 1] = 255;
+          data[i + 2] = 255;
+        }
+      }
+    }
+  }
+
+  let hasTint = false;
+  let tr = 200;
+  let tg = 200;
+  let tb = 200;
+  if (opts.targetTintHex && opts.tintSensitivity > 0) {
+    const cleaned = opts.targetTintHex.replace('#', '');
+    const num = parseInt(cleaned, 16);
+    if (!Number.isNaN(num)) {
+      tr = (num >> 16) & 255;
+      tg = (num >> 8) & 255;
+      tb = num & 255;
+      hasTint = true;
+    }
+  }
+
+  const lumCutoff = Math.max(105, Math.min(248, opts.luminanceCutoff));
+  const tintDistMax = Math.max(10, opts.tintSensitivity * 2.4);
+  const boostFactor = Math.max(0, Math.min(1, opts.textDarkenBoost / 100));
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    const chroma = maxC - minC;
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    if (lum >= 246) {
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      continue;
+    }
+
+    let erase = false;
+
+    if (opts.removeLightGreyWatermarks && lum >= lumCutoff && chroma <= 58) {
+      erase = true;
+    } else if (lum >= Math.min(238, lumCutoff + 18)) {
+      erase = true;
+    }
+
+    if (!erase && hasTint && lum > 90) {
+      const dist = Math.hypot(r - tr, g - tg, b - tb);
+      if (dist <= tintDistMax) {
+        erase = true;
+      }
+    }
+
+    if (erase) {
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+    } else if (boostFactor > 0 && lum < lumCutoff) {
+      // Gently deepen surviving body text / crisp diagram strokes
+      const gammaPull = 1 - boostFactor * 0.48 * (1 - lum / Math.max(1, lumCutoff));
+      data[i] = Math.max(0, Math.min(255, Math.round(r * gammaPull)));
+      data[i + 1] = Math.max(0, Math.min(255, Math.round(g * gammaPull)));
+      data[i + 2] = Math.max(0, Math.min(255, Math.round(b * gammaPull)));
+    }
+  }
+}
+
+function stripWatermarkContentStream(
+  rawText: string,
+  keywords: string[]
+): { cleaned: string; removedCount: number } {
+  let removedCount = 0;
+  const kwLower = keywords.map((k) => k.toLowerCase()).filter(Boolean);
+
+  // Clean matching or watermark-styled BT ... ET text blocks
+  const cleaned = rawText.replace(/BT[\s\S]*?ET/g, (block) => {
+    const blockLower = block.toLowerCase();
+    const matchesKeyword = kwLower.some((kw) => blockLower.includes(kw));
+
+    // Check rotated Tm matrix: a b c d e f Tm where |b| > 0.14 && |c| > 0.14
+    const tmMatch = block.match(
+      /(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+Tm/
+    );
+    const isDiagonal =
+      tmMatch && Math.abs(parseFloat(tmMatch[2])) > 0.14 && Math.abs(parseFloat(tmMatch[3])) > 0.14;
+
+    // Check light gray or pale fill color (> 0.65 g or > 0.65 rg)
+    const grayMatch = block.match(/(\d*\.?\d+)\s+g\b/);
+    const isPaleGray = grayMatch ? parseFloat(grayMatch[1]) >= 0.65 : false;
+
+    if (matchesKeyword || (isDiagonal && (isPaleGray || block.length < 360))) {
+      removedCount++;
+      return '';
+    }
+    return block;
+  });
+
+  return { cleaned, removedCount };
+}
+
+export async function removePdfWatermark(
+  file: File,
+  options: PdfWatermarkRemoveOptions,
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfWatermarkRemoveResult> {
+  const originalBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+
+  if (options.engine === 'vector-layer') {
+    onProgress?.(16, 'Inspecting PDF vector layers & watermark streams...');
+    const pdfDoc = await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
+    pdfDoc.setProducer('PaperLink');
+    const pages = pdfDoc.getPages();
+    const totalPages = pages.length;
+    const indices = parsePageRange(options.pageRangeExpr, totalPages);
+    const defaultKeywords = ['watermark', 'confidential', 'draft', 'sample', 'camscanner', 'do not copy'];
+    const extraKeywords = (options.watermarkKeywords || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const keywords = [...extraKeywords, ...defaultKeywords];
+
+    let strippedCount = 0;
+
+    for (let i = 0; i < indices.length; i++) {
+      const pIdx = indices[i];
+      onProgress?.(
+        20 + Math.round(((i + 1) / indices.length) * 65),
+        `Cleaning vector layers on page ${pIdx + 1}...`
+      );
+      const page = pages[pIdx];
+      const pageNode = page.node;
+
+      // 1. Strip Watermark / Stamp / Keyword Annotations
+      const annots = pageNode.lookupMaybe(PDFName.of('Annots'), PDFArray);
+      if (annots) {
+        for (let a = annots.size() - 1; a >= 0; a--) {
+          const annotDict = annots.lookupMaybe(a, PDFDict);
+          if (!annotDict) continue;
+          const subtype = annotDict.get(PDFName.of('Subtype'))?.toString() || '';
+          const contents = annotDict.get(PDFName.of('Contents'))?.toString().toLowerCase() || '';
+          const isWmAnnot =
+            subtype.includes('Watermark') ||
+            subtype.includes('Stamp') ||
+            keywords.some((kw) => contents.includes(kw.toLowerCase()));
+          if (isWmAnnot) {
+            annots.remove(a);
+            strippedCount++;
+          }
+        }
+      }
+
+      // 2. Inspect Form XObjects in Resources
+      const resources = pageNode.lookupMaybe(PDFName.of('Resources'), PDFDict);
+      const xObjects = resources?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+      if (xObjects) {
+        const keys = xObjects.keys();
+        for (const key of keys) {
+          const refOrStream = xObjects.get(key);
+          const stream = pdfDoc.context.lookup(refOrStream);
+          if (!(stream instanceof PDFRawStream)) continue;
+          const subtype = stream.dict.get(PDFName.of('Subtype'))?.toString() || '';
+          if (!subtype.includes('Form')) continue;
+          try {
+            const decodedBytes = decodePDFRawStream(stream).decode();
+            const text = new TextDecoder('latin1').decode(decodedBytes);
+            const textLower = text.toLowerCase();
+            const hasKw = keywords.some((kw) => textLower.includes(kw.toLowerCase()));
+            const hasDiagCm =
+              /(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+cm/.test(
+                text
+              ) && text.length < 1800;
+            const hasAlpha = /\/GS\w*\s+gs/.test(text) && (text.includes('BT') || text.includes('Do'));
+
+            if (hasKw || (hasDiagCm && hasAlpha)) {
+              const emptyStream = pdfDoc.context.flateStream('');
+              const emptyRef = pdfDoc.context.register(emptyStream);
+              xObjects.set(key, emptyRef);
+              strippedCount++;
+            }
+          } catch {
+            // Skip unreadable binary XObject
+          }
+        }
+      }
+
+      // 3. Clean page Contents streams
+      const contentsObj = pageNode.get(PDFName.of('Contents'));
+      const cleanStreamRef = (ref: any) => {
+        const st = pdfDoc.context.lookup(ref);
+        if (!(st instanceof PDFRawStream)) return null;
+        try {
+          const decoded = decodePDFRawStream(st).decode();
+          const rawStr = new TextDecoder('latin1').decode(decoded);
+          const { cleaned, removedCount } = stripWatermarkContentStream(rawStr, keywords);
+          if (removedCount > 0) {
+            strippedCount += removedCount;
+            const replacement = pdfDoc.context.flateStream(cleaned);
+            return pdfDoc.context.register(replacement);
+          }
+        } catch {
+          // ignore
+        }
+        return null;
+      };
+
+      if (contentsObj instanceof PDFArray) {
+        for (let c = 0; c < contentsObj.size(); c++) {
+          const rep = cleanStreamRef(contentsObj.get(c));
+          if (rep) contentsObj.set(c, rep);
+        }
+      } else if (contentsObj) {
+        const rep = cleanStreamRef(contentsObj);
+        if (rep) pageNode.set(PDFName.of('Contents'), rep);
+      }
+
+      // Optional manual whiteout boxes
+      const pageBoxes = (options.excludeBoxes || []).filter(
+        (b) => b.pageNumber === 'all' || b.pageNumber === pIdx + 1
+      );
+      if (pageBoxes.length > 0) {
+        const { width: pw, height: ph } = page.getSize();
+        for (const box of pageBoxes) {
+          const bw = box.widthFraction * pw;
+          const bh = box.heightFraction * ph;
+          const bx = box.xFraction * pw;
+          const by = ph - box.yFraction * ph - bh;
+          page.drawRectangle({ x: bx, y: by, width: bw, height: bh, color: rgb(1, 1, 1) });
+          strippedCount++;
+        }
+      }
+    }
+
+    onProgress?.(92, 'Rebuilding cleaned PDF...');
+    const bytes = await pdfDoc.save({ useObjectStreams: true });
+    const safeBytes = new Uint8Array(bytes).slice();
+    const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+    onProgress?.(100, 'PDF watermark layers cleaned');
+
+    return {
+      blob,
+      bytes: safeBytes,
+      fileName: `${baseName(file.name)}_no_watermark.pdf`,
+      pageCount: totalPages,
+      cleanedPages: indices.length,
+      strippedVectorItems: strippedCount,
+    };
+  }
+
+  // Pixel Clean-Up Mode (Works on Scanned / Flattened / Color Watermarks)
+  const pdfjsLib = getPdfJs();
+  onProgress?.(10, 'Rendering PDF pages for pixel watermark removal...');
+  const pdf = await pdfjsLib.getDocument({ data: originalBuffer, useSystemFonts: true }).promise;
+  const totalPages: number = pdf.numPages;
+  const indices = parsePageRange(options.pageRangeExpr, totalPages);
+  const targetSet = new Set(indices);
+
+  const srcDocForPassthrough = await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
+  const outDoc = await PDFDocument.create();
+  outDoc.setProducer('PaperLink');
+  outDoc.setCreator('PaperLink');
+
+  for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+    const pageNum = pIdx + 1;
+    if (!targetSet.has(pIdx)) {
+      const [copied] = await outDoc.copyPages(srcDocForPassthrough, [pIdx]);
+      outDoc.addPage(copied);
+      continue;
+    }
+
+    onProgress?.(
+      14 + Math.round(((pIdx + 1) / totalPages) * 76),
+      `Removing watermark pixels on page ${pageNum} of ${totalPages}...`
+    );
+
+    const page = await pdf.getPage(pageNum);
+    const baseVp = page.getViewport({ scale: 1.0 });
+    const hiVp = page.getViewport({ scale: 2.1 });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(hiVp.width));
+    canvas.height = Math.max(1, Math.round(hiVp.height));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable');
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: hiVp }).promise;
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pageBoxes = (options.excludeBoxes || []).filter(
+      (b) => b.pageNumber === 'all' || b.pageNumber === pageNum
+    );
+    cleanWatermarkImageData(imgData, {
+      luminanceCutoff: options.luminanceCutoff,
+      textDarkenBoost: options.textDarkenBoost,
+      targetTintHex: options.targetTintHex,
+      tintSensitivity: options.tintSensitivity,
+      removeLightGreyWatermarks: options.removeLightGreyWatermarks,
+      excludeBoxes: pageBoxes,
+    });
+    ctx.putImageData(imgData, 0, 0);
+
+    const jpgBlob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Image encode failed'))), 'image/jpeg', 0.92)
+    );
+    const embedded = await outDoc.embedJpg(new Uint8Array(await jpgBlob.arrayBuffer()));
+    const outPage = outDoc.addPage([baseVp.width, baseVp.height]);
+    outPage.drawImage(embedded, {
+      x: 0,
+      y: 0,
+      width: baseVp.width,
+      height: baseVp.height,
+    });
+  }
+
+  onProgress?.(94, 'Packaging clean PDF...');
+  const bytes = await outDoc.save({ useObjectStreams: true });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'Watermark removal complete');
+
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${baseName(file.name)}_no_watermark.pdf`,
+    pageCount: totalPages,
+    cleanedPages: indices.length,
+    strippedVectorItems: indices.length,
+  };
+}
+
 

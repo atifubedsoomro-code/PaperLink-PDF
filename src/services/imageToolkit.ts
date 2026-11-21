@@ -1223,3 +1223,518 @@ export async function applyImageFilters(
     if (loaded.objectUrl) URL.revokeObjectURL(loaded.objectUrl);
   }
 }
+
+// ==========================================
+// DAILY ROUTINE IMAGE TOOLS
+// ==========================================
+
+export type ImageWatermarkRemoveMode = 'inpaint' | 'document-paper' | 'deblend';
+
+/**
+ * TOOL: Image Watermark Remover
+ * Expects a maskCanvas (white/opaque pixels where alpha > 24 mark regions to erase/heal).
+ */
+export async function removeImageWatermark(
+  file: File,
+  maskSource: HTMLCanvasElement,
+  options: {
+    mode: ImageWatermarkRemoveMode;
+    strength: number; // 1..100
+    format: 'png' | 'jpg' | 'webp';
+    quality: number;
+  },
+  onProgress?: (percent: number, status: string) => void
+): Promise<ProcessedImageResult> {
+  onProgress?.(10, 'Decoding full-resolution image...');
+  const loaded = await loadImageElement(file);
+
+  try {
+    const w = loaded.width;
+    const h = loaded.height;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context unavailable.');
+    ctx.drawImage(loaded.img, 0, 0, w, h);
+
+    // Resample mask onto exact image resolution
+    const scaledMaskCanvas = document.createElement('canvas');
+    scaledMaskCanvas.width = w;
+    scaledMaskCanvas.height = h;
+    const mCtx = scaledMaskCanvas.getContext('2d');
+    if (!mCtx) throw new Error('Mask canvas unavailable.');
+    mCtx.drawImage(maskSource, 0, 0, w, h);
+
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+    const maskData = mCtx.getImageData(0, 0, w, h).data;
+
+    // 0 = known intact pixel, 1 = needs healing
+    const mask = new Uint8Array(w * h);
+    let maskedCount = 0;
+    for (let p = 0; p < w * h; p++) {
+      if (maskData[p * 4 + 3] > 28) {
+        mask[p] = 1;
+        maskedCount++;
+      }
+    }
+
+    if (maskedCount === 0) {
+      throw new Error('Paint or box-select the watermark area on the image first.');
+    }
+
+    // Dilate mask by 1px to catch antialiased halo fringes around watermark edges
+    const dilated = new Uint8Array(mask);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x;
+        if (mask[p] === 0) {
+          if (mask[p - 1] || mask[p + 1] || mask[p - w] || mask[p + w]) {
+            dilated[p] = 1;
+          }
+        }
+      }
+    }
+
+    onProgress?.(35, 'Analyzing surrounding texture and healing watermark pixels...');
+
+    if (options.mode === 'document-paper') {
+      // Sample bright background pixels outside mask to restore clean paper seamlessly
+      const known = new Uint8Array(w * h);
+      for (let p = 0; p < w * h; p++) known[p] = dilated[p] === 0 ? 1 : 0;
+
+      const paperSamplesR: number[] = [];
+      const paperSamplesG: number[] = [];
+      const paperSamplesB: number[] = [];
+      const step = Math.max(1, Math.floor((w * h) / 6000));
+      for (let p = 0; p < w * h; p += step) {
+        if (known[p]) {
+          const i = p * 4;
+          const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+          if (lum > 180) {
+            paperSamplesR.push(data[i]);
+            paperSamplesG.push(data[i + 1]);
+            paperSamplesB.push(data[i + 2]);
+          }
+        }
+      }
+      paperSamplesR.sort((a, b) => a - b);
+      paperSamplesG.sort((a, b) => a - b);
+      paperSamplesB.sort((a, b) => a - b);
+      const qIdx = Math.floor(paperSamplesR.length * 0.72);
+      const fallbackR = paperSamplesR.length > 0 ? paperSamplesR[qIdx] : 252;
+      const fallbackG = paperSamplesG.length > 0 ? paperSamplesG[qIdx] : 252;
+      const fallbackB = paperSamplesB.length > 0 ? paperSamplesB[qIdx] : 252;
+
+      const radius = 8;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const p = y * w + x;
+          if (dilated[p] === 0) continue;
+          let sumR = 0;
+          let sumG = 0;
+          let sumB = 0;
+          let count = 0;
+          for (let dy = -radius; dy <= radius; dy += 2) {
+            const yy = y + dy;
+            if (yy < 0 || yy >= h) continue;
+            for (let dx = -radius; dx <= radius; dx += 2) {
+              const xx = x + dx;
+              if (xx < 0 || xx >= w) continue;
+              const np = yy * w + xx;
+              if (known[np]) {
+                const ni = np * 4;
+                const lum = data[ni] * 0.299 + data[ni + 1] * 0.587 + data[ni + 2] * 0.114;
+                if (lum > 155) {
+                  sumR += data[ni];
+                  sumG += data[ni + 1];
+                  sumB += data[ni + 2];
+                  count++;
+                }
+              }
+            }
+          }
+          const idx = p * 4;
+          if (count >= 2) {
+            data[idx] = Math.round(sumR / count);
+            data[idx + 1] = Math.round(sumG / count);
+            data[idx + 2] = Math.round(sumB / count);
+          } else {
+            data[idx] = fallbackR;
+            data[idx + 1] = fallbackG;
+            data[idx + 2] = fallbackB;
+          }
+        }
+      }
+    } else {
+      // Multi-ring BFS inward boundary-first diffusion (Smart Inpaint / Deblend)
+      const workR = new Float32Array(w * h);
+      const workG = new Float32Array(w * h);
+      const workB = new Float32Array(w * h);
+      const origR = new Float32Array(w * h);
+      const origG = new Float32Array(w * h);
+      const origB = new Float32Array(w * h);
+      const state = new Uint8Array(w * h); // 2 = intact known, 1 = filled, 0 = unknown
+
+      for (let p = 0; p < w * h; p++) {
+        const i = p * 4;
+        origR[p] = data[i];
+        origG[p] = data[i + 1];
+        origB[p] = data[i + 2];
+        workR[p] = data[i];
+        workG[p] = data[i + 1];
+        workB[p] = data[i + 2];
+        state[p] = dilated[p] === 0 ? 2 : 0;
+      }
+
+      const queue: number[] = [];
+      const inQueue = new Uint8Array(w * h);
+
+      const enqueueNeighbors = (p: number) => {
+        const x = p % w;
+        const y = (p - x) / w;
+        const nb = [
+          x > 0 ? p - 1 : -1,
+          x + 1 < w ? p + 1 : -1,
+          y > 0 ? p - w : -1,
+          y + 1 < h ? p + w : -1,
+        ];
+        for (const np of nb) {
+          if (np >= 0 && state[np] === 0 && !inQueue[np]) {
+            inQueue[np] = 1;
+            queue.push(np);
+          }
+        }
+      };
+
+      for (let p = 0; p < w * h; p++) {
+        if (state[p] === 2) {
+          const x = p % w;
+          const y = (p - x) / w;
+          if (
+            (x > 0 && state[p - 1] === 0) ||
+            (x + 1 < w && state[p + 1] === 0) ||
+            (y > 0 && state[p - w] === 0) ||
+            (y + 1 < h && state[p + w] === 0)
+          ) {
+            enqueueNeighbors(p);
+          }
+        }
+      }
+
+      let head = 0;
+      while (head < queue.length) {
+        const p = queue[head++];
+        const x = p % w;
+        const y = (p - x) / w;
+
+        let sR = 0;
+        let sG = 0;
+        let sB = 0;
+        let wSum = 0;
+
+        for (let dy = -2; dy <= 2; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -2; dx <= 2; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w || (dx === 0 && dy === 0)) continue;
+            const np = yy * w + xx;
+            if (state[np] > 0) {
+              const weight = 1 / (dx * dx + dy * dy);
+              sR += workR[np] * weight;
+              sG += workG[np] * weight;
+              sB += workB[np] * weight;
+              wSum += weight;
+            }
+          }
+        }
+
+        if (wSum > 0) {
+          workR[p] = sR / wSum;
+          workG[p] = sG / wSum;
+          workB[p] = sB / wSum;
+          state[p] = 1;
+        }
+        enqueueNeighbors(p);
+      }
+
+      onProgress?.(72, 'Refining gradients and blending seams...');
+      const passes = Math.max(3, Math.round(options.strength / 14));
+      for (let pass = 0; pass < passes; pass++) {
+        for (let k = 0; k < queue.length; k++) {
+          const p = queue[k];
+          const x = p % w;
+          const y = (p - x) / w;
+          if (x === 0 || y === 0 || x === w - 1 || y === h - 1) continue;
+          workR[p] = (workR[p - 1] + workR[p + 1] + workR[p - w] + workR[p + w]) * 0.25;
+          workG[p] = (workG[p - 1] + workG[p + 1] + workG[p - w] + workG[p + w]) * 0.25;
+          workB[p] = (workB[p - 1] + workB[p + 1] + workB[p - w] + workB[p + w]) * 0.25;
+        }
+      }
+
+      const blendOriginalRatio = options.mode === 'deblend' ? 0.32 : 0;
+      for (let k = 0; k < queue.length; k++) {
+        const p = queue[k];
+        const i = p * 4;
+        const r = workR[p] * (1 - blendOriginalRatio) + origR[p] * blendOriginalRatio;
+        const g = workG[p] * (1 - blendOriginalRatio) + origG[p] * blendOriginalRatio;
+        const b = workB[p] * (1 - blendOriginalRatio) + origB[p] * blendOriginalRatio;
+        data[i] = Math.max(0, Math.min(255, Math.round(r)));
+        data[i + 1] = Math.max(0, Math.min(255, Math.round(g)));
+        data[i + 2] = Math.max(0, Math.min(255, Math.round(b)));
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    onProgress?.(92, 'Encoding cleaned image...');
+    const blob = await encodeCanvasToFormat(canvas, options.format, options.quality, '#FFFFFF');
+    const dataUrl = await blobToDataUrl(blob);
+    onProgress?.(100, 'Watermark removed');
+
+    return {
+      id: `wmrm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      originalName: file.name,
+      fileName: `${stripExtension(file.name)}_clean.${options.format}`,
+      format: options.format,
+      width: w,
+      height: h,
+      originalWidth: w,
+      originalHeight: h,
+      originalSizeBytes: file.size,
+      sizeBytes: blob.size,
+      blob,
+      dataUrl,
+    };
+  } finally {
+    if (loaded.objectUrl) URL.revokeObjectURL(loaded.objectUrl);
+  }
+}
+
+export interface RedactBlurRegion {
+  id: string;
+  xFrac: number;
+  yFrac: number;
+  wFrac: number;
+  hFrac: number;
+  mode: 'blur' | 'pixelate' | 'redact';
+  intensity: number; // 4..40
+  color?: string;
+}
+
+/**
+ * TOOL: Interactive Privacy Blur, Mosaic Pixelate & Solid Redact
+ */
+export async function blurAndRedactImage(
+  file: File,
+  regions: RedactBlurRegion[],
+  options: {
+    format: 'png' | 'jpg' | 'webp';
+    quality: number;
+  }
+): Promise<ProcessedImageResult> {
+  if (regions.length === 0) {
+    throw new Error('Draw at least one region on the image to blur, pixelate, or redact.');
+  }
+
+  const loaded = await loadImageElement(file);
+  try {
+    const w = loaded.width;
+    const h = loaded.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context unavailable.');
+
+    if (options.format === 'jpg') {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.drawImage(loaded.img, 0, 0, w, h);
+
+    for (const reg of regions) {
+      const rx = Math.max(0, Math.round(reg.xFrac * w));
+      const ry = Math.max(0, Math.round(reg.yFrac * h));
+      const rw = Math.max(2, Math.min(w - rx, Math.round(reg.wFrac * w)));
+      const rh = Math.max(2, Math.min(h - ry, Math.round(reg.hFrac * h)));
+
+      if (reg.mode === 'redact') {
+        ctx.fillStyle = reg.color || '#09090b';
+        ctx.fillRect(rx, ry, rw, rh);
+      } else if (reg.mode === 'blur') {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rx, ry, rw, rh);
+        ctx.clip();
+        ctx.filter = `blur(${Math.max(4, reg.intensity)}px)`;
+        ctx.drawImage(loaded.img, 0, 0, w, h);
+        ctx.restore();
+      } else {
+        // Mosaic Pixelate
+        const block = Math.max(4, Math.round((reg.intensity / 40) * Math.max(12, Math.min(w, h) * 0.06)));
+        const sampleW = Math.max(1, Math.round(rw / block));
+        const sampleH = Math.max(1, Math.round(rh / block));
+        const tiny = document.createElement('canvas');
+        tiny.width = sampleW;
+        tiny.height = sampleH;
+        const tCtx = tiny.getContext('2d');
+        if (tCtx) {
+          tCtx.imageSmoothingEnabled = true;
+          tCtx.drawImage(canvas, rx, ry, rw, rh, 0, 0, sampleW, sampleH);
+          ctx.save();
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(tiny, 0, 0, sampleW, sampleH, rx, ry, rw, rh);
+          ctx.restore();
+        }
+      }
+    }
+
+    const blob = await encodeCanvasToFormat(canvas, options.format, options.quality, '#FFFFFF');
+    const dataUrl = await blobToDataUrl(blob);
+
+    return {
+      id: `red_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      originalName: file.name,
+      fileName: `${stripExtension(file.name)}_redacted.${options.format}`,
+      format: options.format,
+      width: w,
+      height: h,
+      originalWidth: w,
+      originalHeight: h,
+      originalSizeBytes: file.size,
+      sizeBytes: blob.size,
+      blob,
+      dataUrl,
+    };
+  } finally {
+    if (loaded.objectUrl) URL.revokeObjectURL(loaded.objectUrl);
+  }
+}
+
+export type PhotoGridLayout = 'side-by-side' | 'stacked' | 'grid-2x2' | 'grid-3x2' | 'id-sheet';
+
+/**
+ * TOOL: Photo Grid Collage & ID Front/Back Joiner
+ */
+export async function createPhotoGridCollage(
+  files: File[],
+  options: {
+    layout: PhotoGridLayout;
+    canvasWidth: number; // e.g. 1600
+    gapPx: number;
+    paddingPx: number;
+    cornerRadiusPx: number;
+    bgColor: string;
+    fit: 'contain' | 'cover';
+    format: 'png' | 'jpg' | 'webp';
+    quality: number;
+  }
+): Promise<ProcessedImageResult> {
+  if (files.length === 0) {
+    throw new Error('Upload at least one image to build a grid or ID sheet.');
+  }
+
+  const loadedImgs = await Promise.all(files.map((f) => loadImageElement(f)));
+  try {
+    let cols = 2;
+    let rows = 1;
+    if (options.layout === 'stacked') {
+      cols = 1;
+      rows = Math.max(2, loadedImgs.length);
+    } else if (options.layout === 'grid-2x2') {
+      cols = 2;
+      rows = Math.max(2, Math.ceil(loadedImgs.length / 2));
+    } else if (options.layout === 'grid-3x2') {
+      cols = 3;
+      rows = Math.max(2, Math.ceil(loadedImgs.length / 3));
+    } else if (options.layout === 'id-sheet') {
+      cols = 2;
+      rows = 1;
+    } else {
+      cols = Math.max(2, loadedImgs.length);
+      rows = 1;
+    }
+
+    const outW = Math.max(600, Math.min(3600, Math.round(options.canvasWidth)));
+    const pad = Math.max(0, options.paddingPx);
+    const gap = Math.max(0, options.gapPx);
+    const cellW = Math.max(80, Math.floor((outW - pad * 2 - gap * (cols - 1)) / cols));
+
+    const cellAspect =
+      options.layout === 'id-sheet'
+        ? 0.64
+        : options.layout === 'stacked'
+        ? loadedImgs[0].height / Math.max(1, loadedImgs[0].width)
+        : 0.78;
+    const cellH = Math.max(80, Math.round(cellW * cellAspect));
+    const outH = pad * 2 + rows * cellH + gap * (rows - 1);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context unavailable.');
+
+    ctx.fillStyle = options.bgColor || '#FFFFFF';
+    ctx.fillRect(0, 0, outW, outH);
+
+    const totalSlots = cols * rows;
+    for (let idx = 0; idx < Math.min(totalSlots, loadedImgs.length); idx++) {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const x = pad + col * (cellW + gap);
+      const y = pad + row * (cellH + gap);
+      const item = loadedImgs[idx];
+
+      ctx.save();
+      if (options.cornerRadiusPx > 0) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, cellW, cellH, options.cornerRadiusPx);
+        ctx.closePath();
+        ctx.clip();
+      } else {
+        ctx.beginPath();
+        ctx.rect(x, y, cellW, cellH);
+        ctx.clip();
+      }
+
+      if (options.fit === 'cover') {
+        const sc = Math.max(cellW / item.width, cellH / item.height);
+        const dw = item.width * sc;
+        const dh = item.height * sc;
+        ctx.drawImage(item.img, x + (cellW - dw) / 2, y + (cellH - dh) / 2, dw, dh);
+      } else {
+        const sc = Math.min(cellW / item.width, cellH / item.height);
+        const dw = item.width * sc;
+        const dh = item.height * sc;
+        ctx.drawImage(item.img, x + (cellW - dw) / 2, y + (cellH - dh) / 2, dw, dh);
+      }
+      ctx.restore();
+    }
+
+    const blob = await encodeCanvasToFormat(canvas, options.format, options.quality, options.bgColor || '#FFFFFF');
+    const dataUrl = await blobToDataUrl(blob);
+
+    return {
+      id: `grid_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      originalName: files[0].name,
+      fileName: `${stripExtension(files[0].name)}_${options.layout}.${options.format}`,
+      format: options.format,
+      width: outW,
+      height: outH,
+      originalWidth: outW,
+      originalHeight: outH,
+      originalSizeBytes: files.reduce((s, f) => s + f.size, 0),
+      sizeBytes: blob.size,
+      blob,
+      dataUrl,
+    };
+  } finally {
+    loadedImgs.forEach((l) => {
+      if (l.objectUrl) URL.revokeObjectURL(l.objectUrl);
+    });
+  }
+}

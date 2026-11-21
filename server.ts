@@ -9,6 +9,8 @@ import { executeFeedbackSubmission, getFeedbackHealthStatus } from './api/feedba
 import type { FeedbackSubmissionPayload } from './api/feedback.ts';
 import { executeCoverSuggestions } from './api/cover-suggestions.ts';
 import type { CoverSuggestionsStartRequest } from './api/cover-suggestions.ts';
+import { executeDocumentSolve } from './api/solve-document.ts';
+import type { SolveDocumentRequest } from './api/solve-document.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +24,12 @@ async function createAppServer() {
   app.post('/api/chat', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ChatRequestBody;
     const result = await executePaperLinkChat(body);
+    res.status(result.status).json(result.payload);
+  });
+
+  app.post('/api/solve-document', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as SolveDocumentRequest;
+    const result = await executeDocumentSolve(body);
     res.status(result.status).json(result.payload);
   });
 

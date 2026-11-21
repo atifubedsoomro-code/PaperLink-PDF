@@ -1,8 +1,11 @@
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type { Content, FunctionDeclaration, Part } from '@google/genai';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { executeDocumentSolve } from './solve-document.ts';
+import type { SolveDocumentRequest } from './solve-document.ts';
 
 export interface ChatRequestBody {
+  action?: string;
   history?: Array<{ role: 'user' | 'model'; text: string }>;
   message?: string;
   attachedFilesSummary?: Array<{
@@ -60,7 +63,7 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
      - Step 05: Download Combined Updated PDF, Print, Email Share via Gmail, or Export options.
    - **Batch Queue** (inside Cover Studio): Process multiple PDF/Word files simultaneously using the active Cover Studio design, upload to Drive in bulk, and download merged packets.
    - **Document Library** (inside Cover Studio): View previously synced covers & Drive links, copy URLs, share via email, or reload back into Step 5.
-2. **PDF & Office Utility Tools** (17 100% browser-private tools):
+2. **PDF & Office Utility Tools** (20 100% browser-private tools):
    - PDF to Word (.docx) [Editable or Visual Layout mode]
    - Word to PDF (.pdf)
    - PPT to PDF (.pptx → print-ready PDF, optional speaker notes)
@@ -73,14 +76,20 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
    - PDF Compress (continuous quality slider 15%-100% + live approximate size reducer + Lossless/Balanced/Maximum)
    - Split & Extract Pages (ranges like 1-3, 5 or fixed-size page chunks)
    - Images to PDF (JPG/PNG/WebP scan packs into A4/Letter/Fit PDF)
+   - Add Pictures to PDF (visual canvas to drop, resize, rotate, opacity-blend, round corners, and stamp photos/IDs onto existing PDF pages)
+   - Watermark Remover (PDF) (clean vector watermark streams/annotations OR smart pixel-clean & corner badge eraser on scanned PDFs)
+   - Watermark & Page # (PDF) (diagonal/tiled text or PNG logo watermarks + page numbering)
    - Rotate & Organize Pages (rotate 90°, delete, reorder thumbnails)
    - Sign & Stamp (draw signature or APPROVED/CONFIDENTIAL stamps)
    - Visual PDF Editor (add resizeable text boxes, resizeable pictures, highlights, whiteout, ink drawings)
    - Protect / Unlock PDF (AES-256 / AES-128 password encryption + print/copy permissions, or decrypt with password)
    - PDF to Image (render pages up to 3x sharpness into PNG, JPG, or WebP + ZIP)
-3. **Graphic Designer Image Studio** (8 local studio tools):
+3. **Graphic Designer Image Studio** (11 local studio tools):
    - Background Remover (AI neural subject segmentation + studio corner flood-fill + eyedropper color-key + split slider + transparent/solid/gradient fill + drop shadow)
    - Bulk BG Remover (process multiple images -> single ZIP)
+   - Watermark Remover (Image) (brush or box-mask watermarks, logos, timestamps & glare with Photo Inpaint, Document Paper heal, or Soft Deblend)
+   - Blur & Redact (interactive privacy blur, pixelate mosaic, or solid blackout bars for faces, plates & sensitive text)
+   - Photo Grid & ID Front/Back Joiner (combine multiple photos or ID front & back into A4 ID sheets, 2x2/3x2 grids, or side-by-side layouts)
    - PDF to Image
    - Image Resize (batch resize with locked aspect ratios & Instagram/YouTube/A4 presets)
    - Change Format (PNG, JPG, WebP, 24-bit BMP, multi-res ICO Favicon)
@@ -105,6 +114,9 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
     5. \`compress_pdf\`
     6. \`remove_image_background\`
     7. \`resize_image\` (\`width: 512\`, \`height: 512\`)
+  - **AI DOCUMENT SOLVER (Lab Manuals & Question Papers):** Whenever the user attaches a Lab Manual, Worksheet, Assignment, Exam, or Question Paper (PDF, Word, or Image) and asks you to **answer it, solve it, fill empty fields/tables, draw/fill diagrams, or attach separate authentic answer pages** (e.g. *"solve this lab manual"*, *"answer this sheet and fill diagrams"*, *"solve this question paper and attach answer pages"*), ALWAYS call \`solve_document_ai\` directly!
+    - By default set \`mode: "auto"\` so the solver automatically detects empty tables/lines/diagram boxes (filling directly in-place in the same format) vs Question Papers without blank spaces (attaching formatted separate Authentic Answer Sheet pages).
+    - If the user asks *"fill inside the sheet"* use \`mode: "fill-in-place"\`; if they ask *"attach separate answer pages / separate answer sheet"* use \`mode: "separate-answer-sheet"\`.
   - Multi-image creative pipeline example: *"rotate image 90 degrees, crop 1:1 square, apply grayscale + sharpen filter, extract hex palette, and convert to webp"* → emit \`crop_rotate_image\` → \`filter_or_palette_image\` → \`convert_image_format\`.
 - Our client pipeline runner feeds Step N outputs straight into Step N+1 in memory AND preserves unconsumed files of other types for parallel multiwork steps. **NEVER** stop after Step 1 or ask the user to re-attach an intermediate file created inside the same turn.
 - **FOLLOW-UP ON PREVIOUS OUTPUTS:** If \`[Previously Generated Outputs in This Chat]\` lists output file(s) and the user says *"now compress that"*, *"stamp APPROVED on it"*, *"add a cover to the PDF you just made"*, or *"lock it with password 999"* without re-attaching files, STILL emit the requested tool call(s) directly — the client automatically reuses the previously generated file(s)!
@@ -654,15 +666,40 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
         pdfTool: {
           type: Type.STRING,
           description:
-            'Optional PDF/Office sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "ppt-to-pdf", "ppt-to-image", "excel-to-pdf", "excel-to-image", "pdf-to-excel", "pdf-to-ppt", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-organize", "pdf-sign", "pdf-edit", "pdf-protect", "pdf-to-image").',
+            'Optional PDF/Office sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "ppt-to-pdf", "ppt-to-image", "excel-to-pdf", "excel-to-image", "pdf-to-excel", "pdf-to-ppt", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-add-images", "pdf-watermark-remove", "pdf-watermark-add", "pdf-organize", "pdf-sign", "pdf-edit", "pdf-protect", "pdf-to-image").',
         },
         imageTool: {
           type: Type.STRING,
           description:
-            'Optional Image sub-tool ID when view is "image-tools" (e.g. "bg-remove", "bulk-bg-remove", "pdf-to-image", "resize", "convert", "crop", "compress", "filters").',
+            'Optional Image sub-tool ID when view is "image-tools" (e.g. "bg-remove", "bulk-bg-remove", "watermark-remove", "blur-redact", "grid-collage", "pdf-to-image", "resize", "convert", "crop", "compress", "filters").',
         },
       },
       required: ['view'],
+    },
+  },
+  {
+    name: 'solve_document_ai',
+    description:
+      'AI Document Solver for attached Lab Manuals, Worksheets, Assignments, or Question Papers (PDF, Word, or Images). Automatically fills empty table cells, blank answer lines, and schematic SVG diagrams directly in-place in the same format OR attaches clean separate Authentic Answer Sheet pages for Question Papers.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        mode: {
+          type: Type.STRING,
+          description:
+            '"auto" (default: auto-detects lab manual with blanks vs question paper), "fill-in-place" (write answers & diagrams directly inside blank fields), or "separate-answer-sheet" (keep original paper and attach separate authentic answer pages).',
+        },
+        inkStyle: {
+          type: Type.STRING,
+          description:
+            '"blue-ink" (default authentic pen/academic blue ink for in-place fills) or "black" (crisp dark black ink).',
+        },
+        instruction: {
+          type: Type.STRING,
+          description:
+            'Exact user instruction or focus notes (e.g., "solve review questions and complete observation table, draw circuit diagram if missing").',
+        },
+      },
     },
   },
 ];
@@ -670,10 +707,14 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
 export async function executePaperLinkChat(
   body: ChatRequestBody
 ): Promise<{ status: number; payload: Record<string, any> }> {
+  if (body && body.action === 'solve-document') {
+    return executeDocumentSolve(body as unknown as SolveDocumentRequest);
+  }
+
   const ai = getGeminiClient();
   if (!ai) {
     return {
-      status: 503,
+      status: 500,
       payload: {
         error:
           'GEMINI_API_KEY is not configured on the server yet. Add GEMINI_API_KEY to your environment variables (Vercel Project Settings -> Environment Variables or AI Studio Secrets).',
@@ -699,17 +740,16 @@ export async function executePaperLinkChat(
     }
 
     const speedMode = body.speedMode === 'fast' ? 'fast' : 'balanced';
-    const isMultiClauseOrComplex =
+    const isGenuineMultiStep =
       attachedSummary.length > 1 ||
-      userMessage.length > 75 ||
-      /\b(and then|and also|after that|afterwards|then|also|first|finally|both|all of them|merge|stamp|rotate|delete pages|palette|without qr|password)\b/i.test(
+      userMessage.length > 95 ||
+      /\b(and then|and also|after that|afterwards|first[, ]+then|finally|both|all of them|and\s+(?:compress|merge|stamp|rotate|protect|lock|encrypt|crop|resize|convert|remove))\b/i.test(
         userMessage
       ) ||
       (userMessage.match(/,/g) || []).length >= 2;
 
-    const hasFilesOrActionHint = attachedSummary.length > 0 || previousOutputsSummary.length > 0 || isMultiClauseOrComplex;
     const primaryModel =
-      speedMode === 'fast' && !hasFilesOrActionHint
+      speedMode === 'fast' || !isGenuineMultiStep
         ? 'gemini-3.1-flash-lite'
         : 'gemini-4-hydrogen';
 
@@ -779,13 +819,9 @@ export async function executePaperLinkChat(
       return undefined;
     };
 
-    const isTransientError = (err: any): boolean => {
-      const code = getErrorStatus(err);
-      if (code && [429, 500, 502, 503, 504].includes(code)) return true;
+    const isDailyQuotaError = (err: any): boolean => {
       const msg = String(err?.message || '');
-      return /overloaded|high demand|try again|ECONNRESET|ETIMEDOUT|fetch failed|temporarily unavailable/i.test(
-        msg
-      );
+      return /PerDay|GenerateRequestsPerDay|daily/i.test(msg);
     };
 
     const isFatalAuthError = (err: any): boolean => {
@@ -798,59 +834,146 @@ export async function executePaperLinkChat(
       );
     };
 
-    const candidateModels =
+    const formatFriendlyGeminiError = (err: any): { status: number; message: string } => {
+      const code = getErrorStatus(err);
+      const raw = String(err?.message || '');
+      if (isFatalAuthError(err)) {
+        return {
+          status: 400,
+          message:
+            'Your Gemini API key is invalid or lacks permission. Please verify GEMINI_API_KEY in Settings > Secrets.',
+        };
+      }
+      if (code === 429 || /RESOURCE_EXHAUSTED|quota/i.test(raw)) {
+        const retryMatch = raw.match(/retry in\s+([0-9hms.]+)/i);
+        const retryNote = retryMatch ? ` Retry window: ${retryMatch[1]}.` : '';
+        return {
+          status: 429,
+          message: isDailyQuotaError(err)
+            ? `Free-tier daily Gemini API quota reached.${retryNote} You can use a billing-enabled API key in Settings > Secrets for higher limits.`
+            : `Gemini API rate limit reached momentarily.${retryNote} Please wait a few seconds and try again.`,
+        };
+      }
+      if (code === 503 || /UNAVAILABLE|high demand|overloaded/i.test(raw)) {
+        return {
+          status: 500,
+          message:
+            'Gemini AI servers are experiencing a brief traffic spike (HTTP 503). Please wait a few seconds and try again.',
+        };
+      }
+      if (code === 504 || /timed out/i.test(raw)) {
+        return {
+          status: 500,
+          message: 'The AI request timed out under load. Please try again in a moment.',
+        };
+      }
+      // Strip raw embedded JSON payloads from error messages
+      const jsonIdx = raw.indexOf('{');
+      if (jsonIdx >= 0) {
+        try {
+          const parsedErr = JSON.parse(raw.slice(jsonIdx));
+          const clean = parsedErr?.error?.message;
+          if (typeof clean === 'string' && clean.trim()) {
+            return { status: code === 400 ? 400 : 500, message: clean.trim() };
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+      return {
+        status: code === 400 ? 400 : 500,
+        message: raw || 'Unable to process chat request with Gemini.',
+      };
+    };
+
+    const withChatTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+          ms
+        );
+        promise.then(
+          (val) => {
+            clearTimeout(timer);
+            resolve(val);
+          },
+          (err) => {
+            clearTimeout(timer);
+            reject(err);
+          }
+        );
+      });
+
+    // Preserve gemini-4-hydrogen's stricter free-tier RPD quota by preferring gemini-3.1-flash-lite first
+    // unless multi-step planning is needed, and skip retrying any model whose daily quota is exhausted.
+    const candidateAttempts: Array<{ model: string; level: ThinkingLevel; timeoutMs: number }> =
       primaryModel === 'gemini-4-hydrogen'
-        ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
-        : ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
+        ? [
+            { model: 'gemini-4-hydrogen', level: ThinkingLevel.LOW, timeoutMs: 14000 },
+            { model: 'gemini-3.1-flash-lite', level: ThinkingLevel.LOW, timeoutMs: 14000 },
+            { model: 'gemini-3.1-flash-lite', level: ThinkingLevel.MINIMAL, timeoutMs: 14000 },
+          ]
+        : [
+            { model: 'gemini-3.1-flash-lite', level: ThinkingLevel.MINIMAL, timeoutMs: 12000 },
+            { model: 'gemini-3.1-flash-lite', level: ThinkingLevel.MINIMAL, timeoutMs: 13000 },
+            { model: 'gemini-4-hydrogen', level: ThinkingLevel.LOW, timeoutMs: 15000 },
+          ];
 
     let response: Awaited<ReturnType<ReturnType<typeof ai.chats.create>['sendMessage']>> | null =
       null;
     let activeModel = primaryModel;
     let lastErr: unknown = null;
+    const dailyExhaustedModels = new Set<string>();
 
-    for (const candidate of candidateModels) {
-      const maxAttempts = 2;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          const chat = ai.chats.create({
-            model: candidate,
-            history: formattedHistory,
-            config: {
-              systemInstruction: PAPERLINK_SYSTEM_INSTRUCTION,
-              tools: [{ functionDeclarations: PAPERLINK_TOOL_DECLARATIONS }],
-              thinkingConfig: {
-                thinkingLevel:
-                  candidate === 'gemini-3.1-flash-lite'
-                    ? ThinkingLevel.MINIMAL
-                    : isMultiClauseOrComplex
-                    ? ThinkingLevel.MEDIUM
-                    : ThinkingLevel.LOW,
-              },
+    for (let idx = 0; idx < candidateAttempts.length; idx++) {
+      const attempt = candidateAttempts[idx];
+      if (dailyExhaustedModels.has(attempt.model)) {
+        continue;
+      }
+      try {
+        const chat = ai.chats.create({
+          model: attempt.model,
+          history: formattedHistory,
+          config: {
+            systemInstruction: PAPERLINK_SYSTEM_INSTRUCTION,
+            tools: [{ functionDeclarations: PAPERLINK_TOOL_DECLARATIONS }],
+            thinkingConfig: {
+              thinkingLevel: attempt.level,
             },
-          });
+          },
+        });
 
-          response = await chat.sendMessage({ message: messageParts });
-          activeModel = candidate;
-          lastErr = null;
-          break;
-        } catch (err: any) {
-          lastErr = err;
-          if (isFatalAuthError(err)) {
-            throw err;
-          }
-          if (attempt < maxAttempts - 1 && isTransientError(err)) {
-            const backoffMs = 350 * (attempt + 1) + Math.floor(Math.random() * 150);
-            await sleep(backoffMs);
-            continue;
-          }
-          break;
+        response = await withChatTimeout(
+          chat.sendMessage({ message: messageParts }),
+          attempt.timeoutMs,
+          attempt.model
+        );
+        activeModel = attempt.model;
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        if (isFatalAuthError(err)) {
+          throw err;
+        }
+        if (isDailyQuotaError(err)) {
+          dailyExhaustedModels.add(attempt.model);
+        }
+        const status = getErrorStatus(err);
+        // Back off gently before retrying high-demand 503 or transient errors
+        const backoffMs = status === 503 ? 1100 + idx * 600 : 400;
+        if (idx < candidateAttempts.length - 1) {
+          await sleep(backoffMs);
         }
       }
-      if (response) break;
     }
 
     if (!response) {
-      throw lastErr || new Error('Unable to obtain a response from Gemini.');
+      const formatted = formatFriendlyGeminiError(lastErr);
+      return {
+        status: formatted.status,
+        payload: { error: formatted.message },
+      };
     }
 
     const functionCalls = response.functionCalls || [];
@@ -870,21 +993,19 @@ export async function executePaperLinkChat(
     };
   } catch (err: any) {
     console.error('Gemini /api/chat error:', err);
-    const parsedStatus =
-      typeof err?.status === 'number' && err.status >= 400 && err.status < 600
-        ? err.status
-        : /\b503\b|UNAVAILABLE|high demand|overloaded/i.test(String(err?.message || ''))
-        ? 503
-        : /\b429\b|RESOURCE_EXHAUSTED/i.test(String(err?.message || ''))
-        ? 429
-        : 500;
-    const rawMsg =
-      parsedStatus === 503
-        ? 'The AI service is temporarily experiencing high demand. Please try sending your message again in a moment.'
-        : err?.message || 'Unable to process chat request with Gemini.';
+    const msg = String(err?.message || '');
+    const isQuota = /\b429\b|RESOURCE_EXHAUSTED/i.test(msg);
+    const isDemand = /\b503\b|UNAVAILABLE|high demand|overloaded/i.test(msg);
+    const cleanMsg = isQuota
+      ? 'Free-tier daily Gemini API quota reached. Wait a moment for limits to reset or attach a billing-enabled API key in Settings > Secrets.'
+      : isDemand
+      ? 'Gemini AI servers are experiencing temporary high demand (HTTP 503). Please try again in a few seconds.'
+      : msg.includes('{')
+      ? 'Gemini AI request could not be completed right now. Please try again.'
+      : msg || 'Unable to process chat request with Gemini.';
     return {
-      status: parsedStatus,
-      payload: { error: rawMsg },
+      status: isQuota ? 429 : err?.status === 400 ? 400 : 500,
+      payload: { error: cleanMsg },
     };
   }
 }

@@ -26,6 +26,9 @@ import {
   Trash2,
   Plus,
   ShieldCheck,
+  Droplets,
+  EyeOff,
+  LayoutGrid,
 } from 'lucide-react';
 import {
   BgFillMode,
@@ -46,11 +49,15 @@ import {
   resizeImageFile,
 } from '../services/imageToolkit';
 import { PdfToImageTool } from './PdfToImageTool';
+import { ImageRoutineTools } from './ImageRoutineTools';
 import { PreviewTarget } from './DocumentPreviewModal';
 
 export type ImageToolTab =
   | 'bg-remove'
   | 'bulk-bg-remove'
+  | 'watermark-remove'
+  | 'blur-redact'
+  | 'grid-collage'
   | 'pdf-to-image'
   | 'resize'
   | 'convert'
@@ -82,6 +89,9 @@ const IMAGE_TOOL_TABS: {
 }[] = [
   { id: 'bg-remove', label: 'BG Remover', icon: Eraser },
   { id: 'bulk-bg-remove', label: 'Bulk BG Remover', icon: Layers },
+  { id: 'watermark-remove', label: 'Watermark Remover', icon: Droplets },
+  { id: 'blur-redact', label: 'Blur & Redact', icon: EyeOff },
+  { id: 'grid-collage', label: 'Photo Grid / IDs', icon: LayoutGrid },
   { id: 'pdf-to-image', label: 'PDF to Image', icon: FileImage },
   { id: 'resize', label: 'Resize', icon: Maximize2 },
   { id: 'convert', label: 'Convert Format', icon: RefreshCw },
@@ -735,7 +745,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   // Cross-tool handoff helper (keeps designers flowing smoothly!)
   const sendFileToImageTool = (
     file: File,
-    target: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'filters'
+    target: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'compress' | 'filters'
   ) => {
     resetFeedback();
     onToolChange(target);
@@ -743,12 +753,13 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
     else if (target === 'resize') void handleAddResizeFiles([file]);
     else if (target === 'convert') handleAddConvertFiles([file]);
     else if (target === 'crop') void handleLoadCropFile(file);
+    else if (target === 'compress') handleAddCompFiles([file]);
     else if (target === 'filters') void handleLoadFilterFile(file);
   };
 
   const sendResultToTool = (
     res: ProcessedImageResult,
-    target: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'filters'
+    target: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'compress' | 'filters'
   ) => {
     const mime =
       res.format === 'jpg'
@@ -782,7 +793,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               PaperLink Image &amp; Graphic Design Toolkit
             </h1>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-              8 pixel-accurate design tools running locally in your browser — remove backgrounds, batch cutouts, render PDFs to print images, resize, convert formats, crop, compress, and extract hex palettes.
+              11 pixel-accurate daily tools running locally in your browser — remove backgrounds, erase watermarks, blur/redact info, join ID grids, render PDFs, resize, convert, crop, compress, and grade colors.
             </p>
           </div>
         </div>
@@ -2780,6 +2791,23 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* 9-11. DAILY ROUTINE TOOLS (WATERMARK REMOVER, BLUR/REDACT, PHOTO GRID) */}
+      {/* ===================================================== */}
+      {(activeTool === 'watermark-remove' ||
+        activeTool === 'blur-redact' ||
+        activeTool === 'grid-collage') && (
+        <ImageRoutineTools
+          mode={activeTool}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onSendResultToTool={sendResultToTool}
+        />
       )}
     </div>
   );
