@@ -225,7 +225,13 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
               'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
           }
           const buf = new Uint8Array(await currentTarget.blob.arrayBuffer()).slice().buffer;
-          const doc = await pdfjsLib.getDocument({ data: buf, useSystemFonts: true }).promise;
+          const doc = await pdfjsLib.getDocument({
+            data: buf,
+            useSystemFonts: true,
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+            cMapPacked: true,
+            standardFontDataUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/',
+          }).promise;
           if (cancelled) {
             if (doc && typeof doc.destroy === 'function') void doc.destroy();
           } else {
@@ -264,7 +270,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
   // Render active PDF page onto high-DPI canvas
   useEffect(() => {
-    if (!pdfDoc || !pdfCanvasRef.current) return;
+    if (kind !== 'pdf' || isLoading || errorMsg || !pdfDoc || !pdfCanvasRef.current) return;
     let cancelled = false;
     let renderTask: any = null;
 
@@ -282,7 +288,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         canvas.width = Math.max(1, Math.floor(viewport.width));
         canvas.height = Math.max(1, Math.floor(viewport.height));
         canvas.style.width = `${Math.floor(cssViewport.width)}px`;
-        canvas.style.height = `${Math.floor(cssViewport.height)}px`;
+        canvas.style.height = 'auto';
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
@@ -294,6 +300,9 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
       } catch (err: any) {
         if (!cancelled && err?.name !== 'RenderingCancelledException') {
           console.error('PDF page render error:', err);
+          setErrorMsg(
+            err?.message || 'Unable to render this PDF page preview. Use Download above to open it locally.'
+          );
         }
       } finally {
         if (!cancelled) setIsRenderingPage(false);
@@ -312,7 +321,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         }
       }
     };
-  }, [pdfDoc, pdfPage, zoom]);
+  }, [pdfDoc, pdfPage, zoom, isLoading, kind, errorMsg]);
 
   if (!currentTarget) return null;
 
@@ -498,7 +507,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
               <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">{errorMsg}</p>
             </div>
           ) : kind === 'pdf' ? (
-            <div className="w-full flex flex-col items-center gap-4">
+            <div className="w-full flex flex-col items-center gap-4 shrink-0">
               {pdfTotalPages > 1 && (
                 <div className="flex items-center gap-1.5 flex-wrap justify-center max-w-2xl">
                   {Array.from({ length: Math.min(pdfTotalPages, 24) }, (_, idx) => idx + 1).map(
@@ -525,7 +534,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                 </div>
               )}
 
-              <div className="relative bg-white rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+              <div className="relative bg-white rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shrink-0">
                 {isRenderingPage && (
                   <div className="absolute inset-0 bg-white/60 dark:bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10">
                     <Loader2 className="w-6 h-6 animate-spin text-amber-500" />

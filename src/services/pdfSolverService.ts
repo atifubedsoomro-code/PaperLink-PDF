@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { PDFDocument as CantooPDFDocument } from '@cantoo/pdf-lib';
 import { convertImagesToPdf, convertWordToPdf } from './pdfToolkit';
 import type {
   AnswerSheetQuestionItem,
@@ -1105,8 +1106,51 @@ export async function solveDocumentWithAI(
   }
 
   onStatus?.('Writing solved answers & diagrams into PDF...');
-  const pdfBuf = new Uint8Array(await normalizedPdf.arrayBuffer()).slice().buffer;
-  const pdfDoc = await PDFDocument.load(pdfBuf, { ignoreEncryption: true });
+  const rawPdfBuf = new Uint8Array(await normalizedPdf.arrayBuffer()).slice().buffer;
+  let pdfDoc: PDFDocument;
+  try {
+    pdfDoc = await PDFDocument.load(rawPdfBuf, { ignoreEncryption: false });
+  } catch {
+    // Source PDF has owner/permission encryption — try clean empty-password decrypt first, else rebuild clean pages via pdf.js
+    try {
+      const cantoo = await CantooPDFDocument.load(rawPdfBuf, { password: '' });
+      const cleanCopy = await CantooPDFDocument.create();
+      const idx = Array.from({ length: cantoo.getPageCount() }, (_, k) => k);
+      const copied = await cleanCopy.copyPages(cantoo, idx);
+      copied.forEach((p) => cleanCopy.addPage(p));
+      const unlockedBytes = await cleanCopy.save({ useObjectStreams: false });
+      pdfDoc = await PDFDocument.load(new Uint8Array(unlockedBytes).slice().buffer);
+    } catch {
+      const pdfjsLib = getPdfJs();
+      const srcProxy = await pdfjsLib.getDocument({
+        data: rawPdfBuf,
+        useSystemFonts: true,
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/',
+      }).promise;
+      const rebuiltDoc = await PDFDocument.create();
+      for (let pn = 1; pn <= srcProxy.numPages; pn++) {
+        const pg = await srcProxy.getPage(pn);
+        const vp1 = pg.getViewport({ scale: 1 });
+        const renderVp = pg.getViewport({ scale: 2.0 });
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(renderVp.width));
+        c.height = Math.max(1, Math.round(renderVp.height));
+        const cx = c.getContext('2d');
+        if (cx) {
+          cx.fillStyle = '#ffffff';
+          cx.fillRect(0, 0, c.width, c.height);
+          await pg.render({ canvasContext: cx, viewport: renderVp }).promise;
+          const jpgBytes = dataUrlToUint8Array(c.toDataURL('image/jpeg', 0.9));
+          const emb = await rebuiltDoc.embedJpg(jpgBytes);
+          const np = rebuiltDoc.addPage([vp1.width, vp1.height]);
+          np.drawImage(emb, { x: 0, y: 0, width: vp1.width, height: vp1.height });
+        }
+      }
+      pdfDoc = rebuiltDoc;
+    }
+  }
   pdfDoc.setProducer('PaperLink AI Solver');
   pdfDoc.setCreator('PaperLink');
 
@@ -1229,7 +1273,7 @@ export async function solveDocumentWithAI(
   }
 
   onStatus?.('Packaging final solved PDF...');
-  const finalBytes = await pdfDoc.save({ useObjectStreams: true });
+  const finalBytes = await pdfDoc.save({ useObjectStreams: false });
   const safeBytes = new Uint8Array(finalBytes).slice();
   const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
 

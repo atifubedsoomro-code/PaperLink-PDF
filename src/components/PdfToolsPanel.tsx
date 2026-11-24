@@ -33,6 +33,7 @@ import {
   ImagePlus,
   Droplets,
   Stamp,
+  ScanLine,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import {
@@ -68,6 +69,7 @@ import { PdfProtectTool } from './PdfProtectTool';
 import { PdfToImageTool } from './PdfToImageTool';
 import { PdfAddImagesTool } from './PdfAddImagesTool';
 import { PdfWatermarkTools } from './PdfWatermarkTools';
+import { PdfScanCropTool } from './PdfScanCropTool';
 import { OfficeUtilityTools, OfficeUtilityTabId } from './OfficeUtilityTools';
 
 export type PdfToolTab =
@@ -81,6 +83,7 @@ export type PdfToolTab =
   | 'pdf-add-images'
   | 'pdf-watermark-remove'
   | 'pdf-watermark-add'
+  | 'pdf-scan-crop'
   | 'pdf-organize'
   | 'pdf-sign'
   | 'pdf-edit'
@@ -123,9 +126,9 @@ const PDF_TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<
   { id: 'pdf-add-images', label: 'Add Pictures', icon: ImagePlus },
   { id: 'pdf-watermark-remove', label: 'Watermark Remover', icon: Droplets },
   { id: 'pdf-watermark-add', label: 'Watermark & Page #', icon: Stamp },
+  { id: 'pdf-scan-crop', label: 'Crop & Auto-Scan', icon: ScanLine },
   { id: 'pdf-organize', label: 'Rotate & Delete', icon: RotateCw },
   { id: 'pdf-sign', label: 'Sign & Stamp', icon: PenTool },
-  { id: 'pdf-edit', label: 'Edit PDF', icon: Edit3 },
   { id: 'pdf-protect', label: 'Protect PDF', icon: Lock },
 ];
 
@@ -683,13 +686,40 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
     <div className="space-y-6">
       {/* Header & Grouped Tool Selector */}
       <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
-        <div>
-          <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight">
-            PaperLink Local PDF &amp; Office Utility Toolkit
-          </h1>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            20 private PDF, Word, PowerPoint, and Excel utilities executing locally in your browser — send any PDF straight into Cover Studio.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight">
+              PaperLink Local PDF &amp; Office Studio
+            </h1>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+              Use <span className="font-semibold text-amber-700 dark:text-yellow-400">Edit PDF</span> as the Parent All-in-One Workspace on a single PDF, or jump straight to an individual utility below.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              resetFeedback();
+              onToolChange('pdf-edit');
+            }}
+            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full border-2 text-xs font-extrabold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+              activeTool === 'pdf-edit'
+                ? 'border-yellow-400 bg-yellow-400 text-black shadow-[0_0_18px_rgba(250,204,21,0.42)] ring-2 ring-yellow-300/60 ring-offset-2 ring-offset-white dark:ring-offset-[#121215]'
+                : 'border-yellow-400 bg-yellow-400/12 hover:bg-yellow-400/22 text-amber-800 dark:text-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.2)]'
+            }`}
+          >
+            <Edit3 className="w-4 h-4 shrink-0" />
+            <span>Edit PDF</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider ${
+                activeTool === 'pdf-edit'
+                  ? 'bg-black/15 text-black'
+                  : 'bg-yellow-400/25 text-amber-900 dark:text-yellow-200'
+              }`}
+            >
+              Parent Section
+            </span>
+          </button>
         </div>
 
         <div className="space-y-2.5">
@@ -698,6 +728,22 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               PDF &amp; Word Core Tools
             </p>
             <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => {
+                  resetFeedback();
+                  onToolChange('pdf-edit');
+                }}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border-2 text-xs font-extrabold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                  activeTool === 'pdf-edit'
+                    ? 'border-yellow-400 bg-yellow-400 text-black shadow-[0_0_12px_rgba(250,204,21,0.35)]'
+                    : 'border-yellow-400/85 bg-yellow-400/10 hover:bg-yellow-400/20 text-amber-800 dark:text-yellow-300'
+                }`}
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit PDF</span>
+              </button>
+
               {PDF_TOOL_TABS.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTool === tab.id;
@@ -2664,6 +2710,19 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {(activeTool === 'pdf-watermark-remove' || activeTool === 'pdf-watermark-add') && (
         <PdfWatermarkTools
           mode={activeTool === 'pdf-watermark-remove' ? 'remove' : 'add'}
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
+        />
+      )}
+
+      {/* TOOL 14B: CROP & AUTO-SCAN PHONE PDF */}
+      {activeTool === 'pdf-scan-crop' && (
+        <PdfScanCropTool
           onOpenInCoverStudio={openGeneratedPdfInStudio}
           onError={setErrorMsg}
           onProgress={setProgress}

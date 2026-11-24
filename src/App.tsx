@@ -335,7 +335,7 @@ export default function App() {
   // Navigation State: supports /privacy & /terms direct routes as well as SPA views
   const [activeView, setActiveView] = useState<AppView>(readInitialView);
   const [studioSection, setStudioSection] = useState<StudioSection>('editor');
-  const [activePdfTool, setActivePdfTool] = useState<PdfToolTab>('pdf-to-word');
+  const [activePdfTool, setActivePdfTool] = useState<PdfToolTab>('pdf-edit');
   const [activeImageTool, setActiveImageTool] = useState<ImageToolTab>('bg-remove');
 
   // Linear 5-Step Cover Studio Workflow

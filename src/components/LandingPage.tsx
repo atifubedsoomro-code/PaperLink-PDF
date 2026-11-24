@@ -36,6 +36,7 @@ import {
   EyeOff,
   ImagePlus,
   Stamp,
+  ScanLine,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppView } from './Navbar';
@@ -128,6 +129,7 @@ const PDF_OFFICE_TOOLS: Array<{
   { id: 'pdf-add-images', title: 'Add Pictures to PDF', desc: 'Place photos, IDs & logos onto pages.', icon: ImagePlus },
   { id: 'pdf-watermark-remove', title: 'PDF Watermark Remover', desc: 'Clean diagonal stamps & scanner logos.', icon: Droplets },
   { id: 'pdf-watermark-add', title: 'Watermark & Page #', desc: 'Stamp CONFIDENTIAL/DRAFT & page numbers.', icon: Stamp },
+  { id: 'pdf-scan-crop', title: 'Crop & Auto-Scan PDF', desc: 'Crop phone photos, flatten shadows & remove watermarks.', icon: ScanLine },
 ];
 
 const DESIGNER_IMAGE_TOOLS: Array<{
@@ -218,7 +220,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   type="button"
                   whileHover={{ y: -2 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => onOpenPdfTool('pdf-to-word')}
+                  onClick={() => onOpenPdfTool('pdf-edit')}
                   className="inline-flex items-center gap-2 px-4 py-3.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-yellow-400 text-zinc-800 dark:text-zinc-200 font-semibold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <span>PDF &amp; Office</span>
@@ -744,7 +746,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => onOpenPdfTool('pdf-to-word')}
+                onClick={() => onOpenPdfTool('pdf-edit')}
                 className="hover:text-zinc-950 dark:hover:text-white transition-colors cursor-pointer"
               >
                 PDF Tools

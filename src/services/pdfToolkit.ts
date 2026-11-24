@@ -2269,4 +2269,480 @@ export async function removePdfWatermark(
   };
 }
 
+// ==========================================
+// Tool 13: Crop & Auto-Scan Phone PDF
+// (Auto Edge Crop + Shadow Flatten + Watermark Clean + Full-Page Fit)
+// ==========================================
+
+export type PdfScanEnhanceMode = 'magic-color' | 'bw-document' | 'clean-only' | 'none';
+export type PdfScanFitPage = 'a4-fit' | 'a4-full-bleed' | 'letter-fit' | 'exact-crop';
+
+export interface PdfCropRect {
+  left: number; // 0..1 from left
+  top: number; // 0..1 from top
+  right: number; // 0..1 from left (> left)
+  bottom: number; // 0..1 from top (> top)
+}
+
+export interface PdfScanCropOptions {
+  cropRects?: Record<number, PdfCropRect>; // keyed by 1-based page number
+  defaultCrop?: PdfCropRect;
+  autoDetectEdges: boolean;
+  autoRemoveWatermark: boolean;
+  flattenShadows: boolean;
+  enhanceMode: PdfScanEnhanceMode;
+  fitPage: PdfScanFitPage;
+  watermarkCutoff?: number;
+  pageRangeExpr?: string;
+}
+
+export interface PdfScanCropResult {
+  blob: Blob;
+  bytes: Uint8Array;
+  fileName: string;
+  pageCount: number;
+  processedPages: number;
+}
+
+/**
+ * Automatically detects the paper boundary inside a phone-captured page or bordered scan
+ * so dark desk/camera margins are cropped away while preserving full document content.
+ */
+export function detectDocumentCropRectFromImageData(imgData: ImageData): PdfCropRect {
+  const { width: w, height: h, data } = imgData;
+  if (w < 24 || h < 24) {
+    return { left: 0.01, top: 0.01, right: 0.99, bottom: 0.99 };
+  }
+
+  const getLum = (x: number, y: number) => {
+    const idx = (y * w + x) * 4;
+    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+  };
+
+  // Sample average brightness of center paper vs outer 3% border ring
+  const cx0 = Math.floor(w * 0.25);
+  const cx1 = Math.floor(w * 0.75);
+  const cy0 = Math.floor(h * 0.25);
+  const cy1 = Math.floor(h * 0.75);
+  let centerSum = 0;
+  let centerN = 0;
+  for (let y = cy0; y < cy1; y += 4) {
+    for (let x = cx0; x < cx1; x += 4) {
+      centerSum += getLum(x, y);
+      centerN++;
+    }
+  }
+  const centerAvg = centerN > 0 ? centerSum / centerN : 225;
+
+  let edgeSum = 0;
+  let edgeN = 0;
+  const band = Math.max(2, Math.floor(Math.min(w, h) * 0.025));
+  for (let y = 0; y < h; y += 3) {
+    for (let x = 0; x < w; x += 3) {
+      if (x < band || x >= w - band || y < band || y >= h - band) {
+        edgeSum += getLum(x, y);
+        edgeN++;
+      }
+    }
+  }
+  const edgeAvg = edgeN > 0 ? edgeSum / edgeN : 225;
+
+  // Case A: Dark desk / phone border surrounding brighter paper sheet
+  const hasDarkOuterBorder = centerAvg - edgeAvg > 28 && edgeAvg < 185;
+  if (hasDarkOuterBorder) {
+    const paperThresh = edgeAvg + (centerAvg - edgeAvg) * 0.42;
+
+    const rowPaperFraction = (y: number) => {
+      let bright = 0;
+      let total = 0;
+      for (let x = Math.floor(w * 0.08); x < Math.floor(w * 0.92); x += 4) {
+        if (getLum(x, y) >= paperThresh) bright++;
+        total++;
+      }
+      return total > 0 ? bright / total : 0;
+    };
+
+    const colPaperFraction = (x: number, yStart: number, yEnd: number) => {
+      let bright = 0;
+      let total = 0;
+      for (let y = yStart; y < yEnd; y += 4) {
+        if (getLum(x, y) >= paperThresh) bright++;
+        total++;
+      }
+      return total > 0 ? bright / total : 0;
+    };
+
+    let topPx = 0;
+    while (topPx < Math.floor(h * 0.42) && rowPaperFraction(topPx) < 0.38) topPx += 2;
+
+    let bottomPx = h - 1;
+    while (bottomPx > Math.floor(h * 0.58) && rowPaperFraction(bottomPx) < 0.38) bottomPx -= 2;
+
+    const spanY0 = Math.min(bottomPx - 10, topPx + 6);
+    const spanY1 = Math.max(spanY0 + 10, bottomPx - 6);
+
+    let leftPx = 0;
+    while (leftPx < Math.floor(w * 0.42) && colPaperFraction(leftPx, spanY0, spanY1) < 0.38) {
+      leftPx += 2;
+    }
+
+    let rightPx = w - 1;
+    while (rightPx > Math.floor(w * 0.58) && colPaperFraction(rightPx, spanY0, spanY1) < 0.38) {
+      rightPx -= 2;
+    }
+
+    // Small inward clean trim so residual dark edge hairline doesn't remain
+    const trimX = Math.round(w * 0.008);
+    const trimY = Math.round(h * 0.008);
+    const l = Math.max(0, Math.min(0.42, (leftPx + trimX) / w));
+    const t = Math.max(0, Math.min(0.42, (topPx + trimY) / h));
+    const r = Math.min(1, Math.max(0.58, (rightPx - trimX) / w));
+    const b = Math.min(1, Math.max(0.58, (bottomPx - trimY) / h));
+
+    if (r - l >= 0.25 && b - t >= 0.25) {
+      return {
+        left: Number(l.toFixed(3)),
+        top: Number(t.toFixed(3)),
+        right: Number(r.toFixed(3)),
+        bottom: Number(b.toFixed(3)),
+      };
+    }
+  }
+
+  // Case B: Already light/white scan — auto-trim oversized blank outer margins cleanly
+  let minX = w;
+  let minY = h;
+  let maxX = 0;
+  let maxY = 0;
+  let inkHits = 0;
+  for (let y = 0; y < h; y += 3) {
+    for (let x = 0; x < w; x += 3) {
+      if (getLum(x, y) < 212) {
+        inkHits++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (inkHits > 25 && maxX - minX > w * 0.2 && maxY - minY > h * 0.2) {
+    const padX = Math.round(w * 0.025);
+    const padY = Math.round(h * 0.025);
+    const l = Math.max(0, (minX - padX) / w);
+    const t = Math.max(0, (minY - padY) / h);
+    const r = Math.min(1, (maxX + padX) / w);
+    const b = Math.min(1, (maxY + padY) / h);
+    return {
+      left: Number(l.toFixed(3)),
+      top: Number(t.toFixed(3)),
+      right: Number(r.toFixed(3)),
+      bottom: Number(b.toFixed(3)),
+    };
+  }
+
+  return { left: 0.015, top: 0.015, right: 0.985, bottom: 0.985 };
+}
+
+/**
+ * Applies phone-camera scanner enhancement:
+ * 1) Adaptive local background division (flattens phone shadows & uneven lighting into crisp paper white)
+ * 2) Automatic watermark pixel cleaning (removes scanner logos & pale stamps)
+ * 3) Magic Color or Crisp B&W enhancement
+ */
+export function applyPhoneScanFilterToImageData(
+  imgData: ImageData,
+  opts: {
+    flattenShadows: boolean;
+    autoRemoveWatermark: boolean;
+    enhanceMode: PdfScanEnhanceMode;
+    watermarkCutoff?: number;
+  }
+): void {
+  const { width: w, height: h, data } = imgData;
+
+  if (opts.flattenShadows && w >= 16 && h >= 16) {
+    const gridW = 24;
+    const gridH = 24;
+    const cellW = w / gridW;
+    const cellH = h / gridH;
+    const bgR = new Float32Array(gridW * gridH);
+    const bgG = new Float32Array(gridW * gridH);
+    const bgB = new Float32Array(gridW * gridH);
+
+    // Estimate local paper background using 88th percentile / max-bright cluster per cell
+    for (let gy = 0; gy < gridH; gy++) {
+      const y0 = Math.floor(gy * cellH);
+      const y1 = Math.min(h, Math.ceil((gy + 1) * cellH));
+      for (let gx = 0; gx < gridW; gx++) {
+        const x0 = Math.floor(gx * cellW);
+        const x1 = Math.min(w, Math.ceil((gx + 1) * cellW));
+        let bestLum = -1;
+        let br = 245;
+        let bg = 245;
+        let bb = 245;
+        for (let py = y0; py < y1; py += 2) {
+          for (let px = x0; px < x1; px += 2) {
+            const idx = (py * w + px) * 4;
+            const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+            if (lum > bestLum) {
+              bestLum = lum;
+              br = data[idx];
+              bg = data[idx + 1];
+              bb = data[idx + 2];
+            }
+          }
+        }
+        const gIdx = gy * gridW + gx;
+        bgR[gIdx] = Math.max(95, br);
+        bgG[gIdx] = Math.max(95, bg);
+        bgB[gIdx] = Math.max(95, bb);
+      }
+    }
+
+    // Smooth illumination grid twice to prevent blockiness around large images
+    const smoothGrid = (arr: Float32Array) => {
+      const copy = new Float32Array(arr);
+      for (let gy = 0; gy < gridH; gy++) {
+        for (let gx = 0; gx < gridW; gx++) {
+          let sum = 0;
+          let cnt = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const ny = Math.max(0, Math.min(gridH - 1, gy + dy));
+              const nx = Math.max(0, Math.min(gridW - 1, gx + dx));
+              sum += copy[ny * gridW + nx];
+              cnt++;
+            }
+          }
+          arr[gy * gridW + gx] = sum / cnt;
+        }
+      }
+    };
+    smoothGrid(bgR);
+    smoothGrid(bgG);
+    smoothGrid(bgB);
+
+    // Bilinear local normalization
+    for (let y = 0; y < h; y++) {
+      const fy = Math.max(0, Math.min(gridH - 1.001, (y + 0.5) / cellH - 0.5));
+      const y0 = Math.floor(fy);
+      const y1 = Math.min(gridH - 1, y0 + 1);
+      const wy = fy - y0;
+
+      for (let x = 0; x < w; x++) {
+        const fx = Math.max(0, Math.min(gridW - 1.001, (x + 0.5) / cellW - 0.5));
+        const x0 = Math.floor(fx);
+        const x1 = Math.min(gridW - 1, x0 + 1);
+        const wx = fx - x0;
+
+        const i00 = y0 * gridW + x0;
+        const i10 = y0 * gridW + x1;
+        const i01 = y1 * gridW + x0;
+        const i11 = y1 * gridW + x1;
+
+        const estR =
+          (bgR[i00] * (1 - wx) + bgR[i10] * wx) * (1 - wy) +
+          (bgR[i01] * (1 - wx) + bgR[i11] * wx) * wy;
+        const estG =
+          (bgG[i00] * (1 - wx) + bgG[i10] * wx) * (1 - wy) +
+          (bgG[i01] * (1 - wx) + bgG[i11] * wx) * wy;
+        const estB =
+          (bgB[i00] * (1 - wx) + bgB[i10] * wx) * (1 - wy) +
+          (bgB[i01] * (1 - wx) + bgB[i11] * wx) * wy;
+
+        const p = (y * w + x) * 4;
+        data[p] = Math.min(255, Math.round((data[p] / estR) * 255));
+        data[p + 1] = Math.min(255, Math.round((data[p + 1] / estG) * 255));
+        data[p + 2] = Math.min(255, Math.round((data[p + 2] / estB) * 255));
+      }
+    }
+  }
+
+  if (opts.enhanceMode === 'magic-color') {
+    for (let i = 0; i < data.length; i += 4) {
+      for (let c = 0; c < 3; c++) {
+        const v = data[i + c];
+        const contrasted = ((v / 255 - 0.5) * 1.24 + 0.52) * 255;
+        data[i + c] = contrasted > 224 ? 255 : Math.max(0, Math.min(255, Math.round(contrasted)));
+      }
+    }
+  } else if (opts.enhanceMode === 'bw-document') {
+    for (let i = 0; i < data.length; i += 4) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      const bw = lum > 175 ? 255 : Math.max(0, Math.round(((lum / 175) ** 1.35) * 175));
+      data[i] = bw;
+      data[i + 1] = bw;
+      data[i + 2] = bw;
+    }
+  }
+
+  if (opts.autoRemoveWatermark) {
+    cleanWatermarkImageData(imgData, {
+      luminanceCutoff: opts.watermarkCutoff ?? 176,
+      textDarkenBoost: opts.enhanceMode === 'bw-document' ? 68 : 48,
+      tintSensitivity: 24,
+      removeLightGreyWatermarks: true,
+    });
+  }
+}
+
+/**
+ * Crops, auto-scans, strips watermarks, and fits every page neatly into the full PDF page.
+ */
+export async function scanCropAndCleanPdf(
+  file: File,
+  options: PdfScanCropOptions,
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfScanCropResult> {
+  const pdfjsLib = getPdfJs();
+  onProgress?.(8, 'Inspecting PDF pages for crop & auto-scan...');
+  const rawBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+  const pdf = await pdfjsLib.getDocument({
+    data: rawBuffer,
+    useSystemFonts: true,
+    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/',
+  }).promise;
+
+  const totalPages: number = pdf.numPages;
+  const targetIndices = parsePageRange(options.pageRangeExpr, totalPages);
+  const targetSet = new Set(targetIndices);
+
+  const srcForPassthrough = await PDFDocument.load(rawBuffer, { ignoreEncryption: true });
+  const outDoc = await PDFDocument.create();
+  outDoc.setProducer('PaperLink Auto-Scanner');
+  outDoc.setCreator('PaperLink');
+
+  for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+    const pageNum = pIdx + 1;
+    if (!targetSet.has(pIdx)) {
+      const [copied] = await outDoc.copyPages(srcForPassthrough, [pIdx]);
+      outDoc.addPage(copied);
+      continue;
+    }
+
+    onProgress?.(
+      14 + Math.round(((pIdx + 1) / totalPages) * 76),
+      `Cropping, scanning & cleaning page ${pageNum} of ${totalPages}...`
+    );
+
+    const page = await pdf.getPage(pageNum);
+    const renderVp = page.getViewport({ scale: 2.2 });
+
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = Math.max(1, Math.round(renderVp.width));
+    srcCanvas.height = Math.max(1, Math.round(renderVp.height));
+    const srcCtx = srcCanvas.getContext('2d');
+    if (!srcCtx) throw new Error('Canvas unavailable');
+
+    srcCtx.fillStyle = '#ffffff';
+    srcCtx.fillRect(0, 0, srcCanvas.width, srcCanvas.height);
+    await page.render({ canvasContext: srcCtx, viewport: renderVp }).promise;
+
+    const fullImgData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+    const rect: PdfCropRect =
+      options.cropRects?.[pageNum] ||
+      (options.autoDetectEdges
+        ? detectDocumentCropRectFromImageData(fullImgData)
+        : options.defaultCrop || { left: 0, top: 0, right: 1, bottom: 1 });
+
+    const sx = Math.max(0, Math.min(srcCanvas.width - 12, Math.round(rect.left * srcCanvas.width)));
+    const sy = Math.max(0, Math.min(srcCanvas.height - 12, Math.round(rect.top * srcCanvas.height)));
+    const sw = Math.max(12, Math.min(srcCanvas.width - sx, Math.round((rect.right - rect.left) * srcCanvas.width)));
+    const sh = Math.max(12, Math.min(srcCanvas.height - sy, Math.round((rect.bottom - rect.top) * srcCanvas.height)));
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = sw;
+    cropCanvas.height = sh;
+    const cropCtx = cropCanvas.getContext('2d');
+    if (!cropCtx) throw new Error('Canvas unavailable');
+    cropCtx.fillStyle = '#ffffff';
+    cropCtx.fillRect(0, 0, sw, sh);
+    cropCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    if (options.flattenShadows || options.autoRemoveWatermark || options.enhanceMode !== 'none') {
+      const croppedImgData = cropCtx.getImageData(0, 0, sw, sh);
+      applyPhoneScanFilterToImageData(croppedImgData, {
+        flattenShadows: options.flattenShadows,
+        autoRemoveWatermark: options.autoRemoveWatermark,
+        enhanceMode: options.enhanceMode,
+        watermarkCutoff: options.watermarkCutoff,
+      });
+      cropCtx.putImageData(croppedImgData, 0, 0);
+    }
+
+    const jpgBlob = await new Promise<Blob>((resolve, reject) =>
+      cropCanvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Scanned image encode failed'))),
+        'image/jpeg',
+        0.92
+      )
+    );
+    const embedded = await outDoc.embedJpg(new Uint8Array(await jpgBlob.arrayBuffer()));
+
+    // Compute fitted PDF output page dimensions so the cropped scan properly fills the whole page
+    const isLandscape = sw > sh * 1.05;
+    let pageW = 595.28;
+    let pageH = 841.89;
+    let drawW = pageW;
+    let drawH = pageH;
+    let drawX = 0;
+    let drawY = 0;
+
+    if (options.fitPage === 'exact-crop') {
+      const normScale = 595.28 / Math.max(1, isLandscape ? sh : sw);
+      pageW = Math.round(sw * normScale);
+      pageH = Math.round(sh * normScale);
+      drawW = pageW;
+      drawH = pageH;
+    } else if (options.fitPage === 'a4-full-bleed') {
+      pageW = isLandscape ? 841.89 : 595.28;
+      pageH = isLandscape ? 595.28 : 841.89;
+      // Cover / fill whole page edge-to-edge cleanly
+      const scale = Math.max(pageW / sw, pageH / sh);
+      drawW = sw * scale;
+      drawH = sh * scale;
+      drawX = (pageW - drawW) / 2;
+      drawY = (pageH - drawH) / 2;
+    } else {
+      const base =
+        options.fitPage === 'letter-fit'
+          ? { w: 612, h: 792 }
+          : { w: 595.28, h: 841.89 };
+      pageW = isLandscape ? base.h : base.w;
+      pageH = isLandscape ? base.w : base.h;
+      // Tight 8pt print-safe margin so cropped content fills ~97% of the whole page cleanly
+      const margin = 8;
+      const availW = pageW - margin * 2;
+      const availH = pageH - margin * 2;
+      const scale = Math.min(availW / sw, availH / sh);
+      drawW = sw * scale;
+      drawH = sh * scale;
+      drawX = (pageW - drawW) / 2;
+      drawY = (pageH - drawH) / 2;
+    }
+
+    const outPage = outDoc.addPage([pageW, pageH]);
+    outPage.drawImage(embedded, { x: drawX, y: drawY, width: drawW, height: drawH });
+  }
+
+  onProgress?.(94, 'Packaging cropped & auto-scanned PDF...');
+  const bytes = await outDoc.save({ useObjectStreams: false });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'Crop & Auto-Scan complete');
+
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${baseName(file.name)}_scanned.pdf`,
+    pageCount: totalPages,
+    processedPages: targetIndices.length,
+  };
+}
+
+
 
