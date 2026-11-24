@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { WifiOff, RefreshCw } from 'lucide-react';
+import { RefreshCw, WifiOff } from 'lucide-react';
 import { registerSW } from 'virtual:pwa-register';
+import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 
 export const OfflineIndicator: React.FC = () => {
   const [isOffline, setIsOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false
   );
+  const [isCheckingConn, setIsCheckingConn] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [updateSwFn, setUpdateSwFn] = useState<((reload?: boolean) => Promise<void>) | null>(null);
 
@@ -40,20 +43,64 @@ export const OfflineIndicator: React.FC = () => {
     };
   }, []);
 
+  const handleCheckConnection = async () => {
+    setIsCheckingConn(true);
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(`${window.location.origin}/?ping=${Date.now()}`, {
+        method: 'HEAD',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
+      if (res.ok && navigator.onLine) {
+        setIsOffline(false);
+      }
+    } catch {
+      setIsOffline(true);
+    } finally {
+      setIsCheckingConn(false);
+    }
+  };
+
   if (!isOffline && !needsRefresh) return null;
 
   return (
     <div className="no-print max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-3 space-y-2">
       {isOffline && (
-        <div
-          role="status"
-          className="px-3.5 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-500/40 text-amber-800 dark:text-amber-200 text-xs flex items-center justify-between gap-2"
+        <LiquidCrystalCard
+          accentGlow="yellow"
+          className="px-4 py-3 rounded-2xl !border-amber-400/70 dark:!border-yellow-400/40"
         >
-          <span className="flex items-center gap-2 font-medium">
-            <WifiOff className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            Offline mode — Local Cover Studio, PDF conversion, merge, split & signing continue to work. Drive upload & email require internet.
-          </span>
-        </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <ClipingPapersLogo
+              size="sm"
+              tone="offline"
+              layout="inline"
+              statusText={
+                isCheckingConn
+                  ? 'Checking website & internet connection…'
+                  : 'Connection down — waiting to reconnect…'
+              }
+              subText="Local Cover Studio, PDF merge, split, edit, scan & Image tools keep working offline. Drive & AI resume automatically online."
+            />
+
+            <LiquidCrystalButton
+              variant="primary"
+              disabled={isCheckingConn}
+              onClick={() => void handleCheckConnection()}
+              className="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap shrink-0 self-start sm:self-auto"
+            >
+              {isCheckingConn ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <WifiOff className="w-3.5 h-3.5" />
+              )}
+              <span>{isCheckingConn ? 'Reconnecting…' : 'Retry Connection'}</span>
+            </LiquidCrystalButton>
+          </div>
+        </LiquidCrystalCard>
       )}
 
       {needsRefresh && (

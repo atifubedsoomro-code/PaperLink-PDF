@@ -469,19 +469,32 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
       </div>
     ) : null;
 
+    const docScalePercent = Math.max(50, Math.min(125, coverData.documentPageScale ?? 100));
+    const docScale = docScalePercent / 100;
+
     if (previewImg) {
       return (
         <div
-          className="bg-white rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 overflow-hidden relative"
+          className="bg-white rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 overflow-hidden relative flex items-center justify-center"
           style={{ width: PAPER_W, height: paperH }}
         >
-          <img
-            src={previewImg}
-            alt={`Page ${pageIndex + 1}`}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-contain"
-          />
+          <div
+            className="w-full h-full flex items-center justify-center transition-transform duration-150"
+            style={{ transform: `scale(${docScale})`, transformOrigin: 'center center' }}
+          >
+            <img
+              src={previewImg}
+              alt={`Page ${pageIndex + 1}`}
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain"
+            />
+          </div>
           {watermarkOverlay}
+          {docScalePercent !== 100 && (
+            <div className="absolute top-3 left-3 px-2 py-0.5 rounded bg-yellow-400/90 text-black font-mono font-bold text-[10px] tabular-nums shadow-xs">
+              Scale {docScalePercent}%
+            </div>
+          )}
           {(coverData.stampPageNumbers || true) && (
             <div className="absolute bottom-3 right-4 px-2 py-0.5 rounded bg-black/75 text-white font-mono text-[10px] tabular-nums">
               Page {pageIndex + 1} of {totalExportPages}
@@ -493,47 +506,52 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
     return (
       <div
-        className="bg-white text-slate-900 rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 p-[40px] flex flex-col justify-between relative overflow-hidden"
+        className="bg-white text-slate-900 rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 overflow-hidden relative"
         style={{ width: PAPER_W, height: paperH }}
       >
-        {watermarkOverlay}
-        <div>
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3 text-[12px] text-slate-500 font-mono">
-            <span className="truncate max-w-[200px]">{currentDoc?.name || 'Document'}</span>
-            <span className="tabular-nums">Page {pageIndex + 1}</span>
-          </div>
+        <div
+          className="w-full h-full p-[40px] flex flex-col justify-between transition-transform duration-150"
+          style={{ transform: `scale(${docScale})`, transformOrigin: 'center center' }}
+        >
+          <div>
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3 text-[12px] text-slate-500 font-mono">
+              <span className="truncate max-w-[200px]">{currentDoc?.name || 'Document'}</span>
+              <span className="tabular-nums">Page {pageIndex + 1}</span>
+            </div>
 
-          <div className="mt-8 space-y-4">
-            <h3 className="text-[18px] font-bold text-slate-900">
-              {origIndex === 0 ? 'Document Content' : `Section ${origIndex + 1}`}
-            </h3>
+            <div className="mt-8 space-y-4">
+              <h3 className="text-[18px] font-bold text-slate-900">
+                {origIndex === 0 ? 'Document Content' : `Section ${origIndex + 1}`}
+              </h3>
 
-            {currentDoc?.extractedText ? (
-              <p className="text-[12px] text-slate-700 leading-relaxed">{currentDoc.extractedText}</p>
-            ) : (
-              <p className="text-[12px] text-slate-500 italic">
-                Original content from {currentDoc?.name}.
-                {includeQr ? ' The QR code on Page 1 opens the complete document on Google Drive.' : ''}
-              </p>
-            )}
+              {currentDoc?.extractedText ? (
+                <p className="text-[12px] text-slate-700 leading-relaxed">{currentDoc.extractedText}</p>
+              ) : (
+                <p className="text-[12px] text-slate-500 italic">
+                  Original content from {currentDoc?.name}.
+                  {includeQr ? ' The QR code on Page 1 opens the complete document on Google Drive.' : ''}
+                </p>
+              )}
 
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 mt-6 text-[12px] text-slate-600">
-              <div>
-                File: <span className="font-semibold text-slate-800">{currentDoc?.name}</span>
-              </div>
-              <div>
-                Format: <span className="font-semibold uppercase text-slate-800">{currentDoc?.extension}</span>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 mt-6 text-[12px] text-slate-600">
+                <div>
+                  File: <span className="font-semibold text-slate-800">{currentDoc?.name}</span>
+                </div>
+                <div>
+                  Format: <span className="font-semibold uppercase text-slate-800">{currentDoc?.extension}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="border-t border-slate-200 pt-3 flex items-center justify-between text-[12px] text-slate-400 font-mono tabular-nums">
-          <span>{coverData.organization || 'Document'}</span>
-          <span>
-            Page {pageIndex + 1} of {totalExportPages}
-          </span>
+          <div className="border-t border-slate-200 pt-3 flex items-center justify-between text-[12px] text-slate-400 font-mono tabular-nums">
+            <span>{coverData.organization || 'Document'}</span>
+            <span>
+              Page {pageIndex + 1} of {totalExportPages}
+            </span>
+          </div>
         </div>
+        {watermarkOverlay}
       </div>
     );
   };
@@ -652,7 +670,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
       {/* Stage */}
       <div
         className={`min-h-0 ${viewMode === 'grid' ? 'overflow-y-auto pr-1' : ''} ${
-          isFullscreen ? 'flex-1' : 'h-[62vh] lg:h-auto lg:flex-1'
+          isFullscreen ? 'flex-1' : 'h-[56vh] md:h-auto md:flex-1'
         }`}
       >
         {viewMode === 'grid' ? (

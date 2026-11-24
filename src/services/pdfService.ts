@@ -1151,10 +1151,13 @@ export async function mergeCoverWithPdf(
   const [copiedCover] = await mergedPdf.copyPages(coverPdf, [0]);
   mergedPdf.addPage(copiedCover);
 
-  const originalPageCount = originalPdf.getPageCount();
-  const pageIndices = Array.from({ length: originalPageCount }, (_, i) => i);
-  const copiedPages = await mergedPdf.copyPages(originalPdf, pageIndices);
+  const coverDims = PAPER_SIZES[coverData.paperSize] || PAPER_SIZES.a4;
+  const coverW = coverDims.width;
+  const coverH = coverDims.height;
+  const scalePercent = Math.max(50, Math.min(125, coverData.documentPageScale ?? 100));
+  const userScaleRatio = scalePercent / 100;
 
+  const origPages = originalPdf.getPages();
   const shouldStampNumbers = !!coverData.stampPageNumbers;
   const watermarkText = (coverData.watermarkText || '').trim();
   const watermarkOpacity = Math.max(0.05, Math.min(0.45, coverData.watermarkOpacity ?? 0.14));
@@ -1164,17 +1167,80 @@ export async function mergeCoverWithPdf(
       ? await mergedPdf.embedFont(StandardFonts.HelveticaBold)
       : null;
 
-  const totalFinalPages = 1 + copiedPages.length;
+  const totalFinalPages = 1 + origPages.length;
 
-  copiedPages.forEach((p, idx) => {
-    const { width, height } = p.getSize();
+  for (let idx = 0; idx < origPages.length; idx++) {
+    const origPage = origPages[idx];
+    const { width: origW, height: origH } = origPage.getSize();
+    const rot = (((origPage.getRotation()?.angle ?? 0) % 360) + 360) % 360;
+    const isQuarterTurn = rot === 90 || rot === 270;
+    const visW = isQuarterTurn ? origH : origW;
+    const visH = isQuarterTurn ? origW : origH;
+
+    const matchesCoverSize =
+      rot === 0 && Math.abs(origW - coverW) <= 2 && Math.abs(origH - coverH) <= 2;
+
+    let targetPage: PDFPage;
+
+    if (scalePercent === 100 && matchesCoverSize) {
+      const [copied] = await mergedPdf.copyPages(originalPdf, [idx]);
+      targetPage = mergedPdf.addPage(copied);
+    } else {
+      targetPage = mergedPdf.addPage([coverW, coverH]);
+      const safeVisW = Math.max(1, visW);
+      const safeVisH = Math.max(1, visH);
+      const fitScale = Math.min(coverW / safeVisW, coverH / safeVisH);
+      const finalScale = fitScale * userScaleRatio;
+      const drawW = origW * finalScale;
+      const drawH = origH * finalScale;
+
+      let drawX = (coverW - drawW) / 2;
+      let drawY = (coverH - drawH) / 2;
+      let drawAngle = 0;
+
+      if (rot === 90) {
+        drawX = (coverW - drawH) / 2;
+        drawY = (coverH + drawW) / 2;
+        drawAngle = -90;
+      } else if (rot === 180) {
+        drawX = (coverW + drawW) / 2;
+        drawY = (coverH + drawH) / 2;
+        drawAngle = 180;
+      } else if (rot === 270) {
+        drawX = (coverW + drawH) / 2;
+        drawY = (coverH - drawW) / 2;
+        drawAngle = 90;
+      }
+
+      try {
+        const embedded = await mergedPdf.embedPage(origPage);
+        targetPage.drawPage(embedded, {
+          x: drawX,
+          y: drawY,
+          width: drawW,
+          height: drawH,
+          rotate: degrees(drawAngle),
+        });
+      } catch {
+        // Fallback for empty/missing-content PDF pages so merge never aborts
+        if (!origPage.node.Contents()) {
+          // Intentionally blank page preserved at normalized cover dimensions
+        } else {
+          mergedPdf.removePage(mergedPdf.getPageCount() - 1);
+          const [fallbackCopied] = await mergedPdf.copyPages(originalPdf, [idx]);
+          targetPage = mergedPdf.addPage(fallbackCopied);
+        }
+      }
+    }
+
+    const { width, height } = targetPage.getSize();
     const pageNum = idx + 2; // Cover is Page 1
 
     if (watermarkText && stampFont) {
       const safeWm = sanitizeWinAnsiText(watermarkText) || 'CONFIDENTIAL';
       const fontSize = Math.max(24, Math.min(54, width * 0.08));
       const textWidth = stampFont.widthOfTextAtSize(safeWm, fontSize);
-      p.drawText(safeWm, {
+      targetPage.drawText(safeWm, {
         x: width / 2 - textWidth * 0.35,
         y: height / 2 - textWidth * 0.25,
         size: fontSize,
@@ -1188,7 +1254,7 @@ export async function mergeCoverWithPdf(
     if (shouldStampNumbers && stampFont) {
       const label = `Page ${pageNum} of ${totalFinalPages}`;
       const lw = stampFont.widthOfTextAtSize(label, 8.5);
-      p.drawText(label, {
+      targetPage.drawText(label, {
         x: width - lw - 24,
         y: 16,
         size: 8.5,
@@ -1197,9 +1263,7 @@ export async function mergeCoverWithPdf(
         opacity: 0.85,
       });
     }
-
-    mergedPdf.addPage(p);
-  });
+  }
 
   return await mergedPdf.save();
 }

@@ -16,6 +16,13 @@ import {
   MessageSquarePlus,
   Puzzle,
   ExternalLink,
+  Volume2,
+  VolumeX,
+  PanelTop,
+  Trash2,
+  Check,
+  HardDrive,
+  RefreshCw,
 } from 'lucide-react';
 import { FeedbackSection } from './FeedbackSection';
 
@@ -26,6 +33,7 @@ export type AnimationPace = 'smooth' | 'fast' | 'off';
 export type DefaultPaperSize = 'a4' | 'letter';
 export type DefaultQrCorner = 'bottom-right' | 'bottom-center' | 'bottom-left';
 export type AiDefaultSpeed = 'balanced' | 'fast';
+export type ChatbotStartMode = 'top-bar' | 'dock';
 
 export type SettingsTab = 'preferences' | 'feedback';
 
@@ -44,8 +52,17 @@ interface SettingsModalProps {
   onChangeDefaultPaperSize: (size: DefaultPaperSize) => void;
   defaultQrPosition: DefaultQrCorner;
   onChangeDefaultQrPosition: (pos: DefaultQrCorner) => void;
+  defaultIncludeQr?: boolean;
+  onChangeDefaultIncludeQr?: (includeQr: boolean) => void;
   aiDefaultSpeed: AiDefaultSpeed;
   onChangeAiDefaultSpeed: (speed: AiDefaultSpeed) => void;
+  chatbotStartMode?: ChatbotStartMode;
+  onChangeChatbotStartMode?: (mode: ChatbotStartMode) => void;
+  aiSoundEnabled?: boolean;
+  onChangeAiSoundEnabled?: (enabled: boolean) => void;
+  showMiniRobot?: boolean;
+  onChangeShowMiniRobot?: (show: boolean) => void;
+  onClearDrafts?: () => void;
   onResetPreferences: () => void;
   onStartTutorial: () => void;
   user: User | null;
@@ -58,6 +75,75 @@ interface SettingsModalProps {
   feedbackWebhookUrl: string;
   onChangeFeedbackWebhookUrl: (url: string) => void;
   onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+}
+
+interface SegmentedOption<T extends string> {
+  id: T;
+  label: string;
+  icon?: React.ReactNode;
+}
+
+function CompactSegmented<T extends string>({
+  value,
+  options,
+  onChange,
+  accent = 'yellow',
+}: {
+  value: T;
+  options: SegmentedOption<T>[];
+  onChange: (val: T) => void;
+  accent?: 'yellow' | 'cyan';
+}) {
+  return (
+    <div className="inline-flex items-center p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shrink-0">
+      {options.map((opt) => {
+        const active = value === opt.id;
+        const activeClasses =
+          accent === 'cyan'
+            ? 'bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 border border-cyan-400/40 shadow-xs'
+            : 'bg-yellow-400 text-black border border-yellow-400 shadow-xs';
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold whitespace-nowrap cursor-pointer transition-colors ${
+              active
+                ? activeClasses
+                : 'border border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+            }`}
+          >
+            {opt.icon}
+            <span>{opt.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettingRow({
+  icon,
+  label,
+  control,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  control: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="w-6 h-6 rounded-md bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 flex items-center justify-center shrink-0">
+          {icon}
+        </span>
+        <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+          {label}
+        </span>
+      </div>
+      {control}
+    </div>
+  );
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -75,8 +161,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onChangeDefaultPaperSize,
   defaultQrPosition,
   onChangeDefaultQrPosition,
+  defaultIncludeQr = true,
+  onChangeDefaultIncludeQr,
   aiDefaultSpeed,
   onChangeAiDefaultSpeed,
+  chatbotStartMode = 'top-bar',
+  onChangeChatbotStartMode,
+  aiSoundEnabled = true,
+  onChangeAiSoundEnabled,
+  showMiniRobot = true,
+  onChangeShowMiniRobot,
+  onClearDrafts,
   onResetPreferences,
   onStartTutorial,
   user,
@@ -85,18 +180,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onReconnectWithConsent,
   isLoggingIn = false,
   feedbackSheetUrl,
-  onChangeFeedbackSheetUrl,
   feedbackWebhookUrl,
-  onChangeFeedbackWebhookUrl,
   onTaskComplete,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('preferences');
+  const [draftsCleared, setDraftsCleared] = useState(false);
 
   if (!isOpen) return null;
 
+  const handleClearDraftsClick = () => {
+    onClearDrafts?.();
+    setDraftsCleared(true);
+    window.setTimeout(() => setDraftsCleared(false), 1800);
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/65 dark:bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/65 dark:bg-black/80 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-modal-title"
@@ -106,74 +206,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     >
       <div
         className={`bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden transition-all ${
-          activeTab === 'feedback' ? 'max-w-2xl' : 'max-w-lg'
+          activeTab === 'feedback' ? 'max-w-2xl' : 'max-w-[440px]'
         }`}
       >
-        {/* Sticky Header */}
-        <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/70 dark:bg-[#0c0c10] space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-yellow-400 text-black flex items-center justify-center shrink-0">
-                {activeTab === 'feedback' ? (
-                  <MessageSquarePlus className="w-4 h-4 stroke-[2.5]" />
-                ) : (
-                  <SlidersHorizontal className="w-4 h-4 stroke-[2.5]" />
-                )}
-              </div>
-              <div>
-                <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm">
-                  {activeTab === 'feedback' ? 'Send Feedback' : 'Workspace Preferences'}
-                </h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {activeTab === 'feedback'
-                    ? 'Share ratings, feature requests, or bug reports with Team Terminators'
-                    : 'Customize visuals, Studio defaults, AI speed, and motion'}
-                </p>
-              </div>
+        {/* Compact Header */}
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/80 dark:bg-[#0c0c10] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-yellow-400 text-black flex items-center justify-center shrink-0">
+              {activeTab === 'feedback' ? (
+                <MessageSquarePlus className="w-3.5 h-3.5 stroke-[2.5]" />
+              ) : (
+                <SlidersHorizontal className="w-3.5 h-3.5 stroke-[2.5]" />
+              )}
+            </div>
+            <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm truncate">
+              {activeTab === 'feedback' ? 'Feedback' : 'Settings'}
+            </h3>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="inline-flex p-0.5 rounded-lg bg-zinc-200/70 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setActiveTab('preferences')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${
+                  activeTab === 'preferences'
+                    ? 'bg-yellow-400 text-black shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                }`}
+              >
+                General
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('feedback')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${
+                  activeTab === 'feedback'
+                    ? 'bg-yellow-400 text-black shadow-xs'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                }`}
+              >
+                Feedback
+              </button>
             </div>
 
             <button
               type="button"
               onClick={onClose}
               aria-label="Close settings"
-              className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Segmented Tab Bar */}
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setActiveTab('preferences')}
-              className={`py-2 px-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                activeTab === 'preferences'
-                  ? 'bg-yellow-400 text-black shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-              }`}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Workspace Preferences</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('feedback')}
-              className={`py-2 px-3 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                activeTab === 'feedback'
-                  ? 'bg-yellow-400 text-black shadow-xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-              }`}
-            >
-              <MessageSquarePlus className="w-3.5 h-3.5" />
-              <span>Feedback</span>
-            </button>
-          </div>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="p-4 sm:p-5 space-y-5 overflow-y-auto flex-1">
+        {/* Body */}
+        <div className="px-4 py-3 overflow-y-auto flex-1">
           {activeTab === 'feedback' ? (
             <FeedbackSection
               variant="settings"
@@ -184,281 +273,312 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onTaskComplete={onTaskComplete}
             />
           ) : (
-            <>
-          {/* 1. Color Appearance */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              {themeMode === 'dark' ? (
-                <Moon className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-              ) : (
-                <Sun className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-              )}
-              <span>Color Appearance</span>
-            </label>
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => onChangeThemeMode('light')}
-                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
-                  themeMode === 'light'
-                    ? 'bg-yellow-400 text-black border-yellow-400 font-bold shadow-sm'
-                    : 'bg-zinc-100 dark:bg-zinc-950 text-zinc-700 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                <Sun className="w-4 h-4" />
-                <span>Light Mode</span>
-              </button>
+            <div className="space-y-3">
+              {/* Group 1: Display */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-0.5">
+                  Display
+                </p>
+                <div className="divide-y divide-zinc-200/75 dark:divide-zinc-800/80">
+                  <SettingRow
+                    icon={
+                      themeMode === 'dark' ? (
+                        <Moon className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                      ) : (
+                        <Sun className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                      )
+                    }
+                    label="Theme"
+                    control={
+                      <CompactSegmented
+                        value={themeMode}
+                        onChange={onChangeThemeMode}
+                        options={[
+                          { id: 'light', label: 'Light', icon: <Sun className="w-3 h-3" /> },
+                          { id: 'dark', label: 'Dark', icon: <Moon className="w-3 h-3" /> },
+                        ]}
+                      />
+                    }
+                  />
 
-              <button
-                type="button"
-                onClick={() => onChangeThemeMode('dark')}
-                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
-                  themeMode === 'dark'
-                    ? 'bg-yellow-400 text-black border-yellow-400 font-bold shadow-sm'
-                    : 'bg-zinc-100 dark:bg-zinc-950 text-zinc-700 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:text-zinc-900 dark:hover:text-white'
-                }`}
-              >
-                <Moon className="w-4 h-4" />
-                <span>Dark Mode</span>
-              </button>
-            </div>
-          </div>
+                  <SettingRow
+                    icon={<Sparkles className="w-3.5 h-3.5 text-cyan-500" />}
+                    label="Glow"
+                    control={
+                      <CompactSegmented
+                        value={neonGlowMode}
+                        onChange={onChangeNeonGlowMode}
+                        accent="cyan"
+                        options={[
+                          { id: 'full', label: 'Neon' },
+                          { id: 'subtle', label: 'Crisp' },
+                        ]}
+                      />
+                    }
+                  />
 
-          {/* 2. Neon Lighting Intensity */}
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-500" />
-              <span>Neon Lighting Intensity</span>
-            </label>
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                { id: 'full' as const, label: 'Full Neon Halo', desc: 'Vibrant aura on AI & Docs' },
-                { id: 'subtle' as const, label: 'Subtle Crisp', desc: 'Clean sharp hairline glow' },
-              ].map((opt) => {
-                const active = neonGlowMode === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChangeNeonGlowMode(opt.id)}
-                    className={`py-2.5 px-3 rounded-xl border text-left cursor-pointer transition-colors ${
-                      active
-                        ? 'border-cyan-400 bg-cyan-400/15 text-zinc-950 dark:text-white'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <p className="text-xs font-bold">{opt.label}</p>
-                    <p className="text-[11px] opacity-80">{opt.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                  <SettingRow
+                    icon={<Type className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                    label="Text"
+                    control={
+                      <CompactSegmented
+                        value={textSize}
+                        onChange={onChangeTextSize}
+                        options={[
+                          { id: 'small', label: 'S' },
+                          { id: 'medium', label: 'M' },
+                          { id: 'large', label: 'L' },
+                        ]}
+                      />
+                    }
+                  />
 
-          {/* 3. Interface Text Size */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                <Type className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                <span>Interface Text Size</span>
-              </label>
-              <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">
-                {textSize === 'small' ? '14px · Compact' : textSize === 'large' ? '18px · Large' : '16px · Standard'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'small' as const, label: 'Small', sample: 'text-xs' },
-                { id: 'medium' as const, label: 'Medium', sample: 'text-sm' },
-                { id: 'large' as const, label: 'Large', sample: 'text-base' },
-              ].map((opt) => {
-                const active = textSize === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChangeTextSize(opt.id)}
-                    className={`py-2 px-3 rounded-xl border flex flex-col items-center gap-0.5 cursor-pointer transition-colors ${
-                      active
-                        ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span className={`${opt.sample} font-bold leading-none`}>Aa</span>
-                    <span className="text-[11px]">{opt.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. Task Animations Pace */}
-          <div className="space-y-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
-            <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-              <span>Completion Typewriter &amp; Motion Pace</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'smooth' as const, label: 'Smooth', hint: '7s banner' },
-                { id: 'fast' as const, label: 'Fast', hint: '3.5s banner' },
-                { id: 'off' as const, label: 'Reduced', hint: 'Skip popups' },
-              ].map((opt) => {
-                const active = animationPace === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChangeAnimationPace(opt.id)}
-                    className={`py-2 px-2.5 rounded-xl border text-center cursor-pointer transition-colors ${
-                      active
-                        ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
-                    }`}
-                  >
-                    <p className="text-xs font-bold">{opt.label}</p>
-                    <p className="text-[10px] opacity-80">{opt.hint}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 5. Cover Studio Defaults (Paper Size & QR Corner) */}
-          <div className="space-y-3 pt-2 border-t border-zinc-200 dark:border-zinc-800">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                <span>Default Cover Paper Size</span>
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'a4' as const, label: 'A4 (210 × 297 mm)' },
-                  { id: 'letter' as const, label: 'US Letter (8.5 × 11 in)' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChangeDefaultPaperSize(opt.id)}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
-                      defaultPaperSize === opt.id
-                        ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                  <SettingRow
+                    icon={<Zap className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                    label="Motion"
+                    control={
+                      <CompactSegmented
+                        value={animationPace}
+                        onChange={onChangeAnimationPace}
+                        options={[
+                          { id: 'smooth', label: 'Smooth' },
+                          { id: 'fast', label: 'Fast' },
+                          { id: 'off', label: 'Off' },
+                        ]}
+                      />
+                    }
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                <QrCode className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                <span>Default QR Placement Corner</span>
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'bottom-right' as const, label: 'Bottom Right' },
-                  { id: 'bottom-center' as const, label: 'Bottom Center' },
-                  { id: 'bottom-left' as const, label: 'Bottom Left' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChangeDefaultQrPosition(opt.id)}
-                    className={`py-2 px-2 rounded-xl border text-[11px] font-semibold cursor-pointer transition-colors ${
-                      defaultQrPosition === opt.id
-                        ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+              {/* Group 2: Studio */}
+              <div className="pt-1 border-t border-zinc-200 dark:border-zinc-800">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-0.5">
+                  Studio
+                </p>
+                <div className="divide-y divide-zinc-200/75 dark:divide-zinc-800/80">
+                  <SettingRow
+                    icon={<FileText className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                    label="Paper"
+                    control={
+                      <CompactSegmented
+                        value={defaultPaperSize}
+                        onChange={onChangeDefaultPaperSize}
+                        options={[
+                          { id: 'a4', label: 'A4' },
+                          { id: 'letter', label: 'Letter' },
+                        ]}
+                      />
+                    }
+                  />
+
+                  <SettingRow
+                    icon={<QrCode className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                    label="QR Corner"
+                    control={
+                      <CompactSegmented
+                        value={defaultQrPosition}
+                        onChange={onChangeDefaultQrPosition}
+                        options={[
+                          { id: 'bottom-left', label: 'Left' },
+                          { id: 'bottom-center', label: 'Center' },
+                          { id: 'bottom-right', label: 'Right' },
+                        ]}
+                      />
+                    }
+                  />
+
+                  {onChangeDefaultIncludeQr && (
+                    <SettingRow
+                      icon={<QrCode className="w-3.5 h-3.5 text-cyan-500" />}
+                      label="Default QR"
+                      control={
+                        <CompactSegmented
+                          value={defaultIncludeQr ? 'on' : 'off'}
+                          onChange={(v) => onChangeDefaultIncludeQr(v === 'on')}
+                          accent="cyan"
+                          options={[
+                            { id: 'on', label: 'With QR' },
+                            { id: 'off', label: 'Clean' },
+                          ]}
+                        />
+                      }
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* 6. PaperLink AI Default Engine */}
-          <div className="space-y-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
-            <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <Bot className="w-3.5 h-3.5 text-cyan-500" />
-              <span>PaperLink AI Default Speed</span>
-            </label>
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                { id: 'balanced' as const, label: 'Smart Tool Agent', desc: 'Best for tool automation' },
-                { id: 'fast' as const, label: 'Fast Response', desc: 'Quicker Q&A replies' },
-              ].map((opt) => (
+              {/* Group 3: PaperLink AI */}
+              <div className="pt-1 border-t border-zinc-200 dark:border-zinc-800">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-0.5">
+                  PaperLink AI
+                </p>
+                <div className="divide-y divide-zinc-200/75 dark:divide-zinc-800/80">
+                  <SettingRow
+                    icon={<Bot className="w-3.5 h-3.5 text-cyan-500" />}
+                    label="Engine"
+                    control={
+                      <CompactSegmented
+                        value={aiDefaultSpeed}
+                        onChange={onChangeAiDefaultSpeed}
+                        accent="cyan"
+                        options={[
+                          { id: 'balanced', label: 'Smart' },
+                          { id: 'fast', label: 'Fast' },
+                        ]}
+                      />
+                    }
+                  />
+
+                  {onChangeChatbotStartMode && (
+                    <SettingRow
+                      icon={<PanelTop className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                      label="Default Position"
+                      control={
+                        <CompactSegmented
+                          value={chatbotStartMode}
+                          onChange={onChangeChatbotStartMode}
+                          options={[
+                            { id: 'top-bar', label: 'Top Bar' },
+                            { id: 'dock', label: 'Bottom' },
+                          ]}
+                        />
+                      }
+                    />
+                  )}
+
+                  {onChangeAiSoundEnabled && (
+                    <SettingRow
+                      icon={
+                        aiSoundEnabled ? (
+                          <Volume2 className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                        ) : (
+                          <VolumeX className="w-3.5 h-3.5 text-zinc-400" />
+                        )
+                      }
+                      label="Sound"
+                      control={
+                        <CompactSegmented
+                          value={aiSoundEnabled ? 'on' : 'muted'}
+                          onChange={(v) => onChangeAiSoundEnabled(v === 'on')}
+                          options={[
+                            { id: 'on', label: 'On' },
+                            { id: 'muted', label: 'Mute' },
+                          ]}
+                        />
+                      }
+                    />
+                  )}
+
+                  {onChangeShowMiniRobot && (
+                    <SettingRow
+                      icon={<Bot className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />}
+                      label="Top-Bar Bot"
+                      control={
+                        <CompactSegmented
+                          value={showMiniRobot ? 'show' : 'hide'}
+                          onChange={(v) => onChangeShowMiniRobot(v === 'show')}
+                          options={[
+                            { id: 'show', label: 'Show' },
+                            { id: 'hide', label: 'Hide' },
+                          ]}
+                        />
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Group 4: Drive Account */}
+              <div className="pt-1 border-t border-zinc-200 dark:border-zinc-800">
+                <div className="flex items-center justify-between gap-2 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-6 h-6 rounded-md bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 flex items-center justify-center shrink-0">
+                      <HardDrive className="w-3.5 h-3.5 text-emerald-500" />
+                    </span>
+                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                      {user ? user.email || 'Google Drive' : 'Google Drive'}
+                    </span>
+                  </div>
+
+                  {user ? (
+                    <button
+                      type="button"
+                      onClick={onReconnectWithConsent}
+                      disabled={isLoggingIn}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-900 hover:border-yellow-400 border border-zinc-200 dark:border-zinc-800 text-[11px] font-bold text-zinc-700 dark:text-zinc-300 cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isLoggingIn ? 'animate-spin' : ''}`} />
+                      <span>{accessToken ? 'Reconnect' : 'Authorize'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onLogin}
+                      disabled={isLoggingIn}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-[11px] font-bold cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-50"
+                    >
+                      <span>{isLoggingIn ? 'Signing in...' : 'Sign in'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Compact Quick Actions */}
+              <div className="pt-2.5 border-t border-zinc-200 dark:border-zinc-800 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 <button
-                  key={opt.id}
                   type="button"
-                  onClick={() => onChangeAiDefaultSpeed(opt.id)}
-                  className={`py-2.5 px-3 rounded-xl border text-left cursor-pointer transition-colors ${
-                    aiDefaultSpeed === opt.id
-                      ? 'border-cyan-400 bg-cyan-400/15 text-zinc-950 dark:text-white'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
-                  }`}
+                  onClick={() => {
+                    onClose();
+                    onStartTutorial();
+                  }}
+                  className="py-1.5 px-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 hover:border-yellow-400 text-zinc-800 dark:text-zinc-200 text-[11px] font-semibold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
                 >
-                  <p className="text-xs font-bold">{opt.label}</p>
-                  <p className="text-[11px] opacity-80">{opt.desc}</p>
+                  <GraduationCap className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400 shrink-0" />
+                  <span>Guide</span>
                 </button>
-              ))}
-            </div>
-          </div>
 
-          {/* 7. Actions: Replay Guide & Reset Preferences */}
-          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onStartTutorial();
-              }}
-              className="py-2.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 hover:border-yellow-400 text-zinc-900 dark:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <GraduationCap className="w-4 h-4 text-amber-600 dark:text-yellow-400 shrink-0" />
-              <span>Spotlight Guide</span>
-            </button>
+                {onClearDrafts && (
+                  <button
+                    type="button"
+                    onClick={handleClearDraftsClick}
+                    className="py-1.5 px-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 hover:border-amber-400 text-zinc-800 dark:text-zinc-200 text-[11px] font-semibold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                  >
+                    {draftsCleared ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="text-emerald-600 dark:text-emerald-400">Cleared</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span>Clear Draft</span>
+                      </>
+                    )}
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={onResetPreferences}
-              className="py-2.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 hover:border-red-400 hover:text-red-600 dark:hover:text-red-400 text-zinc-700 dark:text-zinc-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-              <span>Reset Defaults</span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={onResetPreferences}
+                  className="py-1.5 px-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 hover:border-red-400 hover:text-red-600 dark:hover:text-red-400 text-zinc-700 dark:text-zinc-300 text-[11px] font-semibold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3 h-3 shrink-0" />
+                  <span>Reset</span>
+                </button>
 
-          {/* 8. Desktop Chrome Extension Companion */}
-          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-yellow-400/15 border border-yellow-400/30 text-amber-700 dark:text-yellow-400 flex items-center justify-center shrink-0">
-                <Puzzle className="w-4 h-4" />
+                <a
+                  href="https://chromewebstore.google.com/detail/paperlink-mini-pdf-image/hihihdajfamblhemnmboanfdfegfhocj"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-1.5 px-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-[11px] font-bold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                >
+                  <Puzzle className="w-3 h-3 shrink-0" />
+                  <span>Extension</span>
+                  <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                </a>
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
-                  PaperLink Mini Chrome Extension
-                </p>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                  Quick PDF &amp; Image tools from your PC toolbar
-                </p>
-              </div>
             </div>
-            <a
-              href="https://chromewebstore.google.com/detail/paperlink-mini-pdf-image/hihihdajfamblhemnmboanfdfegfhocj"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
-            >
-              <span>Add to Chrome</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-            </>
           )}
         </div>
       </div>

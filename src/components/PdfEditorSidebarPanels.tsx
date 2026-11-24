@@ -304,7 +304,7 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
                   subtitle: sidebarOutput.subtitle,
                 })
               }
-              className="px-2.5 py-1.5 rounded-lg border border-cyan-400/50 bg-cyan-50/70 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 text-[11px] font-bold cursor-pointer inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+              className="px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-yellow-400 text-zinc-800 dark:text-zinc-100 text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
             >
               <Eye className="w-3 h-3" />
               <span>Preview</span>
@@ -313,7 +313,7 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           <button
             type="button"
             onClick={() => triggerDownload(sidebarOutput.blob, sidebarOutput.fileName)}
-            className="flex-1 px-2.5 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-[11px] font-bold cursor-pointer inline-flex items-center justify-center gap-1 whitespace-nowrap"
+            className="flex-1 px-2.5 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black text-[11px] font-bold cursor-pointer inline-flex items-center justify-center gap-1 whitespace-nowrap transition-colors"
           >
             <Download className="w-3 h-3" />
             <span>Download</span>

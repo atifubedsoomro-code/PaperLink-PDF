@@ -18,6 +18,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
+import { ClipingPapersLogo } from './ClipingPapersLogo';
 
 export interface PreviewTarget {
   title: string;
@@ -492,9 +493,13 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         {/* Modal Body Viewport */}
         <div className="flex-1 min-h-0 overflow-auto bg-zinc-100 dark:bg-[#07070a] p-4 sm:p-6 flex flex-col items-center">
           {isLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600 dark:text-zinc-400">
-              <Loader2 className="w-8 h-8 animate-spin text-yellow-400" />
-              <p className="text-xs font-medium">Preparing document preview...</p>
+            <div className="flex-1 flex flex-col items-center justify-center p-6">
+              <ClipingPapersLogo
+                size="lg"
+                layout="stacked"
+                statusText="Fetching & preparing document preview…"
+                subText="Rendering crisp high-DPI pages in your browser"
+              />
             </div>
           ) : errorMsg ? (
             <div className="flex-1 flex flex-col items-center justify-center max-w-md text-center gap-3">
@@ -536,8 +541,8 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
               <div className="relative bg-white rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shrink-0">
                 {isRenderingPage && (
-                  <div className="absolute inset-0 bg-white/60 dark:bg-black/40 backdrop-blur-[1px] flex items-center justify-center z-10">
-                    <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+                  <div className="absolute inset-0 bg-white/75 dark:bg-black/55 backdrop-blur-xs flex items-center justify-center z-10 p-4">
+                    <ClipingPapersLogo size="sm" layout="stacked" statusText="Rendering page…" />
                   </div>
                 )}
                 <canvas ref={pdfCanvasRef} className="block max-w-full h-auto" />

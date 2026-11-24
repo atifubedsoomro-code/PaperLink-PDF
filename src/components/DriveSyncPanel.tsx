@@ -19,6 +19,7 @@ import {
 import { DriveUploadMode, DriveUploadResult } from '../types';
 import { TokenExpiryInfo } from '../firebase';
 import { TypewriterButton } from './TypewriterButton';
+import { ClipingPapersLogo } from './ClipingPapersLogo';
 
 interface DriveSyncPanelProps {
   uploadResult: DriveUploadResult | null;
@@ -228,9 +229,11 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
 
           {isUploading ? (
             <div className="p-4 bg-yellow-400/10 rounded-xl border border-yellow-400/40 space-y-2.5">
-              <div className="flex items-center justify-between text-xs font-bold text-amber-800 dark:text-yellow-300">
-                <span>{uploadProgress.status}</span>
-                <span className="font-mono tabular-nums">{uploadProgress.percent}%</span>
+              <div className="flex items-center justify-between gap-2">
+                <ClipingPapersLogo size="xs" statusText={uploadProgress.status} />
+                <span className="font-mono text-xs font-bold text-amber-800 dark:text-yellow-300 tabular-nums shrink-0">
+                  {uploadProgress.percent}%
+                </span>
               </div>
               <div className="w-full bg-zinc-200 dark:bg-zinc-900 rounded-full h-2 overflow-hidden border border-zinc-300 dark:border-zinc-800">
                 <div

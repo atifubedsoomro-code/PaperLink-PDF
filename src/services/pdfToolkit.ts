@@ -2744,5 +2744,430 @@ export async function scanCropAndCleanPdf(
   };
 }
 
+export interface Point2D {
+  x: number; // normalized 0..1
+  y: number; // normalized 0..1
+}
+
+export interface PdfQuadCorners {
+  tl: Point2D;
+  tr: Point2D;
+  br: Point2D;
+  bl: Point2D;
+}
+
+/**
+ * Automatically detects the 4 perspective corners (tl, tr, br, bl) of a physical document
+ * photographed on a desk/table, or falls back to a clean slightly inset document quad.
+ */
+export function detectDocumentQuadFromImageData(imgData: ImageData): PdfQuadCorners {
+  const { width: w, height: h, data } = imgData;
+  if (w < 40 || h < 40) {
+    return {
+      tl: { x: 0.04, y: 0.04 },
+      tr: { x: 0.96, y: 0.04 },
+      br: { x: 0.96, y: 0.96 },
+      bl: { x: 0.04, y: 0.96 },
+    };
+  }
+
+  const getLum = (x: number, y: number) => {
+    const cx = Math.max(0, Math.min(w - 1, Math.round(x)));
+    const cy = Math.max(0, Math.min(h - 1, Math.round(y)));
+    const idx = (cy * w + cx) * 4;
+    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+  };
+
+  // Measure center vs border luminance
+  let centerSum = 0;
+  let centerCnt = 0;
+  for (let y = Math.floor(h * 0.3); y < Math.floor(h * 0.7); y += 6) {
+    for (let x = Math.floor(w * 0.3); x < Math.floor(w * 0.7); x += 6) {
+      centerSum += getLum(x, y);
+      centerCnt++;
+    }
+  }
+  const centerAvg = centerCnt > 0 ? centerSum / centerCnt : 225;
+
+  let edgeSum = 0;
+  let edgeCnt = 0;
+  const band = Math.max(4, Math.floor(Math.min(w, h) * 0.03));
+  for (let y = 0; y < h; y += 5) {
+    for (let x = 0; x < w; x += 5) {
+      if (x < band || x >= w - band || y < band || y >= h - band) {
+        edgeSum += getLum(x, y);
+        edgeCnt++;
+      }
+    }
+  }
+  const edgeAvg = edgeCnt > 0 ? edgeSum / edgeCnt : 225;
+
+  if (centerAvg - edgeAvg > 24 && edgeAvg < 190) {
+    const thresh = edgeAvg + (centerAvg - edgeAvg) * 0.42;
+
+    // Fit lines on top, bottom, left, right boundaries using sampled edge hits
+    const topPts: { x: number; y: number }[] = [];
+    const botPts: { x: number; y: number }[] = [];
+    for (let xi = 0.2; xi <= 0.8; xi += 0.06) {
+      const px = Math.round(xi * w);
+      let ty = 0;
+      while (ty < h * 0.48 && getLum(px, ty) < thresh) ty += 2;
+      if (ty < h * 0.46) topPts.push({ x: px, y: ty });
+
+      let by = h - 1;
+      while (by > h * 0.52 && getLum(px, by) < thresh) by -= 2;
+      if (by > h * 0.54) botPts.push({ x: px, y: by });
+    }
+
+    const leftPts: { x: number; y: number }[] = [];
+    const rightPts: { x: number; y: number }[] = [];
+    for (let yi = 0.2; yi <= 0.8; yi += 0.06) {
+      const py = Math.round(yi * h);
+      let lx = 0;
+      while (lx < w * 0.48 && getLum(lx, py) < thresh) lx += 2;
+      if (lx < w * 0.46) leftPts.push({ x: lx, y: py });
+
+      let rx = w - 1;
+      while (rx > w * 0.52 && getLum(rx, py) < thresh) rx -= 2;
+      if (rx > w * 0.54) rightPts.push({ x: rx, y: py });
+    }
+
+    const fitHorizontal = (pts: { x: number; y: number }[], fallbackY: number) => {
+      if (pts.length < 3) return { m: 0, b: fallbackY };
+      let sx = 0, sy = 0, sxx = 0, sxy = 0;
+      for (const p of pts) {
+        sx += p.x;
+        sy += p.y;
+        sxx += p.x * p.x;
+        sxy += p.x * p.y;
+      }
+      const n = pts.length;
+      const denom = n * sxx - sx * sx;
+      if (Math.abs(denom) < 1e-4) return { m: 0, b: sy / n };
+      const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sx * sy) / denom));
+      const b = (sy - m * sx) / n;
+      return { m, b };
+    };
+
+    const fitVertical = (pts: { x: number; y: number }[], fallbackX: number) => {
+      if (pts.length < 3) return { m: 0, b: fallbackX };
+      let sx = 0, sy = 0, syy = 0, sxy = 0;
+      for (const p of pts) {
+        sx += p.x;
+        sy += p.y;
+        syy += p.y * p.y;
+        sxy += p.x * p.y;
+      }
+      const n = pts.length;
+      const denom = n * syy - sy * sy;
+      if (Math.abs(denom) < 1e-4) return { m: 0, b: sx / n };
+      const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sy * sx) / denom));
+      const b = (sx - m * sy) / n;
+      return { m, b };
+    };
+
+    const topLine = fitHorizontal(topPts, h * 0.05);
+    const botLine = fitHorizontal(botPts, h * 0.95);
+    const leftLine = fitVertical(leftPts, w * 0.05);
+    const rightLine = fitVertical(rightPts, w * 0.95);
+
+    const intersect = (
+      hLine: { m: number; b: number },
+      vLine: { m: number; b: number }
+    ): Point2D => {
+      const denom = 1 - hLine.m * vLine.m;
+      const y = Math.abs(denom) > 1e-4 ? (hLine.m * vLine.b + hLine.b) / denom : hLine.b;
+      const x = vLine.m * y + vLine.b;
+      return {
+        x: Number(Math.max(0.01, Math.min(0.99, x / w)).toFixed(3)),
+        y: Number(Math.max(0.01, Math.min(0.99, y / h)).toFixed(3)),
+      };
+    };
+
+    const tl = intersect(topLine, leftLine);
+    const tr = intersect(topLine, rightLine);
+    const br = intersect(botLine, rightLine);
+    const bl = intersect(botLine, leftLine);
+
+    if (tr.x - tl.x > 0.25 && br.x - bl.x > 0.25 && bl.y - tl.y > 0.25 && br.y - tr.y > 0.25) {
+      return { tl, tr, br, bl };
+    }
+  }
+
+  // Fallback to clean tight box
+  const rect = detectDocumentCropRectFromImageData(imgData);
+  return {
+    tl: { x: rect.left, y: rect.top },
+    tr: { x: rect.right, y: rect.top },
+    br: { x: rect.right, y: rect.bottom },
+    bl: { x: rect.left, y: rect.bottom },
+  };
+}
+
+function solveLinear8x8(A: number[][], b: number[]): number[] {
+  const n = 8;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < n; r++) {
+      if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+    }
+    const tmp = M[col];
+    M[col] = M[pivot];
+    M[pivot] = tmp;
+
+    const div = Math.abs(M[col][col]) < 1e-10 ? 1e-10 : M[col][col];
+    for (let c = col; c <= n; c++) M[col][c] /= div;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const factor = M[r][col];
+      for (let c = col; c <= n; c++) {
+        M[r][c] -= factor * M[col][c];
+      }
+    }
+  }
+  return M.map((row) => row[n]);
+}
+
+/**
+ * Computes an exact 3x3 projective Homography mapping rectangular output (dstW x dstH)
+ * back into arbitrary source quad coordinates and resamples via smooth bilinear interpolation.
+ */
+export function warpPerspectiveCanvas(
+  srcCanvas: HTMLCanvasElement,
+  quad: PdfQuadCorners,
+  maxOutWidth = 1480
+): HTMLCanvasElement {
+  const sw = srcCanvas.width;
+  const sh = srcCanvas.height;
+
+  const pTL = { x: quad.tl.x * sw, y: quad.tl.y * sh };
+  const pTR = { x: quad.tr.x * sw, y: quad.tr.y * sh };
+  const pBR = { x: quad.br.x * sw, y: quad.br.y * sh };
+  const pBL = { x: quad.bl.x * sw, y: quad.bl.y * sh };
+
+  const topW = Math.hypot(pTR.x - pTL.x, pTR.y - pTL.y);
+  const botW = Math.hypot(pBR.x - pBL.x, pBR.y - pBL.y);
+  const leftH = Math.hypot(pBL.x - pTL.x, pBL.y - pTL.y);
+  const rightH = Math.hypot(pBR.x - pTR.x, pBR.y - pTR.y);
+
+  const rawW = Math.max(40, Math.round(Math.max(topW, botW)));
+  const rawH = Math.max(40, Math.round(Math.max(leftH, rightH)));
+  const scale = rawW > maxOutWidth ? maxOutWidth / rawW : 1;
+  const dstW = Math.max(40, Math.round(rawW * scale));
+  const dstH = Math.max(40, Math.round(rawH * scale));
+
+  // Solve homography: dst (u,v) -> src (x,y)
+  const dstPts = [
+    { u: 0, v: 0, x: pTL.x, y: pTL.y },
+    { u: dstW, v: 0, x: pTR.x, y: pTR.y },
+    { u: dstW, v: dstH, x: pBR.x, y: pBR.y },
+    { u: 0, v: dstH, x: pBL.x, y: pBL.y },
+  ];
+
+  const A: number[][] = [];
+  const rhs: number[] = [];
+  for (const pt of dstPts) {
+    A.push([pt.u, pt.v, 1, 0, 0, 0, -pt.u * pt.x, -pt.v * pt.x]);
+    rhs.push(pt.x);
+    A.push([0, 0, 0, pt.u, pt.v, 1, -pt.u * pt.y, -pt.v * pt.y]);
+    rhs.push(pt.y);
+  }
+  const [h0, h1, h2, h3, h4, h5, h6, h7] = solveLinear8x8(A, rhs);
+
+  const srcCtx = srcCanvas.getContext('2d');
+  const dstCanvas = document.createElement('canvas');
+  dstCanvas.width = dstW;
+  dstCanvas.height = dstH;
+  const dstCtx = dstCanvas.getContext('2d');
+  if (!srcCtx || !dstCtx) return dstCanvas;
+
+  const srcData = srcCtx.getImageData(0, 0, sw, sh).data;
+  const outImg = dstCtx.createImageData(dstW, dstH);
+  const outData = outImg.data;
+
+  for (let v = 0; v < dstH; v++) {
+    for (let u = 0; u < dstW; u++) {
+      const denom = h6 * u + h7 * v + 1;
+      const sx = (h0 * u + h1 * v + h2) / denom;
+      const sy = (h3 * u + h4 * v + h5) / denom;
+
+      const outIdx = (v * dstW + u) * 4;
+      if (sx < 0 || sx >= sw - 1 || sy < 0 || sy >= sh - 1) {
+        outData[outIdx] = 255;
+        outData[outIdx + 1] = 255;
+        outData[outIdx + 2] = 255;
+        outData[outIdx + 3] = 255;
+        continue;
+      }
+
+      const x0 = Math.floor(sx);
+      const y0 = Math.floor(sy);
+      const x1 = Math.min(sw - 1, x0 + 1);
+      const y1 = Math.min(sh - 1, y0 + 1);
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const w00 = (1 - fx) * (1 - fy);
+      const w10 = fx * (1 - fy);
+      const w01 = (1 - fx) * fy;
+      const w11 = fx * fy;
+
+      const i00 = (y0 * sw + x0) * 4;
+      const i10 = (y0 * sw + x1) * 4;
+      const i01 = (y1 * sw + x0) * 4;
+      const i11 = (y1 * sw + x1) * 4;
+
+      outData[outIdx] = Math.round(srcData[i00] * w00 + srcData[i10] * w10 + srcData[i01] * w01 + srcData[i11] * w11);
+      outData[outIdx + 1] = Math.round(
+        srcData[i00 + 1] * w00 + srcData[i10 + 1] * w10 + srcData[i01 + 1] * w01 + srcData[i11 + 1] * w11
+      );
+      outData[outIdx + 2] = Math.round(
+        srcData[i00 + 2] * w00 + srcData[i10 + 2] * w10 + srcData[i01 + 2] * w01 + srcData[i11 + 2] * w11
+      );
+      outData[outIdx + 3] = 255;
+    }
+  }
+
+  dstCtx.putImageData(outImg, 0, 0);
+  return dstCanvas;
+}
+
+export interface PerspectiveScanPageInput {
+  id: string;
+  name: string;
+  dataUrl: string;
+  quad: PdfQuadCorners;
+}
+
+export async function perspectiveScanPagesToPdf(
+  pages: PerspectiveScanPageInput[],
+  options: {
+    flattenShadows: boolean;
+    autoRemoveWatermark: boolean;
+    enhanceMode: PdfScanEnhanceMode;
+    fitPage: PdfScanFitPage;
+    watermarkCutoff?: number;
+    outputName?: string;
+  },
+  onProgress?: (percent: number, status: string) => void
+): Promise<PdfScanCropResult> {
+  if (pages.length === 0) {
+    throw new Error('Upload at least one physical document photo or PDF page.');
+  }
+
+  const outDoc = await PDFDocument.create();
+  outDoc.setProducer('PaperLink Perspective Auto-Scanner');
+  outDoc.setCreator('PaperLink');
+
+  for (let i = 0; i < pages.length; i++) {
+    const item = pages[i];
+    onProgress?.(
+      10 + Math.round(((i + 1) / pages.length) * 80),
+      `Perspective-correcting & cleaning page ${i + 1} of ${pages.length}...`
+    );
+
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error(`Failed to decode page ${i + 1}`));
+      el.src = item.dataUrl;
+    });
+
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = Math.max(20, img.naturalWidth || 800);
+    srcCanvas.height = Math.max(20, img.naturalHeight || 1100);
+    const srcCtx = srcCanvas.getContext('2d');
+    if (!srcCtx) throw new Error('Canvas unavailable');
+    srcCtx.fillStyle = '#ffffff';
+    srcCtx.fillRect(0, 0, srcCanvas.width, srcCanvas.height);
+    srcCtx.drawImage(img, 0, 0, srcCanvas.width, srcCanvas.height);
+
+    const warpedCanvas = warpPerspectiveCanvas(srcCanvas, item.quad, 1480);
+
+    if (options.flattenShadows || options.autoRemoveWatermark || options.enhanceMode !== 'none') {
+      const wCtx = warpedCanvas.getContext('2d');
+      if (wCtx) {
+        const wData = wCtx.getImageData(0, 0, warpedCanvas.width, warpedCanvas.height);
+        applyPhoneScanFilterToImageData(wData, {
+          flattenShadows: options.flattenShadows,
+          autoRemoveWatermark: options.autoRemoveWatermark,
+          enhanceMode: options.enhanceMode,
+          watermarkCutoff: options.watermarkCutoff ?? 176,
+        });
+        wCtx.putImageData(wData, 0, 0);
+      }
+    }
+
+    const jpgBlob = await new Promise<Blob>((resolve, reject) =>
+      warpedCanvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Scan encode failed'))),
+        'image/jpeg',
+        0.92
+      )
+    );
+    const embedded = await outDoc.embedJpg(new Uint8Array(await jpgBlob.arrayBuffer()));
+
+    const sw = warpedCanvas.width;
+    const sh = warpedCanvas.height;
+    const isLandscape = sw > sh * 1.05;
+    let pageW = 595.28;
+    let pageH = 841.89;
+    let drawW = pageW;
+    let drawH = pageH;
+    let drawX = 0;
+    let drawY = 0;
+
+    if (options.fitPage === 'exact-crop') {
+      const normScale = 595.28 / Math.max(1, isLandscape ? sh : sw);
+      pageW = Math.round(sw * normScale);
+      pageH = Math.round(sh * normScale);
+      drawW = pageW;
+      drawH = pageH;
+    } else if (options.fitPage === 'a4-full-bleed') {
+      pageW = isLandscape ? 841.89 : 595.28;
+      pageH = isLandscape ? 595.28 : 841.89;
+      const scale = Math.max(pageW / sw, pageH / sh);
+      drawW = sw * scale;
+      drawH = sh * scale;
+      drawX = (pageW - drawW) / 2;
+      drawY = (pageH - drawH) / 2;
+    } else {
+      const base =
+        options.fitPage === 'letter-fit'
+          ? { w: 612, h: 792 }
+          : { w: 595.28, h: 841.89 };
+      pageW = isLandscape ? base.h : base.w;
+      pageH = isLandscape ? base.w : base.h;
+      const margin = 8;
+      const availW = pageW - margin * 2;
+      const availH = pageH - margin * 2;
+      const scale = Math.min(availW / sw, availH / sh);
+      drawW = sw * scale;
+      drawH = sh * scale;
+      drawX = (pageW - drawW) / 2;
+      drawY = (pageH - drawH) / 2;
+    }
+
+    const outPage = outDoc.addPage([pageW, pageH]);
+    outPage.drawImage(embedded, { x: drawX, y: drawY, width: drawW, height: drawH });
+  }
+
+  onProgress?.(94, 'Packaging perspective-corrected PDF...');
+  const bytes = await outDoc.save({ useObjectStreams: false });
+  const safeBytes = new Uint8Array(bytes).slice();
+  const blob = new Blob([safeBytes.buffer], { type: 'application/pdf' });
+  onProgress?.(100, 'Perspective Scan Complete');
+
+  const outBase = options.outputName ? baseName(options.outputName) : baseName(pages[0].name);
+  return {
+    blob,
+    bytes: safeBytes,
+    fileName: `${outBase}_scanned.pdf`,
+    pageCount: pages.length,
+    processedPages: pages.length,
+  };
+}
+
+
 
 

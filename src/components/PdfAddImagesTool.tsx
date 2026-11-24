@@ -757,7 +757,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
                               subtitle: `${result.picturesCount} pictures embedded`,
                             })
                           }
-                          className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          className="px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 hover:border-yellow-400 text-zinc-800 dark:text-zinc-100 font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>Preview</span>
@@ -766,7 +766,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
                       <button
                         type="button"
                         onClick={() => triggerDownload(result.blob, result.fileName)}
-                        className="flex-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                        className="flex-1 px-3 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Download PDF</span>
@@ -774,10 +774,10 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
                       <button
                         type="button"
                         onClick={() => onOpenInCoverStudio(result.blob, result.fileName)}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-900 text-yellow-300 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                        className="px-3 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-800 dark:border-zinc-700 text-yellow-400 font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
-                        <span>Cover Studio</span>
+                        <span>QR Cover</span>
                       </button>
                     </div>
                   </div>

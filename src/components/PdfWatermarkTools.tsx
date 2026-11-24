@@ -294,19 +294,29 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
             }}
           />
 
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => rmFileRef.current?.click()}
-            className="w-full p-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 text-center cursor-pointer transition-colors"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') rmFileRef.current?.click();
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f && f.name.toLowerCase().endsWith('.pdf')) void loadRemovePdf(f);
+            }}
+            className="w-full p-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50/70 dark:bg-zinc-950/60 text-center cursor-pointer transition-colors"
           >
             <Upload className="w-6 h-6 text-amber-600 dark:text-yellow-400 mx-auto mb-1.5" />
             <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
-              {rmFile ? rmFile.name : 'Select PDF to Clean Watermarks'}
+              {rmFile ? rmFile.name : 'Click or drop PDF to clean watermarks'}
             </p>
-            <p className="text-[11px] text-zinc-500 mt-0.5">
+            <p className="text-[11px] text-zinc-500 mt-0.5 tabular-nums">
               {rmFile ? `${rmPages.length} preview page(s) loaded` : '100% private client-side processing'}
             </p>
-          </button>
+          </div>
 
           {/* Engine Selector */}
           <div className="space-y-1.5">
@@ -487,7 +497,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
                         subtitle: `${rmResult.cleanedPages} cleaned pages`,
                       })
                     }
-                    className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    className="px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 hover:border-yellow-400 text-zinc-800 dark:text-zinc-100 font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>Preview</span>
@@ -496,18 +506,18 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
                 <button
                   type="button"
                   onClick={() => triggerDownload(rmResult.blob, rmResult.fileName)}
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                  className="flex-1 px-3 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
+                  <span>Download PDF</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenInCoverStudio(rmResult.blob, rmResult.fileName)}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-900 text-yellow-300 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-800 dark:border-zinc-700 text-yellow-400 font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Cover Studio</span>
+                  <span>QR Cover</span>
                 </button>
               </div>
             </div>
@@ -704,16 +714,26 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
           }}
         />
 
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => addFileRef.current?.click()}
-          className="w-full p-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 text-center cursor-pointer transition-colors"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') addFileRef.current?.click();
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files?.[0];
+            if (f && f.name.toLowerCase().endsWith('.pdf')) void loadAddWatermarkPdf(f);
+          }}
+          className="w-full p-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50/70 dark:bg-zinc-950/60 text-center cursor-pointer transition-colors"
         >
           <Upload className="w-6 h-6 text-amber-600 dark:text-yellow-400 mx-auto mb-1" />
           <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
-            {addFile ? addFile.name : 'Select Target PDF File'}
+            {addFile ? addFile.name : 'Click or drop target PDF file'}
           </p>
-        </button>
+        </div>
 
         <div className="space-y-3 text-xs">
           <div>
@@ -882,7 +902,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
                       subtitle: `${addResult.processedPages} pages stamped`,
                     })
                   }
-                  className="px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 hover:border-yellow-400 text-zinc-800 dark:text-zinc-100 font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <Eye className="w-3.5 h-3.5" />
                   <span>Preview</span>
@@ -891,18 +911,18 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
               <button
                 type="button"
                 onClick={() => triggerDownload(addResult.blob, addResult.fileName)}
-                className="flex-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center justify-center gap-1 cursor-pointer"
+                className="flex-1 px-3 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download</span>
+                <span>Download PDF</span>
               </button>
               <button
                 type="button"
                 onClick={() => onOpenInCoverStudio(addResult.blob, addResult.fileName)}
-                className="px-3 py-1.5 rounded-lg bg-zinc-900 text-yellow-300 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                className="px-3 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-800 dark:border-zinc-700 text-yellow-400 font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Cover Studio</span>
+                <span>QR Cover</span>
               </button>
             </div>
           </div>

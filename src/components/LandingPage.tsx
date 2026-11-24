@@ -44,6 +44,7 @@ import { PdfToolTab } from './PdfToolsPanel';
 import { ImageToolTab } from './ImageToolsPanel';
 import { FeedbackSection } from './FeedbackSection';
 import { NeonGlowMode } from './SettingsModal';
+import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 
 interface LandingPageProps {
   onNavigate: (view: AppView | 'batch' | 'library') => void;
@@ -201,40 +202,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </h1>
 
               <p className="text-base text-zinc-600 dark:text-zinc-400 leading-relaxed max-w-xl mb-7">
-                Attach a scannable Google Drive QR cover — or switch on <strong className="text-zinc-900 dark:text-white font-semibold">Clean Cover Only</strong> to export offline in seconds. Plus 25 simple tools for PDFs, Office files, and images right in your browser.
+                Attach a scannable Google Drive QR cover — or switch on <strong className="text-zinc-900 dark:text-white font-semibold">Clean Cover Only</strong> to export offline in seconds. Plus {PDF_OFFICE_TOOLS.length + DESIGNER_IMAGE_TOOLS.length} browser-private tools for PDFs, Office files, and images.
               </p>
 
               <div className="flex flex-wrap items-center gap-3">
-                <motion.button
-                  type="button"
-                  whileHover={{ y: -2, scale: 1.01 }}
-                  whileTap={{ scale: 0.98 }}
+                <LiquidCrystalButton
+                  variant="primary"
                   onClick={() => onNavigate('studio')}
-                  className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer shadow-sm"
+                  className="px-6 py-3.5 rounded-xl text-sm whitespace-nowrap shrink-0"
                 >
                   <span>Start Cover Studio</span>
                   <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                </motion.button>
+                </LiquidCrystalButton>
 
-                <motion.button
-                  type="button"
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.98 }}
+                <LiquidCrystalButton
+                  variant="neutral"
                   onClick={() => onOpenPdfTool('pdf-edit')}
-                  className="inline-flex items-center gap-2 px-4 py-3.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-yellow-400 text-zinc-800 dark:text-zinc-200 font-semibold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-4 py-3.5 rounded-xl text-sm whitespace-nowrap shrink-0"
                 >
                   <span>PDF &amp; Office</span>
-                </motion.button>
+                </LiquidCrystalButton>
 
-                <motion.button
-                  type="button"
-                  whileHover={{ y: -2 }}
-                  whileTap={{ scale: 0.98 }}
+                <LiquidCrystalButton
+                  variant="neutral"
                   onClick={() => onOpenImageTool('bg-remove')}
-                  className="inline-flex items-center gap-2 px-4 py-3.5 rounded-xl border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-yellow-400 text-zinc-800 dark:text-zinc-200 font-semibold text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-4 py-3.5 rounded-xl text-sm whitespace-nowrap shrink-0"
                 >
                   <span>Image Studio</span>
-                </motion.button>
+                </LiquidCrystalButton>
               </div>
 
               <div className="mt-8 pt-5 border-t border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -270,11 +265,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 />
               )}
 
-              <div
-                className={`relative rounded-2xl border border-zinc-200/95 dark:border-zinc-800 bg-white dark:bg-[#0e0e14] overflow-hidden ring-1 ring-inset ring-black/[0.03] dark:ring-white/[0.04] transition-shadow duration-300 ${
+              <LiquidCrystalCard
+                accentGlow="yellow"
+                className={`rounded-2xl transition-shadow duration-300 ${
                   neonGlowMode === 'full'
                     ? 'shadow-[0_14px_38px_-12px_rgba(15,23,42,0.12),0_0_24px_-6px_rgba(250,204,21,0.16)] dark:shadow-[0_20px_50px_-14px_rgba(0,0,0,0.65),0_0_28px_-8px_rgba(250,204,21,0.14)]'
-                    : 'shadow-lg'
+                    : ''
                 }`}
               >
                 <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-amber-400/60 to-transparent" />
@@ -431,7 +427,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                               <span className="px-2 py-1.5 rounded-lg bg-yellow-400 text-black text-center">
                                 With QR &amp; Drive
                               </span>
-                              <span className="px-2 py-1.5 rounded-lg bg-cyan-400/20 border border-cyan-400/50 text-cyan-700 dark:text-cyan-300 text-center">
+                              <span className="px-2 py-1.5 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 text-center">
                                 Without QR
                               </span>
                             </div>
@@ -532,7 +528,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </button>
                   </div>
                 </div>
-              </div>
+              </LiquidCrystalCard>
             </motion.div>
           </div>
         </section>
@@ -549,7 +545,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               <div>
                 <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider mb-1.5 font-semibold">
-                  31 Offline Document &amp; Image Utilities
+                  {PDF_OFFICE_TOOLS.length + DESIGNER_IMAGE_TOOLS.length} Offline Document &amp; Image Utilities
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-bold text-zinc-950 dark:text-white tracking-tight">
                   Switch tools below — everything runs inside your browser.
@@ -559,8 +555,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               {/* Animated Category Switcher */}
               <div className="inline-grid grid-cols-2 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 shrink-0 self-start md:self-auto">
                 {[
-                  { id: 'pdf' as const, label: 'PDF & Office (20)' },
-                  { id: 'image' as const, label: 'Image Studio (11)' },
+                  { id: 'pdf' as const, label: `PDF & Office (${PDF_OFFICE_TOOLS.length})` },
+                  { id: 'image' as const, label: `Image Studio (${DESIGNER_IMAGE_TOOLS.length})` },
                 ].map((tab) => {
                   const isActive = activeSuiteTab === tab.id;
                   return (
@@ -598,34 +594,57 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   transition={{ duration: 0.25, ease: EASE_OUT_QUINT }}
                   className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5"
                 >
-                  {PDF_OFFICE_TOOLS.map((tool, idx) => {
-                    const Icon = tool.icon;
-                    return (
-                      <motion.button
-                        key={tool.id}
-                        type="button"
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.28, delay: Math.min(idx * 0.02, 0.24), ease: EASE_OUT_QUINT }}
-                        whileHover={{ y: -3 }}
-                        whileTap={{ scale: 0.99 }}
-                        onClick={() => onOpenPdfTool(tool.id)}
-                        className="group text-left p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] hover:border-yellow-400 transition-colors cursor-pointer flex items-start gap-3.5 shadow-xs hover:shadow-md"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                          <Icon className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-bold text-zinc-950 dark:text-white group-hover:text-amber-600 dark:group-hover:text-yellow-400 transition-colors truncate">
-                            {tool.title}
-                          </h3>
-                          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-snug line-clamp-2">
-                            {tool.desc}
-                          </p>
-                        </div>
-                      </motion.button>
-                    );
-                  })}
+                  {PDF_OFFICE_TOOLS.slice()
+                    .sort((a, b) => (a.id === 'pdf-edit' ? -1 : b.id === 'pdf-edit' ? 1 : 0))
+                    .map((tool, idx) => {
+                      const Icon = tool.icon;
+                      const isParentStudio = tool.id === 'pdf-edit';
+                      return (
+                        <LiquidCrystalCard
+                          key={tool.id}
+                          asButton
+                          interactive
+                          accentGlow="yellow"
+                          delay={Math.min(idx * 0.02, 0.24)}
+                          onClick={() => onOpenPdfTool(tool.id)}
+                          className={`group p-4 rounded-2xl ${
+                            isParentStudio
+                              ? 'sm:col-span-2 lg:col-span-4 !border-2 !border-yellow-400 !bg-yellow-400/[0.08] dark:!bg-yellow-400/[0.06] hover:!bg-yellow-400/[0.14]'
+                              : ''
+                          }`}
+                        >
+                          <div className={`flex gap-3.5 ${isParentStudio ? 'items-center justify-between' : 'items-start'}`}>
+                            <div className="flex items-start gap-3.5 min-w-0 flex-1">
+                              <div
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform ${
+                                  isParentStudio
+                                    ? 'bg-gradient-to-b from-yellow-300 to-yellow-400 text-black shadow-xs'
+                                    : 'bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30'
+                                }`}
+                              >
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h3 className="text-sm font-bold text-zinc-950 dark:text-white group-hover:text-amber-600 dark:group-hover:text-yellow-400 transition-colors truncate">
+                                  {isParentStudio ? 'Edit PDF — All-in-One Studio' : tool.title}
+                                </h3>
+                                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-snug line-clamp-2">
+                                  {isParentStudio
+                                    ? 'Work on a single PDF with every editing, watermark, scan/crop, organize, compress, security & export tool in one unified sidebar.'
+                                    : tool.desc}
+                                </p>
+                              </div>
+                            </div>
+                            {isParentStudio && (
+                              <span className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-b from-yellow-300 to-yellow-400 text-black text-xs font-bold shrink-0 shadow-[0_4px_14px_-4px_rgba(250,204,21,0.5),inset_0_1px_0_rgba(255,255,255,0.7)]">
+                                <span>Open Studio</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                          </div>
+                        </LiquidCrystalCard>
+                      );
+                    })}
                 </motion.div>
               ) : (
                 <motion.div
@@ -638,30 +657,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 >
                   {DESIGNER_IMAGE_TOOLS.map((tool, idx) => {
                     const Icon = tool.icon;
+                    const isFeatured = tool.id === 'bg-remove';
                     return (
-                      <motion.button
+                      <LiquidCrystalCard
                         key={tool.id}
-                        type="button"
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.28, delay: Math.min(idx * 0.025, 0.2), ease: EASE_OUT_QUINT }}
-                        whileHover={{ y: -3 }}
-                        whileTap={{ scale: 0.99 }}
+                        asButton
+                        interactive
+                        accentGlow="yellow"
+                        delay={Math.min(idx * 0.025, 0.2)}
                         onClick={() => onOpenImageTool(tool.id)}
-                        className="group text-left p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] hover:border-yellow-400 transition-colors cursor-pointer flex items-start gap-3.5 shadow-xs hover:shadow-md"
+                        className={`group p-4 rounded-2xl ${
+                          isFeatured
+                            ? 'sm:col-span-2 !border-yellow-400/75 !bg-yellow-400/[0.06] hover:!border-yellow-400'
+                            : ''
+                        }`}
                       >
-                        <div className="w-9 h-9 rounded-xl bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                          <Icon className="w-4 h-4" />
+                        <div className="flex items-start gap-3.5">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform ${
+                              isFeatured
+                                ? 'bg-gradient-to-b from-yellow-300 to-yellow-400 text-black shadow-xs'
+                                : 'bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30'
+                            }`}
+                          >
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-bold text-zinc-950 dark:text-white group-hover:text-amber-600 dark:group-hover:text-yellow-400 transition-colors truncate">
+                              {tool.title}
+                            </h3>
+                            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-snug line-clamp-2">
+                              {tool.desc}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-bold text-zinc-950 dark:text-white group-hover:text-amber-600 dark:group-hover:text-yellow-400 transition-colors truncate">
-                            {tool.title}
-                          </h3>
-                          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-snug line-clamp-2">
-                            {tool.desc}
-                          </p>
-                        </div>
-                      </motion.button>
+                      </LiquidCrystalCard>
                     );
                   })}
                 </motion.div>
@@ -678,35 +708,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.25 }}
               transition={{ duration: 0.4, ease: EASE_OUT_QUINT }}
-              className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] p-6 sm:p-7 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-6"
             >
-              <div className="space-y-2 max-w-2xl">
-                <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider font-semibold">
-                  Desktop Browser Extension
-                </p>
-                <h2
-                  className="text-xl sm:text-2xl font-extrabold text-zinc-950 dark:text-white tracking-tight"
-                  style={{ textWrap: 'balance' }}
-                >
-                  PaperLink Mini — PDF &amp; Image tools right in Chrome.
-                </h2>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                  Install the Chrome Web Store companion on Chrome, Edge, or Brave to launch PaperLink tools in one click from any PC tab.
-                </p>
-              </div>
+              <LiquidCrystalCard interactive accentGlow="yellow" className="rounded-2xl p-6 sm:p-7">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  <div className="space-y-2 max-w-2xl">
+                    <p className="text-xs font-mono text-amber-700 dark:text-yellow-400 uppercase tracking-wider font-semibold">
+                      Desktop Browser Extension
+                    </p>
+                    <h2
+                      className="text-xl sm:text-2xl font-extrabold text-zinc-950 dark:text-white tracking-tight"
+                      style={{ textWrap: 'balance' }}
+                    >
+                      PaperLink Mini — PDF &amp; Image tools right in Chrome.
+                    </h2>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      Install the Chrome Web Store companion on Chrome, Edge, or Brave to launch PaperLink tools in one click from any PC tab.
+                    </p>
+                  </div>
 
-              <motion.a
-                whileHover={{ y: -2 }}
-                whileTap={{ scale: 0.98 }}
-                href={CHROME_EXTENSION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-sm transition-colors whitespace-nowrap shrink-0 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
-              >
-                <Puzzle className="w-4 h-4 stroke-[2.25]" />
-                <span>Add Chrome Extension</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </motion.a>
+                  <LiquidCrystalButton
+                    variant="primary"
+                    href={CHROME_EXTENSION_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-6 py-3.5 rounded-xl text-sm whitespace-nowrap shrink-0"
+                  >
+                    <Puzzle className="w-4 h-4 stroke-[2.25]" />
+                    <span>Add Chrome Extension</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </LiquidCrystalButton>
+                </div>
+              </LiquidCrystalCard>
             </motion.div>
           </div>
         </section>

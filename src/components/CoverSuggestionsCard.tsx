@@ -9,6 +9,7 @@ import {
   Trash2,
   Wand2,
 } from 'lucide-react';
+import { ClipingPapersLogo } from './ClipingPapersLogo';
 import {
   CoverData,
   CoverPictureSuggestion,
@@ -295,19 +296,29 @@ export const CoverSuggestionsCard: React.FC<CoverSuggestionsCardProps> = ({
       )}
 
       {isLoading && suggestions.length === 0 && (
-        <div className={`grid gap-3 ${suggestionCount === 1 ? 'grid-cols-1 max-w-[220px]' : suggestionCount === 2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
-          {Array.from({ length: suggestionCount }).map((_, idx) => (
-            <div
-              key={idx}
-              className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3 flex flex-col justify-between gap-3"
-            >
-              <div className="w-full aspect-[3/4] rounded-lg bg-zinc-200/70 dark:bg-zinc-900 flex flex-col items-center justify-center gap-2 text-zinc-500 dark:text-zinc-400">
-                <Loader2 className="w-5 h-5 animate-spin text-amber-500 dark:text-yellow-400" />
-                <span className="text-[11px] font-medium">Reading document…</span>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-yellow-400/35 bg-yellow-400/[0.08] p-4 flex items-center justify-center">
+            <ClipingPapersLogo
+              size="md"
+              layout="inline"
+              statusText="Fetching AI cover art results…"
+              subText="Reading document context & generating custom backgrounds"
+            />
+          </div>
+          <div className={`grid gap-3 ${suggestionCount === 1 ? 'grid-cols-1 max-w-[220px]' : suggestionCount === 2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
+            {Array.from({ length: suggestionCount }).map((_, idx) => (
+              <div
+                key={idx}
+                className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-3 flex flex-col justify-between gap-3"
+              >
+                <div className="w-full aspect-[3/4] rounded-lg bg-zinc-200/70 dark:bg-zinc-900 flex flex-col items-center justify-center gap-2 text-zinc-500 dark:text-zinc-400">
+                  <ClipingPapersLogo size="xs" showWordmark={false} />
+                  <span className="text-[11px] font-medium">Fetching preview…</span>
+                </div>
+                <div className="h-7 rounded-lg bg-zinc-200/70 dark:bg-zinc-900" />
               </div>
-              <div className="h-7 rounded-lg bg-zinc-200/70 dark:bg-zinc-900" />
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -348,10 +359,7 @@ export const CoverSuggestionsCard: React.FC<CoverSuggestionsCardProps> = ({
                     />
                   ) : isQueued ? (
                     <div className="p-3 text-center flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="w-5 h-5 animate-spin text-amber-500 dark:text-yellow-400" />
-                      <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">
-                        Painting background…
-                      </span>
+                      <ClipingPapersLogo size="sm" layout="stacked" statusText="Painting background…" />
                       {typeof item.queuePosition === 'number' && (
                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400 tabular-nums">
                           Queue #{item.queuePosition}

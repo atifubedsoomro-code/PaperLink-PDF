@@ -29,7 +29,9 @@ import {
   History,
   PanelLeft,
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import {
   PdfEditElement,
   PdfEditorFont,
@@ -254,6 +256,27 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
       window.removeEventListener('pointerup', onPointerUp);
     };
   }, []);
+
+  // Keyboard shortcuts: Delete/Backspace deletes selected overlay, Escape deselects
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedId) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) {
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        setElements((prev) => prev.filter((item) => item.id !== selectedId));
+        setSelectedId(null);
+      } else if (e.key === 'Escape') {
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedId]);
 
   /**
    * Ensures all pending visual canvas overlays (text, pictures, ink, shapes, stamps)
@@ -590,86 +613,89 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
       />
 
       {/* Parent Workspace Master Header */}
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5">
+      <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-yellow-400/80 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 text-[11px] font-bold">
-                <PanelLeft className="w-3 h-3" />
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+              <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-yellow-400 flex items-center gap-1.5">
+                <PanelLeft className="w-3.5 h-3.5" />
                 <span>Parent PDF Studio</span>
               </span>
               {sourceFile && (
-                <span className="text-xs font-mono text-zinc-600 dark:text-zinc-400 truncate max-w-xs sm:max-w-md tabular-nums">
-                  {sourceFile.name} · {pagePreviews.length}p · {formatBytes(sourceFile.size)}
-                </span>
+                <>
+                  <span className="text-zinc-400" aria-hidden="true">·</span>
+                  <span className="text-zinc-600 dark:text-zinc-400 truncate max-w-xs sm:max-w-md tabular-nums">
+                    {sourceFile.name} · {pagePreviews.length}p · {formatBytes(sourceFile.size)}
+                  </span>
+                </>
               )}
             </div>
-            <h2 className="text-base font-bold text-zinc-950 dark:text-white mt-1.5">
+            <h2 className="text-base font-bold text-zinc-950 dark:text-white mt-1">
               All-in-One Edit PDF Workspace — Apply Every Change on One Single PDF
             </h2>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-              Use the sidebar tools to edit text, pictures, signatures, clean watermarks, rotate/merge/split pages, compress, encrypt, or export without re-uploading.
+              Use the sidebar tools to edit text, pictures, signatures, clean watermarks, scan &amp; crop, rotate/merge/split pages, compress, protect, or export without re-uploading.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             {revisionHistory.length > 0 && (
-              <button
-                type="button"
+              <LiquidCrystalButton
+                variant="neutral"
                 disabled={isWorking}
                 onClick={handleUndoPdfRevision}
                 title={`Undo: ${revisionHistory[revisionHistory.length - 1]?.label}`}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 text-zinc-800 dark:text-zinc-200 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                className="px-3 py-2 rounded-xl text-xs whitespace-nowrap"
               >
                 <History className="w-3.5 h-3.5 text-amber-500" />
                 <span>Undo PDF ({revisionHistory.length})</span>
-              </button>
+              </LiquidCrystalButton>
             )}
 
-            <button
-              type="button"
+            <LiquidCrystalButton
+              variant="neutral"
               onClick={() => pdfInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 text-zinc-900 dark:text-white font-bold text-xs cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap"
             >
-              <Upload className="w-3.5 h-3.5 text-yellow-500" />
+              <Upload className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
               <span>{sourceFile ? 'Switch PDF' : 'Open PDF'}</span>
-            </button>
+            </LiquidCrystalButton>
 
             {sourceFile && (
               <>
                 {onPreviewDocument && (
-                  <button
-                    type="button"
+                  <LiquidCrystalButton
+                    variant="neutral"
                     disabled={isWorking}
                     onClick={() => void handleExportOrSavePdf('preview')}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer whitespace-nowrap"
+                    className="px-3 py-2 rounded-xl text-xs whitespace-nowrap"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>Preview</span>
-                  </button>
+                  </LiquidCrystalButton>
                 )}
 
-                <button
-                  type="button"
+                <LiquidCrystalButton
+                  variant="primary"
                   disabled={isWorking}
                   onClick={() => void handleExportOrSavePdf('download')}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-bold text-xs cursor-pointer whitespace-nowrap"
+                  className="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap"
                 >
                   {isWorking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                   <span>
                     Download PDF{elements.length > 0 ? ` (+${elements.length})` : ''}
                   </span>
-                </button>
+                </LiquidCrystalButton>
 
-                <button
-                  type="button"
+                <LiquidCrystalButton
+                  variant="secondary"
                   disabled={isWorking}
                   onClick={() => void handleExportOrSavePdf('cover')}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 dark:hover:bg-zinc-700 text-yellow-300 font-bold text-xs cursor-pointer whitespace-nowrap"
+                  className="px-3 py-2 rounded-xl text-xs whitespace-nowrap"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>QR Cover</span>
-                </button>
+                </LiquidCrystalButton>
               </>
             )}
           </div>
@@ -681,7 +707,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
             <span>{lastSavedStatus}</span>
           </div>
         )}
-      </div>
+      </LiquidCrystalCard>
 
       {/* Main Split Workspace: Left Proper Sidebar + Right Interactive PDF Stage */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -717,14 +743,21 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                         key={item.id}
                         type="button"
                         onClick={() => setSidebarSection(item.id)}
-                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold text-left border transition-colors cursor-pointer ${
+                        className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold text-left border transition-colors cursor-pointer ${
                           active
-                            ? 'bg-yellow-400 text-black border-yellow-400 font-bold shadow-xs'
-                            : 'bg-zinc-50 dark:bg-zinc-950/70 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-yellow-400/70'
+                            ? 'text-black border-yellow-400 font-bold'
+                            : 'bg-zinc-50/85 dark:bg-zinc-950/75 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-yellow-400/70'
                         }`}
                       >
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{item.label}</span>
+                        {active && (
+                          <motion.span
+                            layoutId="pdfSidebarActiveDroplet"
+                            transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                            className="absolute inset-0 rounded-[11px] bg-gradient-to-b from-yellow-300 to-yellow-400 shadow-[0_4px_12px_-3px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.7)]"
+                          />
+                        )}
+                        <Icon className="w-3.5 h-3.5 shrink-0 relative z-10" />
+                        <span className="truncate relative z-10">{item.label}</span>
                       </button>
                     );
                   })}
@@ -734,6 +767,11 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
           </div>
 
           <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-3">
+            {!sourceFile && sidebarSection !== 'import-office' && sidebarSection !== 'canvas' && (
+              <div className="p-2.5 rounded-xl border border-amber-300/70 dark:border-yellow-400/35 bg-amber-50/80 dark:bg-yellow-400/[0.08] text-[11px] text-amber-900 dark:text-yellow-200 leading-snug">
+                Open or drop a PDF on the right stage first to run this tool directly on your file.
+              </div>
+            )}
             {sidebarSection !== 'canvas' ? (
               <PdfEditorSidebarPanels
                 activeSection={sidebarSection}
@@ -809,11 +847,23 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                 </div>
 
                 {!selectedElement ? (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                    {sourceFile
-                      ? 'Use the toolbar above the page (+ Text, + Picture, Highlight, Whiteout, Freehand Ink) or click any element on the canvas to customize size, font, color, and position.'
-                      : 'Open a PDF on the right — or pick "Word / Img / PPT / XLS" or "Protect PDF -> Unlock & Load" above in the sidebar to bring any file straight into this editor.'}
-                  </p>
+                  <div className="space-y-2.5">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      {sourceFile
+                        ? 'Use the toolbar above the page (+ Text, + Picture, Highlight, Whiteout, Freehand Ink) or click any overlay on the page to edit size, font, color, or press Delete to remove.'
+                        : 'Open a PDF to start editing, or pick "Word / Img / PPT / XLS" above to convert & open another file format straight into this workspace.'}
+                    </p>
+                    {!sourceFile && (
+                      <button
+                        type="button"
+                        onClick={() => pdfInputRef.current?.click()}
+                        className="w-full py-2 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Open PDF Document</span>
+                      </button>
+                    )}
+                  </div>
                 ) : selectedElement.kind === 'text' ? (
                   <div className="space-y-3 text-xs">
                     <textarea
@@ -1317,9 +1367,27 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="font-mono font-bold px-2 tabular-nums">
-                    Page {currentPage} / {pagePreviews.length}
-                  </span>
+                  {pagePreviews.length > 2 ? (
+                    <select
+                      aria-label="Jump to PDF page"
+                      value={currentPage}
+                      onChange={(e) => {
+                        setCurrentPage(Number(e.target.value));
+                        setSelectedId(null);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 font-mono font-bold text-xs tabular-nums cursor-pointer"
+                    >
+                      {pagePreviews.map((_, idx) => (
+                        <option key={idx + 1} value={idx + 1}>
+                          Page {idx + 1} / {pagePreviews.length}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="font-mono font-bold px-2 tabular-nums">
+                      Page {currentPage} / {pagePreviews.length}
+                    </span>
+                  )}
                   <button
                     type="button"
                     disabled={currentPage >= pagePreviews.length}

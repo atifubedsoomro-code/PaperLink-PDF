@@ -74,6 +74,8 @@ export interface CoverData {
   stampPageNumbers?: boolean;
   watermarkText?: string;
   watermarkOpacity?: number;
+  /** Scaling percentage (50–125, default 100) of uploaded document pages relative to the cover page */
+  documentPageScale?: number;
 }
 
 export interface BrandKitPreset {

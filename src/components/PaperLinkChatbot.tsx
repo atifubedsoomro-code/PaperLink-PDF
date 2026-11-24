@@ -31,7 +31,7 @@ import { ImageToolTab } from './ImageToolsPanel';
 import { ChatMarkdown } from './ChatMarkdown';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { typewriterAudio } from '../services/soundEffects';
-import { LiquidDropletOverlay, DropletBurstState } from './LiquidDropletEffect';
+import { ClipingPapersLogo } from './ClipingPapersLogo';
 import {
   CompressionLevel,
   PdfPageThumb,
@@ -96,6 +96,8 @@ export interface PaperLinkChatbotProps {
   onSpeedModeChange?: (mode: 'balanced' | 'fast') => void;
   isMinimized?: boolean;
   onMinimizeChange?: (minimized: boolean) => void;
+  soundEnabled?: boolean;
+  onSoundEnabledChange?: (enabled: boolean) => void;
 }
 
 interface ChatArtifact {
@@ -311,6 +313,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   onSpeedModeChange,
   isMinimized = false,
   onMinimizeChange,
+  soundEnabled,
+  onSoundEnabledChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
@@ -352,8 +356,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
     const baseH = customSize?.height ?? Math.min(Math.round(vh * 0.78), 630);
     const width = Math.max(minW, Math.min(maxW, baseW));
     const height = Math.max(minH, Math.min(maxH, baseH));
-    const rightGap = activeView === 'studio' && vw >= 1024 ? 312 : vw < 640 ? 12 : 20;
-    const bottomGap = activeView === 'studio' && vw < 1024 ? 64 : vw < 640 ? 16 : 20;
+    const rightGap = vw < 640 ? 12 : 20;
+    const bottomGap = vw < 640 ? 16 : 20;
     const left = Math.max(8, Math.min(vw - width - 8, vw - rightGap - width));
     const top = Math.max(8, Math.min(vh - height - 8, vh - bottomGap - height));
     return { left, top, width, height };
@@ -501,24 +505,30 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   }, [isSoundEnabled]);
 
   useEffect(() => {
+    if (typeof soundEnabled === 'boolean') {
+      setIsSoundEnabled(soundEnabled);
+      isSoundEnabledRef.current = soundEnabled;
+    }
+  }, [soundEnabled]);
+
+  useEffect(() => {
     setSpeedMode(defaultSpeedMode);
   }, [defaultSpeedMode]);
 
   const toggleChatSound = () => {
-    setIsSoundEnabled((prev) => {
-      const next = !prev;
-      isSoundEnabledRef.current = next;
-      try {
-        localStorage.setItem('paperlink_chat_sound', next ? 'on' : 'muted');
-      } catch {
-        // ignore storage restrictions
-      }
-      if (next) {
-        typewriterAudio.unlock();
-        playOutputSuccessSound();
-      }
-      return next;
-    });
+    const next = !isSoundEnabled;
+    setIsSoundEnabled(next);
+    isSoundEnabledRef.current = next;
+    try {
+      localStorage.setItem('paperlink_chat_sound', next ? 'on' : 'muted');
+    } catch {
+      // ignore storage restrictions
+    }
+    if (next) {
+      typewriterAudio.unlock();
+      playOutputSuccessSound();
+    }
+    onSoundEnabledChange?.(next);
   };
 
   const handleCopyMessage = (id: string, text: string) => {
@@ -534,89 +544,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   };
 
   const prefersReducedMotion = useReducedMotion();
-  const [openOrigin, setOpenOrigin] = useState<'minimized' | 'closed'>('closed');
-  const [dropletBurst, setDropletBurst] = useState<DropletBurstState | null>(null);
-  const prevMinimizedRef = useRef(isMinimized);
-  const prevOpenRef = useRef(isOpen);
-  const lastMinBtnCenterRef = useRef<{ x: number; y: number } | null>(null);
-  const lastDockCenterRef = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    const captureOrigins = () => {
-      const minBtn = document.querySelector('[data-paperlink-minimized-btn="true"]');
-      if (minBtn) {
-        const r = minBtn.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          lastMinBtnCenterRef.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        }
-      }
-      const dockEl = document.querySelector('[data-paperlink-compact-dock="true"]');
-      if (dockEl) {
-        const r = dockEl.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          lastDockCenterRef.current = { x: r.left + r.width * 0.56, y: r.top + r.height * 0.5 };
-        }
-      }
-    };
-    const raf = window.requestAnimationFrame(captureOrigins);
-    window.addEventListener('resize', captureOrigins);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener('resize', captureOrigins);
-    };
-  }, [isMinimized, isOpen, activeView]);
-
-  useEffect(() => {
-    const wasMin = prevMinimizedRef.current;
-    const wasOpen = prevOpenRef.current;
-    prevMinimizedRef.current = isMinimized;
-    prevOpenRef.current = isOpen;
-
-    let timer: number | null = null;
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-
-    if (wasMin && !isMinimized) {
-      setOpenOrigin('minimized');
-      const dockW = vw < 640 ? vw - 24 : 348;
-      const dockH = 108;
-      const rightGap = activeView === 'studio' && vw >= 1024 ? 312 : vw < 640 ? 12 : 20;
-      const bottomGap = activeView === 'studio' && vw < 1024 ? 64 : vw < 640 ? 16 : 20;
-      const targetRect = isOpen
-        ? { ...windowRectRef.current }
-        : {
-            left: vw - rightGap - dockW,
-            top: vh - bottomGap - dockH,
-            width: dockW,
-            height: dockH,
-          };
-
-      setDropletBurst({
-        id: Date.now(),
-        mode: isOpen ? 'from-minimized-to-window' : 'from-minimized-to-dock',
-        originPoint: lastMinBtnCenterRef.current ?? undefined,
-        targetRect,
-      });
-      timer = window.setTimeout(() => setDropletBurst(null), 820);
-    } else if (!isMinimized && !wasOpen && isOpen) {
-      setOpenOrigin('closed');
-      setDropletBurst({
-        id: Date.now(),
-        mode: 'from-closed-to-window',
-        originPoint: lastDockCenterRef.current ?? undefined,
-        targetRect: { ...windowRectRef.current },
-      });
-      timer = window.setTimeout(() => setDropletBurst(null), 740);
-    }
-
-    return () => {
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [isMinimized, isOpen, activeView]);
 
   const handleMinimizeToTopBar = () => {
-    setIsOpen(false);
     onMinimizeChange?.(true);
+    setIsOpen(false);
   };
 
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -2443,11 +2374,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           'Take me to Image Studio',
         ];
 
-  // Avoid overlapping fixed right Cover Studio sidebar on lg+ desktop and mobile step bar
-  const dockPositionClass =
-    activeView === 'studio'
-      ? 'bottom-16 lg:bottom-5 right-3 sm:right-5 lg:right-[19.5rem]'
-      : 'bottom-4 sm:bottom-5 right-3 sm:right-5';
+  const dockPositionClass = 'bottom-4 sm:bottom-5 right-3 sm:right-5';
 
   return (
     <>
@@ -2466,62 +2393,20 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         }}
       />
 
-      {/* LIQUID CRYSTAL DROPLET STRETCHING & COALESCING OVERLAY */}
-      <LiquidDropletOverlay burst={dropletBurst} />
-
       {/* CONSTANT COMPACT BOTTOM-RIGHT "PAPERLINK AI" CRYSTAL GLASS BAR */}
       <AnimatePresence>
         {!isMinimized && !isOpen && (
           <motion.div
             key="paperlink-compact-dock"
             data-paperlink-compact-dock="true"
-            initial={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : openOrigin === 'minimized'
-                ? {
-                    opacity: 0,
-                    x: -140,
-                    y: -90,
-                    scaleX: 0.48,
-                    scaleY: 0.4,
-                  }
-                : {
-                    opacity: 0,
-                    y: 14,
-                    scaleX: 0.9,
-                    scaleY: 0.8,
-                  }
-            }
-            animate={
-              prefersReducedMotion
-                ? { opacity: 1 }
-                : openOrigin === 'minimized'
-                ? {
-                    opacity: [0, 0.94, 1, 1],
-                    x: [-140, 4, -2, 0],
-                    y: [-90, 5, -2, 0],
-                    scaleX: [0.48, 1.055, 0.985, 1],
-                    scaleY: [0.4, 0.9, 1.03, 1],
-                  }
-                : {
-                    opacity: 1,
-                    y: [14, -2, 0],
-                    scaleX: [0.9, 1.02, 1],
-                    scaleY: [0.8, 0.98, 1],
-                  }
-            }
+            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.96 }}
+            animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={
               prefersReducedMotion
                 ? { opacity: 0 }
-                : { opacity: 0, scaleX: 0.82, scaleY: 0.58, y: 10, transition: { duration: 0.18 } }
+                : { opacity: 0, y: 10, scale: 0.96, transition: { duration: 0.16 } }
             }
-            transition={{
-              duration: openOrigin === 'minimized' ? 0.62 : 0.42,
-              times: openOrigin === 'minimized' ? [0, 0.56, 0.82, 1] : [0, 0.64, 1],
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            style={{ transformOrigin: openOrigin === 'minimized' ? 'top left' : 'bottom right' }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[348px]`}
             onDragOver={(e) => {
               e.preventDefault();
@@ -2557,16 +2442,6 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/60 to-transparent"
                 />
-                {dropletBurst && !prefersReducedMotion && (
-                  <motion.div
-                    key={`dock_caustic_${dropletBurst.id}`}
-                    aria-hidden="true"
-                    initial={{ x: '-110%', opacity: 0.7 }}
-                    animate={{ x: '130%', opacity: 0 }}
-                    transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }}
-                    className="pointer-events-none absolute inset-y-0 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/70 to-transparent z-10"
-                  />
-                )}
 
                 {isDragOver && (
                   <div className="absolute inset-0 z-30 bg-yellow-400/25 dark:bg-yellow-950/60 backdrop-blur-xl border-2 border-dashed border-yellow-400 rounded-[24px] flex items-center justify-center gap-2 p-3">
@@ -2580,11 +2455,23 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 {/* Compact Frosted Header Strip */}
                 <div className="relative px-3.5 py-2.5 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/32 dark:bg-white/[0.03] flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
-                      <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
-                    </div>
+                    {isBusy ? (
+                      <ClipingPapersLogo size="xs" showWordmark={false} />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
+                        <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
+                      </div>
+                    )}
                     <span className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
-                      PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                      {isBusy ? (
+                        <>
+                          Cliping <span className="text-amber-600 dark:text-yellow-400">Papers</span>
+                        </>
+                      ) : (
+                        <>
+                          PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
+                        </>
+                      )}
                     </span>
                   </div>
 
@@ -2708,47 +2595,22 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         {!isMinimized && isOpen && (
           <motion.div
             key="paperlink-expanded-window"
-            initial={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : openOrigin === 'minimized'
-                ? { opacity: 0, x: -140, y: -110, scaleX: 0.42, scaleY: 0.28 }
-                : { opacity: 0, y: 34, scaleX: 0.74, scaleY: 0.24 }
-            }
-            animate={
-              prefersReducedMotion
-                ? { opacity: 1 }
-                : openOrigin === 'minimized'
-                ? {
-                    opacity: [0, 0.95, 1, 1],
-                    x: [-140, 5, -2, 0],
-                    y: [-110, 6, -2, 0],
-                    scaleX: [0.42, 1.035, 0.99, 1],
-                    scaleY: [0.28, 1.045, 0.985, 1],
-                  }
-                : {
-                    opacity: [0, 0.96, 1, 1],
-                    y: [34, -5, 1, 0],
-                    scaleX: [0.74, 1.03, 0.992, 1],
-                    scaleY: [0.24, 1.04, 0.988, 1],
-                  }
-            }
+            initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
+            animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={
               prefersReducedMotion
                 ? { opacity: 0 }
-                : { opacity: 0, y: 20, scaleX: 0.78, scaleY: 0.28, transition: { duration: 0.2 } }
+                : { opacity: 0, y: 12, scale: 0.96, transition: { duration: 0.16, ease: [0.22, 1, 0.36, 1] } }
             }
             transition={{
-              duration: activeResizeDir ? 0 : openOrigin === 'minimized' ? 0.64 : 0.52,
-              times: [0, 0.56, 0.84, 1],
-              ease: [0.16, 1, 0.3, 1],
+              duration: activeResizeDir ? 0 : 0.22,
+              ease: [0.22, 1, 0.36, 1],
             }}
             style={{
               left: `${windowRect.left}px`,
               top: `${windowRect.top}px`,
               width: `${windowRect.width}px`,
               height: `${windowRect.height}px`,
-              transformOrigin: openOrigin === 'minimized' ? 'top left' : 'bottom right',
             }}
             className="no-print fixed z-40"
             onDragOver={(e) => {
@@ -2848,16 +2710,6 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-x-6 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/95 dark:via-white/60 to-transparent z-20"
               />
-              {dropletBurst && !prefersReducedMotion && (
-                <motion.div
-                  key={`win_caustic_${dropletBurst.id}`}
-                  aria-hidden="true"
-                  initial={{ x: '-110%', opacity: 0.72 }}
-                  animate={{ x: '130%', opacity: 0 }}
-                  transition={{ duration: 0.78, ease: [0.16, 1, 0.3, 1] }}
-                  className="pointer-events-none absolute inset-y-0 w-1/2 -skew-x-12 bg-gradient-to-r from-transparent via-white/65 to-transparent z-20"
-                />
-              )}
 
               {/* Frosted Crystal Header (Drag to Move · Double-Click to Reset Size) */}
               <div
@@ -3214,11 +3066,15 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
                 {isBusy && (
                   <div className="flex items-start">
-                    <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 text-xs text-zinc-900 dark:text-yellow-100 inline-flex items-center gap-2 shadow-[0_4px_16px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700 dark:text-yellow-300 shrink-0" />
-                      <span className="font-semibold">
-                        {execStatus || 'Analyzing… Wait patiently, AI may take a moment to work on it.'}
-                      </span>
+                    <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 shadow-[0_4px_16px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
+                      <ClipingPapersLogo
+                        size="sm"
+                        layout="inline"
+                        statusText={
+                          execStatus ||
+                          'Fetching results… Wait patiently, AI may take a moment to work on it.'
+                        }
+                      />
                     </div>
                   </div>
                 )}
