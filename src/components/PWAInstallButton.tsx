@@ -28,7 +28,7 @@ export const PWAInstallButton: React.FC = () => {
           aria-modal="true"
           aria-label="Install PaperLink on iOS"
         >
-          <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-3 shadow-2xl">
+          <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-3 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Install PaperLink</h3>
               <button

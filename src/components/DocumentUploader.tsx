@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Files, Eye, ShieldCheck, Info } from 'lucide-react';
 import { parseUploadedDocument } from '../services/documentParser';
 import { UploadedDocInfo } from '../types';
-import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
 
 interface DocumentUploaderProps {
   currentDoc: UploadedDocInfo | null;
@@ -80,7 +80,7 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs">
+    <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 sm:p-6 shadow-xs">
       {/* Centered Step 1 Header */}
       <div className="text-center max-w-md mx-auto mb-5 space-y-2">
         <div className="inline-flex items-center justify-center gap-2">
@@ -229,11 +229,11 @@ export const DocumentUploader: React.FC<DocumentUploaderProps> = ({
           }`}
         >
           {isLoading ? (
-            <div className="mb-2 flex justify-center">
-              <ClipingPapersLogo
-                size="md"
-                layout="stacked"
-                statusText="Analyzing & clipping document…"
+            <div className="max-w-sm mx-auto text-left">
+              <RobotProgressBar
+                compact
+                percent={72}
+                status="Analyzing & clipping document…"
               />
             </div>
           ) : (

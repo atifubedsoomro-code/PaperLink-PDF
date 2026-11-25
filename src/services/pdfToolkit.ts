@@ -25,6 +25,10 @@ export type PdfToWordMode = 'editable' | 'layout';
 export type CompressionLevel = 'lossless' | 'balanced' | 'maximum';
 export type SplitMode = 'extract-range' | 'fixed-chunks';
 
+function cloneArrayBuffer(buf: ArrayBuffer): ArrayBuffer {
+  return new Uint8Array(buf).slice().buffer;
+}
+
 export interface PdfToWordResult {
   blob: Blob;
   fileName: string;
@@ -741,6 +745,7 @@ export async function compressPdfFile(
   qualityPercent?: number
 ): Promise<PdfCompressResult> {
   const originalBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
+  const originalBytesBackup = new Uint8Array(originalBuffer).slice();
   const originalSize = file.size;
 
   const isLosslessRun =
@@ -748,7 +753,7 @@ export async function compressPdfFile(
 
   if (isLosslessRun) {
     onProgress?.(35, 'Optimizing PDF object streams lossless...');
-    const src = await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
+    const src = await PDFDocument.load(cloneArrayBuffer(originalBuffer), { ignoreEncryption: true });
     src.setTitle('');
     src.setSubject('');
     src.setKeywords([]);
@@ -763,7 +768,7 @@ export async function compressPdfFile(
     onProgress?.(85, 'Compressing cross-reference tables...');
     const bytes = await compressedDoc.save({ useObjectStreams: true, addDefaultPage: false });
     const keptOriginalBecauseSmaller = bytes.byteLength >= originalSize;
-    const finalBytes = keptOriginalBecauseSmaller ? new Uint8Array(originalBuffer) : bytes;
+    const finalBytes = keptOriginalBecauseSmaller ? originalBytesBackup : new Uint8Array(bytes).slice();
 
     onProgress?.(100, 'Optimization complete');
     return {
@@ -779,7 +784,10 @@ export async function compressPdfFile(
   }
 
   const pdfjsLib = getPdfJs();
-  const pdf = await pdfjsLib.getDocument({ data: originalBuffer, useSystemFonts: true }).promise;
+  const pdf = await pdfjsLib.getDocument({
+    data: cloneArrayBuffer(originalBuffer),
+    useSystemFonts: true,
+  }).promise;
   const pageCount: number = pdf.numPages;
 
   const sliderQ = typeof qualityPercent === 'number' ? Math.max(15, Math.min(95, qualityPercent)) : null;
@@ -842,7 +850,7 @@ export async function compressPdfFile(
   onProgress?.(92, 'Rebuilding compressed PDF...');
   const bytes = await outPdf.save({ useObjectStreams: true });
   const keptOriginalBecauseSmaller = bytes.byteLength >= originalSize;
-  const finalBytes = keptOriginalBecauseSmaller ? new Uint8Array(originalBuffer) : bytes;
+  const finalBytes = keptOriginalBecauseSmaller ? originalBytesBackup : new Uint8Array(bytes).slice();
 
   onProgress?.(100, 'Compression complete');
   return {
@@ -2189,12 +2197,17 @@ export async function removePdfWatermark(
   // Pixel Clean-Up Mode (Works on Scanned / Flattened / Color Watermarks)
   const pdfjsLib = getPdfJs();
   onProgress?.(10, 'Rendering PDF pages for pixel watermark removal...');
-  const pdf = await pdfjsLib.getDocument({ data: originalBuffer, useSystemFonts: true }).promise;
+  const pdf = await pdfjsLib.getDocument({
+    data: cloneArrayBuffer(originalBuffer),
+    useSystemFonts: true,
+  }).promise;
   const totalPages: number = pdf.numPages;
   const indices = parsePageRange(options.pageRangeExpr, totalPages);
   const targetSet = new Set(indices);
 
-  const srcDocForPassthrough = await PDFDocument.load(originalBuffer, { ignoreEncryption: true });
+  const srcDocForPassthrough = await PDFDocument.load(cloneArrayBuffer(originalBuffer), {
+    ignoreEncryption: true,
+  });
   const outDoc = await PDFDocument.create();
   outDoc.setProducer('PaperLink');
   outDoc.setCreator('PaperLink');
@@ -2600,7 +2613,7 @@ export async function scanCropAndCleanPdf(
   onProgress?.(8, 'Inspecting PDF pages for crop & auto-scan...');
   const rawBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
   const pdf = await pdfjsLib.getDocument({
-    data: rawBuffer,
+    data: cloneArrayBuffer(rawBuffer),
     useSystemFonts: true,
     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
     cMapPacked: true,
@@ -2611,7 +2624,9 @@ export async function scanCropAndCleanPdf(
   const targetIndices = parsePageRange(options.pageRangeExpr, totalPages);
   const targetSet = new Set(targetIndices);
 
-  const srcForPassthrough = await PDFDocument.load(rawBuffer, { ignoreEncryption: true });
+  const srcForPassthrough = await PDFDocument.load(cloneArrayBuffer(rawBuffer), {
+    ignoreEncryption: true,
+  });
   const outDoc = await PDFDocument.create();
   outDoc.setProducer('PaperLink Auto-Scanner');
   outDoc.setCreator('PaperLink');

@@ -23,10 +23,13 @@ import {
   Check,
   HardDrive,
   RefreshCw,
+  Palette,
+  Copy,
 } from 'lucide-react';
 import { FeedbackSection } from './FeedbackSection';
+import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../services/feedbackSheets';
 
-export type ThemeMode = 'dark' | 'light';
+export type ThemeMode = 'studio' | 'green' | 'light' | 'dark';
 export type TextSizePreset = 'small' | 'medium' | 'large';
 export type NeonGlowMode = 'full' | 'subtle';
 export type AnimationPace = 'smooth' | 'fast' | 'off';
@@ -39,6 +42,7 @@ export type SettingsTab = 'preferences' | 'feedback';
 
 interface SettingsModalProps {
   isOpen: boolean;
+  initialTab?: SettingsTab;
   onClose: () => void;
   themeMode: ThemeMode;
   onChangeThemeMode: (mode: ThemeMode) => void;
@@ -101,7 +105,7 @@ function CompactSegmented<T extends string>({
         const activeClasses =
           accent === 'cyan'
             ? 'bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 border border-cyan-400/40 shadow-xs'
-            : 'bg-yellow-400 text-black border border-yellow-400 shadow-xs';
+            : 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)] border border-[var(--pl-cta-border)] shadow-xs';
         return (
           <button
             key={opt.id}
@@ -148,6 +152,7 @@ function SettingRow({
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
+  initialTab = 'preferences',
   onClose,
   themeMode,
   onChangeThemeMode,
@@ -180,18 +185,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onReconnectWithConsent,
   isLoggingIn = false,
   feedbackSheetUrl,
+  onChangeFeedbackSheetUrl,
   feedbackWebhookUrl,
+  onChangeFeedbackWebhookUrl,
   onTaskComplete,
 }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('preferences');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [draftsCleared, setDraftsCleared] = useState(false);
+  const [showSheetConfig, setShowSheetConfig] = useState(false);
+  const [scriptCopied, setScriptCopied] = useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
+
+  const normalizedTheme: 'studio' | 'light' | 'dark' =
+    themeMode === 'light' ? 'light' : themeMode === 'dark' ? 'dark' : 'studio';
 
   const handleClearDraftsClick = () => {
     onClearDrafts?.();
     setDraftsCleared(true);
     window.setTimeout(() => setDraftsCleared(false), 1800);
+  };
+
+  const handleCopyScript = async () => {
+    try {
+      await navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+      setScriptCopied(true);
+      window.setTimeout(() => setScriptCopied(false), 1800);
+    } catch {
+      // ignore
+    }
   };
 
   return (
@@ -205,14 +233,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }}
     >
       <div
-        className={`bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden transition-all ${
+        className={`bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden transition-all ${
           activeTab === 'feedback' ? 'max-w-2xl' : 'max-w-[440px]'
         }`}
       >
         {/* Compact Header */}
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/80 dark:bg-[#0c0c10] flex items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/80 dark:bg-[var(--pl-surface-soft)] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-yellow-400 text-black flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] flex items-center justify-center shrink-0">
               {activeTab === 'feedback' ? (
                 <MessageSquarePlus className="w-3.5 h-3.5 stroke-[2.5]" />
               ) : (
@@ -220,7 +248,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
             <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm truncate">
-              {activeTab === 'feedback' ? 'Feedback' : 'Settings'}
+              {activeTab === 'feedback' ? 'Feedback & Google Sheet Sync' : 'Settings'}
             </h3>
           </div>
 
@@ -231,7 +259,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={() => setActiveTab('preferences')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${
                   activeTab === 'preferences'
-                    ? 'bg-yellow-400 text-black shadow-xs'
+                    ? 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)] shadow-xs'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
                 }`}
               >
@@ -242,7 +270,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={() => setActiveTab('feedback')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${
                   activeTab === 'feedback'
-                    ? 'bg-yellow-400 text-black shadow-xs'
+                    ? 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)] shadow-xs'
                     : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
                 }`}
               >
@@ -264,14 +292,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Body */}
         <div className="px-4 py-3 overflow-y-auto flex-1">
           {activeTab === 'feedback' ? (
-            <FeedbackSection
-              variant="settings"
-              accessToken={accessToken}
-              sheetUrl={feedbackSheetUrl}
-              webhookUrl={feedbackWebhookUrl}
-              neonGlowMode={neonGlowMode}
-              onTaskComplete={onTaskComplete}
-            />
+            <div className="space-y-3">
+              {/* Compact 2-Way Google Sheets Sync Connection Bar */}
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-950/60 p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-zinc-900 dark:text-white">
+                      Google Sheet Two-Way Sync
+                    </p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      Connect your Google Sheet or Apps Script Web App to sync new reviews and display Resolution Notes.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSheetConfig((s) => !s)}
+                    className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-[11px] font-bold text-zinc-800 dark:text-zinc-200 hover:border-[var(--pl-accent)] cursor-pointer shrink-0"
+                  >
+                    {showSheetConfig ? 'Hide Setup' : 'Configure Sheet'}
+                  </button>
+                </div>
+
+                {showSheetConfig && (
+                  <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+                    <div>
+                      <label className="block text-[10px] font-mono font-bold uppercase text-zinc-500 dark:text-zinc-400 mb-1">
+                        Google Sheet URL or Spreadsheet ID (Reads Reviews &amp; Solutions)
+                      </label>
+                      <input
+                        type="text"
+                        value={feedbackSheetUrl}
+                        onChange={(e) => onChangeFeedbackSheetUrl(e.target.value)}
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-[var(--pl-accent)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-mono font-bold uppercase text-zinc-500 dark:text-zinc-400 mb-1">
+                        Apps Script Web App URL (Optional Zero-Login Write/Read Webhook)
+                      </label>
+                      <input
+                        type="url"
+                        value={feedbackWebhookUrl}
+                        onChange={(e) => onChangeFeedbackWebhookUrl(e.target.value)}
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-[var(--pl-accent)]"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                        Deploy Apps Script with <code className="font-mono">doPost + doGet</code> &amp; Access: &ldquo;Anyone&rdquo;.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyScript}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-zinc-200/80 dark:bg-zinc-800 text-[10px] font-bold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 cursor-pointer shrink-0"
+                      >
+                        {scriptCopied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        <span>{scriptCopied ? 'Copied!' : 'Copy 2-Way Script'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <FeedbackSection
+                variant="settings"
+                accessToken={accessToken}
+                sheetUrl={feedbackSheetUrl}
+                webhookUrl={feedbackWebhookUrl}
+                neonGlowMode={neonGlowMode}
+                onTaskComplete={onTaskComplete}
+              />
+            </div>
           ) : (
             <div className="space-y-3">
               {/* Group 1: Display */}
@@ -282,7 +375,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="divide-y divide-zinc-200/75 dark:divide-zinc-800/80">
                   <SettingRow
                     icon={
-                      themeMode === 'dark' ? (
+                      normalizedTheme === 'studio' ? (
+                        <Palette className="w-3.5 h-3.5 text-blue-600" />
+                      ) : normalizedTheme === 'dark' ? (
                         <Moon className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
                       ) : (
                         <Sun className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
@@ -291,11 +386,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     label="Theme"
                     control={
                       <CompactSegmented
-                        value={themeMode}
-                        onChange={onChangeThemeMode}
+                        value={normalizedTheme}
+                        onChange={(val) => onChangeThemeMode(val)}
                         options={[
-                          { id: 'light', label: 'Light', icon: <Sun className="w-3 h-3" /> },
-                          { id: 'dark', label: 'Dark', icon: <Moon className="w-3 h-3" /> },
+                          {
+                            id: 'studio',
+                            label: 'Studio',
+                            icon: (
+                              <span
+                                aria-hidden="true"
+                                className="w-2.5 h-2.5 rounded-full border border-blue-700 shrink-0"
+                                style={{ background: 'linear-gradient(135deg, #f4f7fb 45%, #2563eb 45%)' }}
+                              />
+                            ),
+                          },
+                          {
+                            id: 'light',
+                            label: 'Light',
+                            icon: (
+                              <span
+                                aria-hidden="true"
+                                className="w-2.5 h-2.5 rounded-full border border-black/25 shrink-0"
+                                style={{ background: 'linear-gradient(135deg, #ffffff 45%, #facc15 45%)' }}
+                              />
+                            ),
+                          },
+                          {
+                            id: 'dark',
+                            label: 'Dark',
+                            icon: (
+                              <span
+                                aria-hidden="true"
+                                className="w-2.5 h-2.5 rounded-full border border-white/25 shrink-0"
+                                style={{ background: 'linear-gradient(135deg, #09090b 45%, #facc15 45%)' }}
+                              />
+                            ),
+                          },
                         ]}
                       />
                     }

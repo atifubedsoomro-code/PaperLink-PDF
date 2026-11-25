@@ -32,6 +32,7 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { typewriterAudio } from '../services/soundEffects';
 import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { MiniAiRobot } from './MiniAiRobot';
 import {
   CompressionLevel,
   PdfPageThumb,
@@ -98,6 +99,8 @@ export interface PaperLinkChatbotProps {
   onMinimizeChange?: (minimized: boolean) => void;
   soundEnabled?: boolean;
   onSoundEnabledChange?: (enabled: boolean) => void;
+  showMiniRobot?: boolean;
+  onOpenFeedback?: () => void;
 }
 
 interface ChatArtifact {
@@ -188,6 +191,20 @@ function triggerDownload(blob: Blob, fileName: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function stabilizePartialMarkdown(partial: string): string {
+  // Prevent mid-word raw '**' or '`' markers from flashing while typewriter streams text
+  let cleaned = partial;
+  const boldCount = (cleaned.match(/\*\*/g) || []).length;
+  if (boldCount % 2 === 1) {
+    cleaned += '**';
+  }
+  const codeCount = (cleaned.match(/`/g) || []).length;
+  if (codeCount % 2 === 1) {
+    cleaned += '`';
+  }
+  return cleaned;
 }
 
 async function createInlinePreviewBase64(file: File): Promise<{
@@ -315,6 +332,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   onMinimizeChange,
   soundEnabled,
   onSoundEnabledChange,
+  showMiniRobot = true,
+  onOpenFeedback,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
@@ -348,18 +367,20 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const getDefaultRect = (customSize?: { width: number; height: number } | null): WindowRect => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1280;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const isMobile = vw < 640;
+    const topSafePad = isMobile ? 54 : 58;
     const minW = Math.min(320, Math.max(260, vw - 16));
-    const minH = Math.min(360, Math.max(280, vh - 24));
+    const minH = Math.min(340, Math.max(260, vh - topSafePad - 16));
     const maxW = Math.max(minW, vw - 16);
-    const maxH = Math.max(minH, vh - 24);
-    const baseW = customSize?.width ?? (vw < 640 ? vw - 24 : 416);
-    const baseH = customSize?.height ?? Math.min(Math.round(vh * 0.78), 630);
+    const maxH = Math.max(minH, vh - topSafePad - 16);
+    const baseW = customSize?.width ?? (isMobile ? vw - 16 : 416);
+    const baseH = customSize?.height ?? Math.min(Math.round(vh * (isMobile ? 0.72 : 0.76)), 610);
     const width = Math.max(minW, Math.min(maxW, baseW));
     const height = Math.max(minH, Math.min(maxH, baseH));
-    const rightGap = vw < 640 ? 12 : 20;
-    const bottomGap = vw < 640 ? 16 : 20;
+    const rightGap = isMobile ? 8 : 20;
+    const bottomGap = isMobile ? 12 : 20;
     const left = Math.max(8, Math.min(vw - width - 8, vw - rightGap - width));
-    const top = Math.max(8, Math.min(vh - height - 8, vh - bottomGap - height));
+    const top = Math.max(topSafePad, Math.min(vh - height - 8, vh - bottomGap - height));
     return { left, top, width, height };
   };
 
@@ -391,11 +412,11 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       setWindowRect((prev) => {
-        if (!hasCustomMovedRef.current) {
-          return getDefaultRect({ width: prev.width, height: prev.height });
+        if (!hasCustomMovedRef.current || vw < 640) {
+          return getDefaultRect(vw < 640 ? null : { width: prev.width, height: prev.height });
         }
         const minW = Math.min(320, Math.max(260, vw - 16));
-        const minH = Math.min(360, Math.max(280, vh - 24));
+        const minH = Math.min(340, Math.max(260, vh - 24));
         const width = Math.max(minW, Math.min(vw - 16, prev.width));
         const height = Math.max(minH, Math.min(vh - 24, prev.height));
         const left = Math.max(8, Math.min(vw - width - 8, prev.left));
@@ -409,7 +430,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   }, [activeView, isOpen]);
 
   const startWindowInteraction = (dir: ResizeDir, e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || (typeof window !== 'undefined' && window.innerWidth < 640)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -546,8 +567,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
   const prefersReducedMotion = useReducedMotion();
 
   const handleMinimizeToTopBar = () => {
-    onMinimizeChange?.(true);
+    setActiveResizeDir(null);
+    setIsDragOver(false);
     setIsOpen(false);
+    onMinimizeChange?.(true);
   };
 
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -634,8 +657,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         return;
       }
 
-      // 2x faster pause after sentence punctuation or newline
-      const extraPause = /[.!?\n]/.test(ch) ? 32 : /[,;:]/.test(ch) ? 16 : 0;
+      const extraPause = /[.!?\n]/.test(ch) ? 28 : /[,;:]/.test(ch) ? 14 : 0;
       timerId = window.setTimeout(tick, baseTickMs + extraPause);
     };
 
@@ -2374,7 +2396,8 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           'Take me to Image Studio',
         ];
 
-  const dockPositionClass = 'bottom-4 sm:bottom-5 right-3 sm:right-5';
+  const dockPositionClass =
+    activeView === 'studio' ? 'bottom-16 sm:bottom-5 right-3 sm:right-5' : 'bottom-4 sm:bottom-5 right-3 sm:right-5';
 
   return (
     <>
@@ -2407,7 +2430,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 : { opacity: 0, y: 10, scale: 0.96, transition: { duration: 0.16 } }
             }
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] sm:w-[348px]`}
+            className={`no-print fixed ${dockPositionClass} z-40 w-[calc(100vw-1.5rem)] max-w-[360px] sm:w-[348px]`}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragOver(true);
@@ -2423,6 +2446,38 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             }}
           >
             <div className="relative">
+              {/* 3D Robot Mascot Sitting Right Above the Compact AI Chatbot Card */}
+              {showMiniRobot && (
+                <div className="absolute -top-[44px] sm:-top-[48px] right-4 z-30 pointer-events-auto">
+                  <MiniAiRobot
+                    variant="chatbot-perch"
+                    expressionOverride={
+                      isDragOver
+                        ? 'surprised'
+                        : isBusy || execStatus
+                        ? 'thinking'
+                        : typingMsgId
+                        ? 'sparkle'
+                        : undefined
+                    }
+                    externalPopup={
+                      isDragOver
+                        ? { text: 'Drop your files right in!' }
+                        : isBusy || execStatus
+                        ? { text: execStatus || 'Working on your files...' }
+                        : undefined
+                    }
+                    quickActions={[
+                      { label: 'Open AI', onClick: () => setIsOpen(true) },
+                      ...(onOpenFeedback ? [{ label: 'Feedback', onClick: onOpenFeedback }] : []),
+                    ]}
+                    onClick={() => setIsOpen(true)}
+                    onFeedbackClick={onOpenFeedback}
+                    title="Expand PaperLink AI"
+                  />
+                </div>
+              )}
+
               {/* Soft Water-Caustic Crystal Halo with Yellow & Sky Refraction */}
               {neonGlowMode === 'full' && (
                 <div
@@ -2432,7 +2487,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               )}
 
               {/* Apple Clear Crystal Water Glass Shell */}
-              <div className="relative rounded-[24px] overflow-hidden bg-white/54 dark:bg-[#0d1420]/52 bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_22px_54px_-14px_rgba(15,23,42,0.18),0_4px_18px_-4px_rgba(125,211,252,0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_24px_60px_-12px_rgba(0,0,0,0.68),0_0_24px_-6px_rgba(125,211,252,0.14),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+              <div className="relative rounded-[24px] overflow-hidden bg-white/54 dark:bg-[var(--pl-chatbot-bg)] bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_22px_54px_-14px_rgba(15,23,42,0.18),0_4px_18px_-4px_rgba(var(--pl-glow-rgb),0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_24px_60px_-12px_rgba(0,0,0,0.68),0_0_24px_-6px_rgba(var(--pl-glow-rgb),0.14),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
                 {/* Specular Water Meniscus & Surface Refraction */}
                 <div
                   aria-hidden="true"
@@ -2458,7 +2513,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     {isBusy ? (
                       <ClipingPapersLogo size="xs" showWordmark={false} />
                     ) : (
-                      <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(250,204,21,0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
+                      <div className="w-6 h-6 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(var(--pl-accent-rgb),0.28),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
                         <Bot className="w-3.5 h-3.5 stroke-[2.25]" />
                       </div>
                     )}
@@ -2492,9 +2547,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       onClick={handleMinimizeToTopBar}
                       aria-label="Minimize chatbot to top bar"
                       title="Minimize to top bar near PaperLink logo"
-                      className="p-1.5 rounded-full bg-white/60 dark:bg-white/[0.10] hover:bg-yellow-400/25 dark:hover:bg-yellow-400/[0.18] border border-white/80 dark:border-white/[0.16] text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-yellow-200 transition-all cursor-pointer shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                      className="w-8 h-8 sm:w-auto sm:h-auto sm:p-1.5 rounded-full bg-white/75 dark:bg-white/[0.10] hover:bg-yellow-400/25 dark:hover:bg-yellow-400/[0.18] border border-zinc-200 dark:border-white/[0.16] text-zinc-700 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-yellow-200 transition-all cursor-pointer shrink-0 flex items-center justify-center shadow-xs"
                     >
-                      <Minus className="w-3 h-3" />
+                      <Minus className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -2557,7 +2612,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     onClick={() => fileInputRef.current?.click()}
                     aria-label="Attach PDF, Word, or Image file"
                     title="Attach file (PDF, Word, PPT, Excel, Text, Image)"
-                    className="w-9 h-9 rounded-full bg-yellow-400/24 dark:bg-yellow-400/18 hover:bg-yellow-400/42 dark:hover:bg-yellow-400/30 border border-yellow-400/70 dark:border-yellow-400/40 text-amber-800 dark:text-yellow-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_2px_10px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] active:scale-95"
+                    className="w-9 h-9 rounded-full bg-yellow-400/24 dark:bg-yellow-400/18 hover:bg-yellow-400/42 dark:hover:bg-yellow-400/30 border border-yellow-400/70 dark:border-yellow-400/40 text-amber-800 dark:text-yellow-300 flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-[0_2px_10px_rgba(var(--pl-accent-rgb),0.16),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] active:scale-95"
                   >
                     <Plus className="w-4 h-4 stroke-[2.25]" />
                   </button>
@@ -2579,7 +2634,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   <button
                     type="submit"
                     aria-label="Run PaperLink AI prompt"
-                    className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 text-zinc-950 font-bold flex items-center justify-center shrink-0 cursor-pointer shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
+                    className="w-9 h-9 rounded-full bg-[var(--pl-cta-via)] hover:bg-[var(--pl-cta-from)] text-[var(--pl-cta-text)] border border-[var(--pl-cta-border)] font-bold flex items-center justify-center shrink-0 cursor-pointer shadow-[0_4px_14px_rgba(var(--pl-accent-rgb),0.38)] transition-all active:scale-95"
                   >
                     <Send className="w-3.5 h-3.5 stroke-[2.25]" />
                   </button>
@@ -2624,38 +2679,38 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               if (e.dataTransfer.files) handleAttachFiles(e.dataTransfer.files);
             }}
           >
-            {/* OS-Style Edge & Corner Resize Handles */}
+            {/* OS-Style Edge & Corner Resize Handles (Desktop sm+ only so mobile Minimize/Close buttons are never blocked) */}
             <div
               onPointerDown={(e) => startWindowInteraction('n', e)}
               onDoubleClick={resetWindowSize}
               title="Drag to resize height (double-click to reset size)"
-              className="absolute -top-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
+              className="hidden sm:block absolute -top-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
             />
             <div
               onPointerDown={(e) => startWindowInteraction('s', e)}
               onDoubleClick={resetWindowSize}
               title="Drag to resize height (double-click to reset size)"
-              className="absolute -bottom-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
+              className="hidden sm:block absolute -bottom-1.5 left-4 right-4 h-3 z-30 cursor-ns-resize touch-none"
             />
             <div
               onPointerDown={(e) => startWindowInteraction('w', e)}
               onDoubleClick={resetWindowSize}
               title="Drag to resize width (double-click to reset size)"
-              className="absolute top-4 bottom-4 -left-1.5 w-3 z-30 cursor-ew-resize touch-none"
+              className="hidden sm:block absolute top-4 bottom-4 -left-1.5 w-3 z-30 cursor-ew-resize touch-none"
             />
             <div
               onPointerDown={(e) => startWindowInteraction('e', e)}
               onDoubleClick={resetWindowSize}
               title="Drag to resize width (double-click to reset size)"
-              className="absolute top-4 bottom-4 -right-1.5 w-3 z-30 cursor-ew-resize touch-none"
+              className="hidden sm:block absolute top-4 bottom-4 -right-1.5 w-3 z-30 cursor-ew-resize touch-none"
             />
 
-            {/* 4 Corner Handles (Top-Left, Top-Right, Bottom-Left, Bottom-Right) */}
+            {/* 4 Corner Handles (Desktop sm+ only) */}
             <div
               onPointerDown={(e) => startWindowInteraction('nw', e)}
               onDoubleClick={resetWindowSize}
               title="Drag corner to stretch window (double-click to reset)"
-              className="group absolute -top-1.5 -left-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none flex items-start justify-start p-1"
+              className="hidden sm:flex group absolute -top-1.5 -left-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none items-start justify-start p-1"
             >
               <span className="w-2.5 h-2.5 rounded-tl-[5px] border-t-2 border-l-2 border-amber-500/45 dark:border-yellow-400/45 group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
             </div>
@@ -2663,7 +2718,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               onPointerDown={(e) => startWindowInteraction('ne', e)}
               onDoubleClick={resetWindowSize}
               title="Drag corner to stretch window (double-click to reset)"
-              className="group absolute -top-1.5 -right-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none flex items-start justify-end p-1"
+              className="hidden sm:flex group absolute -top-1.5 -right-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none items-start justify-end p-1"
             >
               <span className="w-2.5 h-2.5 rounded-tr-[5px] border-t-2 border-r-2 border-transparent group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
             </div>
@@ -2671,7 +2726,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               onPointerDown={(e) => startWindowInteraction('sw', e)}
               onDoubleClick={resetWindowSize}
               title="Drag corner to stretch window (double-click to reset)"
-              className="group absolute -bottom-1.5 -left-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none flex items-end justify-start p-1"
+              className="hidden sm:flex group absolute -bottom-1.5 -left-1.5 w-5 h-5 z-40 cursor-nesw-resize touch-none items-end justify-start p-1"
             >
               <span className="w-2.5 h-2.5 rounded-bl-[5px] border-b-2 border-l-2 border-transparent group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
             </div>
@@ -2679,7 +2734,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
               onPointerDown={(e) => startWindowInteraction('se', e)}
               onDoubleClick={resetWindowSize}
               title="Drag corner to stretch window (double-click to reset)"
-              className="group absolute -bottom-1.5 -right-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none flex items-end justify-end p-1"
+              className="hidden sm:flex group absolute -bottom-1.5 -right-1.5 w-5 h-5 z-40 cursor-nwse-resize touch-none items-end justify-end p-1"
             >
               <span className="w-2.5 h-2.5 rounded-br-[5px] border-b-2 border-r-2 border-amber-500/45 dark:border-yellow-400/45 group-hover:border-amber-500 dark:group-hover:border-yellow-300 transition-colors" />
             </div>
@@ -2688,6 +2743,38 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             {activeResizeDir && activeResizeDir !== 'move' && (
               <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 z-50 px-2.5 py-0.5 rounded-full bg-zinc-950/90 text-yellow-300 border border-yellow-400/40 text-[10px] font-mono font-bold shadow-lg whitespace-nowrap">
                 {Math.round(windowRect.width)} × {Math.round(windowRect.height)} px
+              </div>
+            )}
+
+            {/* 3D Robot Perched Sitting Above the Expanded Bottom-Right Chatbot Card */}
+            {showMiniRobot && windowRect.top >= 46 && (
+              <div className="hidden sm:block absolute -top-[48px] right-6 z-40 pointer-events-auto">
+                <MiniAiRobot
+                  variant="chatbot-perch"
+                  expressionOverride={
+                    isDragOver
+                      ? 'surprised'
+                      : isBusy || execStatus
+                      ? 'thinking'
+                      : typingMsgId
+                      ? 'sparkle'
+                      : undefined
+                  }
+                  externalPopup={
+                    isDragOver
+                      ? { text: 'Drop your files right here!' }
+                      : isBusy || execStatus
+                      ? { text: execStatus || 'Processing your request...' }
+                      : undefined
+                  }
+                  quickActions={[
+                    { label: 'Focus Input', onClick: () => compactPromptInputRef.current?.focus() },
+                    ...(onOpenFeedback ? [{ label: 'Feedback', onClick: onOpenFeedback }] : []),
+                  ]}
+                  onClick={() => compactPromptInputRef.current?.focus()}
+                  onFeedbackClick={onOpenFeedback}
+                  title="PaperLink Assistant"
+                />
               </div>
             )}
 
@@ -2700,7 +2787,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
             )}
 
             {/* Apple Liquid Crystal Glass Outer Frame */}
-            <div className="relative h-full flex flex-col rounded-[26px] overflow-hidden bg-white/54 dark:bg-[#0d1420]/52 bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_28px_72px_-14px_rgba(15,23,42,0.20),0_6px_24px_-4px_rgba(125,211,252,0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_32px_76px_-12px_rgba(0,0,0,0.72),0_0_28px_-6px_rgba(125,211,252,0.16),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
+            <div className="relative h-full flex flex-col rounded-[26px] overflow-hidden bg-white/54 dark:bg-[var(--pl-chatbot-bg)] bg-gradient-to-b from-white/78 via-sky-50/15 to-white/46 dark:from-white/[0.13] dark:via-sky-300/[0.04] dark:to-white/[0.04] backdrop-blur-2xl backdrop-saturate-[195%] border border-white/88 dark:border-white/[0.22] ring-1 ring-inset ring-white/75 dark:ring-white/[0.14] shadow-[0_28px_72px_-14px_rgba(15,23,42,0.20),0_6px_24px_-4px_rgba(var(--pl-glow-rgb),0.22),inset_0_1.5px_0_rgba(255,255,255,0.96)] dark:shadow-[0_32px_76px_-12px_rgba(0,0,0,0.72),0_0_28px_-6px_rgba(var(--pl-glow-rgb),0.16),inset_0_1.5px_0_rgba(255,255,255,0.28)]">
               {/* Top Specular Meniscus & Curved Glass Highlight */}
               <div
                 aria-hidden="true"
@@ -2725,20 +2812,20 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                 className="relative px-4 py-3 border-b border-black/[0.06] dark:border-white/[0.10] bg-white/35 dark:bg-white/[0.04] flex items-center justify-between gap-2 shrink-0 cursor-grab active:cursor-grabbing select-none"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_3px_12px_rgba(250,204,21,0.30),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)]">
+                  <div className="w-8 h-8 rounded-full bg-yellow-400/90 dark:bg-yellow-400/22 border border-yellow-300 dark:border-yellow-400/45 text-zinc-950 dark:text-yellow-300 flex items-center justify-center shrink-0 shadow-[0_3px_12px_rgba(var(--pl-accent-rgb),0.30),inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)]">
                     <Bot className="w-4 h-4 stroke-[2.25]" />
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-xs font-bold tracking-tight text-zinc-900 dark:text-white truncate">
                       PaperLink <span className="text-amber-600 dark:text-yellow-400">AI</span>
                     </h3>
-                    <p className="text-[10px] text-zinc-600 dark:text-zinc-300/80 truncate">
+                    <p className="hidden sm:block text-[10px] text-zinc-600 dark:text-zinc-300/80 truncate">
                       Multiwork pipelines · Drag corners to resize
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="relative z-30 flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => {
@@ -2751,7 +2838,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                         ? 'Model: gemini-4-hydrogen (Smart Multiwork Agent)'
                         : 'Model: gemini-3.1-flash-lite (Fast Chat)'
                     }
-                    className={`px-2.5 py-1 rounded-full border text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] ${
+                    className={`px-2 sm:px-2.5 py-1 rounded-full border text-[10px] font-mono font-bold inline-flex items-center gap-1 cursor-pointer transition-all shadow-xs ${
                       speedMode === 'fast'
                         ? 'border-yellow-400/85 dark:border-yellow-400/45 bg-yellow-400/28 text-amber-950 dark:text-yellow-200'
                         : 'border-yellow-400/60 dark:border-yellow-400/30 bg-yellow-400/16 dark:bg-yellow-400/[0.10] text-zinc-900 dark:text-yellow-100'
@@ -2770,7 +2857,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                         : 'Typewriter & completion sound muted — click to unmute'
                     }
                     aria-label={isSoundEnabled ? 'Mute typewriter and output sound' : 'Unmute typewriter and output sound'}
-                    className={`p-1.5 rounded-full border cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ${
+                    className={`w-8 h-8 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center rounded-full border cursor-pointer transition-all shadow-xs ${
                       isSoundEnabled
                         ? 'border-yellow-400/80 dark:border-yellow-400/40 bg-yellow-400/24 text-amber-800 dark:text-yellow-300 hover:bg-yellow-400/35'
                         : 'border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-500 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white'
@@ -2787,7 +2874,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     type="button"
                     onClick={() => setShowCredits((p) => !p)}
                     title="Developer Credits — Team Terminators"
-                    className={`p-1.5 rounded-full border cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ${
+                    className={`hidden sm:flex p-1.5 rounded-full border cursor-pointer transition-all shadow-xs ${
                       showCredits
                         ? 'border-yellow-400/85 dark:border-yellow-400/45 bg-yellow-400/28 text-amber-900 dark:text-yellow-200'
                         : 'border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-700 dark:text-zinc-300 hover:bg-yellow-400/18 hover:text-zinc-950 dark:hover:text-yellow-200'
@@ -2811,7 +2898,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       ]);
                     }}
                     title="Clear chat history"
-                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                    className="w-8 h-8 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center rounded-full border border-zinc-200 dark:border-white/[0.16] bg-white/65 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-all shadow-xs"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -2821,7 +2908,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     onClick={handleMinimizeToTopBar}
                     title="Minimize to top bar near PaperLink logo"
                     aria-label="Minimize chatbot to top bar"
-                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                    className="w-9 h-9 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center rounded-full border border-zinc-200 dark:border-white/[0.16] bg-white/75 dark:bg-white/[0.08] text-zinc-700 dark:text-zinc-200 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-xs"
                   >
                     <Minus className="w-3.5 h-3.5" />
                   </button>
@@ -2831,7 +2918,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     onClick={() => setIsOpen(false)}
                     title="Collapse to bottom-right compact bar"
                     aria-label="Collapse AI Assistant"
-                    className="p-1.5 rounded-full border border-white/75 dark:border-white/[0.16] bg-white/55 dark:bg-white/[0.08] text-zinc-600 dark:text-zinc-300 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]"
+                    className="w-8 h-8 sm:w-auto sm:h-auto sm:p-1.5 flex items-center justify-center rounded-full border border-zinc-200 dark:border-white/[0.16] bg-white/75 dark:bg-white/[0.08] text-zinc-700 dark:text-zinc-200 hover:bg-yellow-400/20 hover:text-zinc-950 dark:hover:text-yellow-200 cursor-pointer transition-all shadow-xs"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -2866,7 +2953,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                   const isCopied = copiedMsgId === msg.id;
                   const isActivelyTyping =
                     !isUser && typingMsgId === msg.id && typedCharCount < msg.text.length;
-                  const visibleText = isActivelyTyping ? msg.text.slice(0, typedCharCount) : msg.text;
+                  const visibleText = isActivelyTyping
+                    ? stabilizePartialMarkdown(msg.text.slice(0, typedCharCount))
+                    : msg.text;
                   return (
                     <motion.div
                       key={msg.id}
@@ -2912,7 +3001,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       <div
                         className={`max-w-[92%] rounded-[20px] px-3.5 py-2.5 text-xs leading-relaxed ${
                           isUser
-                            ? 'bg-yellow-400/88 dark:bg-yellow-400/24 backdrop-blur-md border border-yellow-300/90 dark:border-yellow-300/35 text-zinc-950 dark:text-yellow-50 font-medium rounded-br-md shadow-[0_8px_22px_-6px_rgba(234,179,8,0.38),inset_0_1px_0_rgba(255,255,255,0.68)] dark:shadow-[0_8px_22px_-6px_rgba(250,204,21,0.18),inset_0_1px_0_rgba(255,255,255,0.22)]'
+                            ? 'bg-yellow-400/88 dark:bg-yellow-400/24 backdrop-blur-md border border-yellow-300/90 dark:border-yellow-300/35 text-zinc-950 dark:text-yellow-50 font-medium rounded-br-md shadow-[0_8px_22px_-6px_rgba(var(--pl-accent-rgb),0.38),inset_0_1px_0_rgba(255,255,255,0.68)] dark:shadow-[0_8px_22px_-6px_rgba(var(--pl-accent-rgb),0.18),inset_0_1px_0_rgba(255,255,255,0.22)]'
                             : msg.isError
                             ? 'bg-rose-500/15 dark:bg-rose-500/20 backdrop-blur-md border border-rose-300/70 dark:border-rose-400/35 text-rose-800 dark:text-rose-200 rounded-bl-md'
                             : 'bg-white/65 dark:bg-white/[0.08] backdrop-blur-md border border-white/85 dark:border-white/[0.15] text-zinc-900 dark:text-zinc-100 rounded-bl-md shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
@@ -3021,7 +3110,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => triggerDownload(art.blob, art.fileName)}
-                                    className="flex-1 py-1.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-zinc-950 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer shadow-[0_4px_12px_rgba(250,204,21,0.32),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all"
+                                    className="flex-1 py-1.5 px-3 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-zinc-950 text-[11px] font-bold inline-flex items-center justify-center gap-1 cursor-pointer shadow-[0_4px_12px_rgba(var(--pl-accent-rgb),0.32),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all"
                                   >
                                     <Download className="w-3 h-3" />
                                     <span>Download</span>
@@ -3066,7 +3155,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
                 {isBusy && (
                   <div className="flex items-start">
-                    <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 shadow-[0_4px_16px_rgba(250,204,21,0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
+                    <div className="px-3.5 py-2.5 rounded-[18px] rounded-bl-md bg-yellow-400/18 dark:bg-yellow-400/[0.12] backdrop-blur-md border border-yellow-400/50 dark:border-yellow-400/30 shadow-[0_4px_16px_rgba(var(--pl-accent-rgb),0.16),inset_0_1px_0_rgba(255,255,255,0.65)]">
                       <ClipingPapersLogo
                         size="sm"
                         layout="inline"
@@ -3154,7 +3243,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     onClick={() => fileInputRef.current?.click()}
                     title="Attach PDF, Word, PPT, Excel, Text, or Image files"
                     aria-label="Attach file"
-                    className="w-9 h-9 rounded-full border border-yellow-400/65 dark:border-yellow-400/35 bg-yellow-400/22 dark:bg-yellow-400/16 hover:bg-yellow-400/38 dark:hover:bg-yellow-400/28 text-amber-800 dark:text-yellow-300 flex items-center justify-center cursor-pointer shrink-0 transition-all shadow-[0_2px_8px_rgba(250,204,21,0.14),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+                    className="w-9 h-9 rounded-full border border-yellow-400/65 dark:border-yellow-400/35 bg-yellow-400/22 dark:bg-yellow-400/16 hover:bg-yellow-400/38 dark:hover:bg-yellow-400/28 text-amber-800 dark:text-yellow-300 flex items-center justify-center cursor-pointer shrink-0 transition-all shadow-[0_2px_8px_rgba(var(--pl-accent-rgb),0.14),inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
                   >
                     <Paperclip className="w-4 h-4" />
                   </button>
@@ -3175,7 +3264,7 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                     type="submit"
                     disabled={isBusy || (!input.trim() && attachedFiles.length === 0)}
                     aria-label="Send message"
-                    className="w-9 h-9 rounded-full bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-zinc-950 font-bold flex items-center justify-center cursor-pointer shrink-0 shadow-[0_4px_14px_rgba(250,204,21,0.38),inset_0_1px_0_rgba(255,255,255,0.65)] transition-all active:scale-95"
+                    className="w-9 h-9 rounded-full bg-[var(--pl-cta-via)] hover:bg-[var(--pl-cta-from)] disabled:opacity-40 text-[var(--pl-cta-text)] border border-[var(--pl-cta-border)] font-bold flex items-center justify-center cursor-pointer shrink-0 shadow-[0_4px_14px_rgba(var(--pl-accent-rgb),0.38)] transition-all active:scale-95"
                   >
                     <Send className="w-4 h-4" />
                   </button>

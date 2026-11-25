@@ -148,7 +148,7 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
   ];
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-5 shadow-xs">
+    <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-5 shadow-xs">
       {/* Header & Section Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>

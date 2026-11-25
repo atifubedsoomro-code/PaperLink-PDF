@@ -277,7 +277,7 @@ export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
       {targetRect && (
         <div
           aria-hidden="true"
-          className="fixed pointer-events-none rounded-2xl border-2 border-yellow-400 shadow-[0_0_0_4px_rgba(250,204,21,0.22)] transition-all duration-300 ease-out"
+          className="fixed pointer-events-none rounded-2xl border-2 border-yellow-400 shadow-[0_0_0_4px_rgba(var(--pl-accent-rgb),0.22)] transition-all duration-300 ease-out"
           style={{
             top: targetRect.top,
             left: targetRect.left,
@@ -295,7 +295,7 @@ export const OnboardingTutorial: React.FC<OnboardingTutorialProps> = ({
           left: popoverLeft,
           width: cardWidth,
         }}
-        className="fixed z-50 bg-white dark:bg-[#121215] border-2 border-yellow-400 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-out"
+        className="fixed z-50 bg-white dark:bg-[var(--pl-surface)] border-2 border-yellow-400 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-out"
       >
         {/* Progress Header */}
         <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 bg-zinc-50 dark:bg-zinc-950">

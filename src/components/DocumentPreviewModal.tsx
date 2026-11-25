@@ -341,9 +341,9 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white dark:bg-[#101014] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-5xl w-full h-[min(90vh,860px)] shadow-2xl flex flex-col overflow-hidden">
+      <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-5xl w-full h-[min(90vh,860px)] shadow-2xl flex flex-col overflow-hidden">
         {/* Modal Top Toolbar */}
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#09090d] flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[var(--pl-bg)] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             {activeStack.length > 0 && (
               <button
@@ -491,7 +491,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         </div>
 
         {/* Modal Body Viewport */}
-        <div className="flex-1 min-h-0 overflow-auto bg-zinc-100 dark:bg-[#07070a] p-4 sm:p-6 flex flex-col items-center">
+        <div className="flex-1 min-h-0 overflow-auto bg-zinc-100 dark:bg-[var(--pl-bg)] p-4 sm:p-6 flex flex-col items-center">
           {isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6">
               <ClipingPapersLogo
@@ -591,7 +591,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
               />
             </div>
           ) : kind === 'zip' ? (
-            <div className="w-full max-w-2xl bg-white dark:bg-[#121216] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-3">
+            <div className="w-full max-w-2xl bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-3">
               <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
                 <div>
                   <h4 className="text-sm font-bold text-zinc-950 dark:text-white">

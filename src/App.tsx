@@ -13,6 +13,7 @@ import {
   saveBrandKit,
   getBrandKits,
   deleteBrandKit,
+  isEmbeddedIframe,
 } from './firebase';
 import { Navbar, AppView } from './components/Navbar';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -32,6 +33,7 @@ import { PdfToolsPanel, PdfToolTab } from './components/PdfToolsPanel';
 import { ImageToolsPanel, ImageToolTab } from './components/ImageToolsPanel';
 import { TypewriterWelcome } from './components/TypewriterWelcome';
 import { TypewriterButton } from './components/TypewriterButton';
+import { RobotDownloadPopup, ReadyDownloadPayload } from './components/RobotDownloadPopup';
 import { AuthGateModal } from './components/AuthGateModal';
 import { LiquidCrystalButton, LiquidCrystalCard } from './components/LiquidCrystal';
 import {
@@ -44,6 +46,7 @@ import {
   DefaultQrCorner,
   AiDefaultSpeed,
   ChatbotStartMode,
+  SettingsTab,
 } from './components/SettingsModal';
 import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { PaperLinkChatbot } from './components/PaperLinkChatbot';
@@ -104,10 +107,16 @@ import {
   HelpCircle,
   ScanLine,
   Maximize2,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 
 type Step = 1 | 2 | 3 | 4 | 5;
 type StudioSection = 'editor' | 'scan-crop' | 'batch' | 'library';
+const STUDIO_SECTION_ORDER: StudioSection[] = ['editor', 'scan-crop', 'batch', 'library'];
 
 interface FooterAction {
   text: string;
@@ -249,10 +258,13 @@ function readInitialView(): AppView {
 
 function readInitialThemeMode(): ThemeMode {
   try {
-    const val = localStorage.getItem('paperlink_theme_mode') || localStorage.getItem('qrdrive_theme_mode');
-    return val === 'light' ? 'light' : 'dark';
+    const val = localStorage.getItem('paperlink_theme_mode_v2');
+    if (val === 'light' || val === 'dark' || val === 'studio' || val === 'green') {
+      return val === 'green' ? 'studio' : val;
+    }
+    return 'studio';
   } catch {
-    return 'dark';
+    return 'studio';
   }
 }
 
@@ -367,6 +379,7 @@ export default function App() {
   const [feedbackSheetUrl, setFeedbackSheetUrl] = useState<string>(readStoredSheetUrl);
   const [feedbackWebhookUrl, setFeedbackWebhookUrl] = useState<string>(readStoredWebhookUrl);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('preferences');
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
   // Shared Document Preview Modal State
@@ -379,13 +392,30 @@ export default function App() {
   // Navigation State: supports /privacy & /terms direct routes as well as SPA views
   const [activeView, setActiveView] = useState<AppView>(readInitialView);
   const [studioSection, setStudioSection] = useState<StudioSection>('editor');
+  const [studioSlideDir, setStudioSlideDir] = useState<1 | -1>(1);
+  const studioSectionRef = useRef<StudioSection>('editor');
+  studioSectionRef.current = studioSection;
+
+  const selectStudioSection = useCallback((next: StudioSection) => {
+    const prevIdx = STUDIO_SECTION_ORDER.indexOf(studioSectionRef.current);
+    const nextIdx = STUDIO_SECTION_ORDER.indexOf(next);
+    if (nextIdx !== prevIdx) {
+      setStudioSlideDir(nextIdx > prevIdx ? 1 : -1);
+    }
+    setStudioSection(next);
+  }, []);
+
   const [activePdfTool, setActivePdfTool] = useState<PdfToolTab>('pdf-edit');
   const [activeImageTool, setActiveImageTool] = useState<ImageToolTab>('bg-remove');
 
-  // Linear 5-Step Cover Studio Workflow
+  // Linear 5-Step Cover Studio Workflow + Compact Studio View Toggles
   const [currentStep, setCurrentStep] = useState<Step>(1);
+  const [step2Tab, setStep2Tab] = useState<'themes' | 'ai-art'>('themes');
+  const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
 
-  // Full-screen auto-hiding typewriter feedback across login / logout / upload / every tool task
+  // Full-screen auto-hiding 3-4s typewriter feedback + center-screen Robot Download Popup
+  const [downloadPopupPayload, setDownloadPopupPayload] = useState<ReadyDownloadPayload | null>(null);
+  const pendingDownloadRef = useRef<ReadyDownloadPayload | null>(null);
   const [typewriterConfig, setTypewriterConfig] = useState<{
     isOpen: boolean;
     mode: 'login' | 'logout' | 'upload-success' | 'task-complete';
@@ -400,20 +430,40 @@ export default function App() {
   });
 
   const getScaledDuration = useCallback(
-    (baseMs: number) => (animationPace === 'fast' ? Math.max(3000, Math.round(baseMs * 0.5)) : baseMs),
+    (_baseMs: number) => (animationPace === 'fast' ? 3000 : 3500),
     [animationPace]
   );
 
   const triggerTaskTypewriter = useCallback(
-    (info: { headline: string; subtext: string; statusLabel?: string }) => {
-      if (animationPace === 'off') return;
+    (info: {
+      headline: string;
+      subtext: string;
+      statusLabel?: string;
+      downloadFile?: ReadyDownloadPayload;
+    }) => {
+      const enrichedDownload = info.downloadFile
+        ? {
+            ...info.downloadFile,
+            headline: info.downloadFile.headline || info.headline,
+            subtext: info.downloadFile.subtext || info.subtext,
+          }
+        : null;
+
+      if (animationPace === 'off') {
+        if (enrichedDownload) {
+          setDownloadPopupPayload(enrichedDownload);
+        }
+        return;
+      }
+
+      pendingDownloadRef.current = enrichedDownload;
       setTypewriterConfig({
         isOpen: true,
         mode: 'task-complete',
         headline: info.headline,
         subtext: info.subtext,
         statusLabel: info.statusLabel,
-        durationMs: getScaledDuration(7000),
+        durationMs: getScaledDuration(3500),
       });
     },
     [animationPace, getScaledDuration]
@@ -545,14 +595,14 @@ export default function App() {
     setAuthErrorMsg(null);
     if (view === 'batch') {
       setActiveView('studio');
-      setStudioSection('batch');
+      selectStudioSection('batch');
     } else if (view === 'library') {
       setActiveView('studio');
-      setStudioSection('library');
+      selectStudioSection('library');
     } else {
       setActiveView(view);
       if (view === 'studio') {
-        setStudioSection('editor');
+        selectStudioSection('editor');
       }
     }
 
@@ -569,7 +619,7 @@ export default function App() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
-  }, []);
+  }, [selectStudioSection]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -579,13 +629,31 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Sync Dark / Light mode to document root
+  // Sync 3-mode Theme (Default Studio Cobalt, Light Gold, Dark Gold) to document root
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('dark', themeMode === 'dark');
-    root.style.colorScheme = themeMode;
+    if (themeMode === 'light') {
+      root.classList.remove('dark', 'theme-studio', 'theme-green', 'theme-dark');
+      root.classList.add('theme-light');
+      root.style.colorScheme = 'light';
+    } else if (themeMode === 'dark') {
+      root.classList.add('dark', 'theme-dark');
+      root.classList.remove('theme-studio', 'theme-green', 'theme-light');
+      root.style.colorScheme = 'dark';
+    } else {
+      root.classList.remove('dark', 'theme-dark', 'theme-light', 'theme-green');
+      root.classList.add('theme-studio');
+      root.style.colorScheme = 'light';
+    }
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute(
+        'content',
+        themeMode === 'light' ? '#fafafa' : themeMode === 'dark' ? '#09090b' : '#f4f7fb'
+      );
+    }
     try {
-      localStorage.setItem('paperlink_theme_mode', themeMode);
+      localStorage.setItem('paperlink_theme_mode_v2', themeMode);
     } catch {
       // ignore storage errors
     }
@@ -663,7 +731,7 @@ export default function App() {
   };
 
   const handleResetPreferences = () => {
-    setThemeMode('dark');
+    setThemeMode('studio');
     setTextSize('medium');
     setNeonGlowMode('full');
     setAnimationPace('smooth');
@@ -859,7 +927,7 @@ export default function App() {
           setTypewriterConfig({
             isOpen: true,
             mode: 'login',
-            durationMs: getScaledDuration(6500),
+            durationMs: getScaledDuration(3500),
           });
         }
       }
@@ -899,13 +967,18 @@ export default function App() {
       setTypewriterConfig({
         isOpen: true,
         mode: 'logout',
-        durationMs: getScaledDuration(6500),
+        durationMs: getScaledDuration(3500),
       });
     }
   };
 
   const handleTypewriterComplete = () => {
     setTypewriterConfig((prev) => ({ ...prev, isOpen: false }));
+    if (pendingDownloadRef.current) {
+      const nextPayload = pendingDownloadRef.current;
+      pendingDownloadRef.current = null;
+      setDownloadPopupPayload(nextPayload);
+    }
   };
 
   const handleUploadToDrive = async () => {
@@ -1011,7 +1084,7 @@ export default function App() {
           isOpen: true,
           mode: 'upload-success',
           targetUrl: result.webViewLink,
-          durationMs: getScaledDuration(7500),
+          durationMs: getScaledDuration(3500),
         });
       }
 
@@ -1064,7 +1137,7 @@ export default function App() {
         isOpen: true,
         mode: 'upload-success',
         targetUrl: link,
-        durationMs: getScaledDuration(7500),
+        durationMs: getScaledDuration(3500),
       });
     }
 
@@ -1164,7 +1237,7 @@ export default function App() {
   };
 
   const handleReceivePdfFromTools = async (file: File) => {
-    setStudioSection('editor');
+    selectStudioSection('editor');
     navigateView('studio');
     setIsLoadingDoc(true);
     try {
@@ -1243,6 +1316,13 @@ export default function App() {
         headline: 'Cover + Document PDF Ready',
         subtext: `${outFileName} (${totalPages} pages) downloaded successfully.`,
         statusLabel: 'Cover Studio Export Complete',
+        downloadFile: {
+          blob,
+          fileName: outFileName,
+          fileSizeBytes: blob.size,
+          toolLabel: 'Cover Studio Export',
+          openInStudio: false,
+        },
       });
     } catch (err: any) {
       console.error('Download error:', err);
@@ -1292,7 +1372,7 @@ export default function App() {
       webViewLink: docRecord.driveLink,
       publicPermissionGranted: true,
     });
-    setStudioSection('editor');
+    selectStudioSection('editor');
     navigateView('studio');
     setCurrentStep(5);
   };
@@ -1398,8 +1478,26 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion={animationPace === 'off' ? 'always' : 'user'}>
-      <div className="min-h-screen bg-zinc-50 text-zinc-900 dark:bg-[#09090b] dark:text-white flex flex-col font-sans antialiased selection:bg-yellow-400 selection:text-black transition-colors duration-200">
+      <div className="min-h-screen overflow-x-clip bg-zinc-50 text-zinc-900 dark:bg-[var(--pl-bg)] dark:text-white flex flex-col font-sans antialiased selection:bg-yellow-400 selection:text-black transition-colors duration-200">
         <DocumentPreviewModal target={previewTarget} onClose={() => setPreviewTarget(null)} />
+
+        <RobotDownloadPopup
+          payload={downloadPopupPayload}
+          onClose={() => setDownloadPopupPayload(null)}
+          onPreview={(p) =>
+            setPreviewTarget({
+              title: p.fileName,
+              fileName: p.fileName,
+              blob: p.blob,
+              subtitle: p.toolLabel || 'Ready to Download',
+            })
+          }
+          onSendToCoverStudio={(p) => {
+            void handleReceivePdfFromTools(
+              new File([p.blob], p.fileName, { type: 'application/pdf' })
+            );
+          }}
+        />
 
         {typewriterConfig.isOpen && (
           <TypewriterWelcome
@@ -1408,7 +1506,7 @@ export default function App() {
             subtext={typewriterConfig.subtext}
             statusLabel={typewriterConfig.statusLabel}
             targetUrl={typewriterConfig.targetUrl}
-            durationMs={typewriterConfig.durationMs ?? 7000}
+            durationMs={typewriterConfig.durationMs ?? 3500}
             onComplete={handleTypewriterComplete}
           />
         )}
@@ -1420,10 +1518,12 @@ export default function App() {
           isLoggingIn={isLoggingIn}
           actionTitle={authGateAction}
           errorMsg={authErrorMsg}
+          onDismissError={() => setAuthErrorMsg(null)}
         />
 
         <SettingsModal
           isOpen={isSettingsOpen}
+          initialTab={settingsInitialTab}
           onClose={() => setIsSettingsOpen(false)}
           themeMode={themeMode}
           onChangeThemeMode={setThemeMode}
@@ -1451,7 +1551,7 @@ export default function App() {
           onResetPreferences={handleResetPreferences}
           onStartTutorial={() => {
             setIsSettingsOpen(false);
-            setStudioSection('editor');
+            selectStudioSection('editor');
             navigateView('studio');
             setCurrentStep(1);
             setTimeout(() => setIsTutorialOpen(true), 120);
@@ -1481,7 +1581,14 @@ export default function App() {
         onNavigate={navigateView}
         onLogin={handleLogin}
         onLogout={handleLogout}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => {
+          setSettingsInitialTab('preferences');
+          setIsSettingsOpen(true);
+        }}
+        onOpenFeedback={() => {
+          setSettingsInitialTab('feedback');
+          setIsSettingsOpen(true);
+        }}
         isLoggingIn={isLoggingIn}
         isChatbotMinimized={isChatbotMinimized}
         onRestoreChatbot={() => setIsChatbotMinimized(false)}
@@ -1490,23 +1597,61 @@ export default function App() {
 
       <OfflineIndicator />
 
-      {authErrorMsg && (
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+      {authErrorMsg && !isAuthGateOpen && (
+        <div className="no-print sticky top-[72px] z-35 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-2.5">
           <div
             role="alert"
-            className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 text-red-700 dark:text-red-200 text-xs flex items-center justify-between gap-2"
+            className="p-3.5 rounded-xl bg-red-50/95 dark:bg-red-950/95 backdrop-blur-md border border-red-200 dark:border-red-500/45 text-red-800 dark:text-red-100 text-xs shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
           >
-            <span className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
-              {authErrorMsg}
+            <span className="flex items-start sm:items-center gap-2 leading-relaxed">
+              <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span>{authErrorMsg}</span>
             </span>
-            <button
-              type="button"
-              onClick={() => setAuthErrorMsg(null)}
-              className="text-red-700 dark:text-red-300 hover:text-red-950 dark:hover:text-white font-semibold cursor-pointer"
-            >
-              Dismiss
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0 pl-6 sm:pl-0">
+              <button
+                type="button"
+                onClick={handleLogin}
+                disabled={isLoggingIn}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isLoggingIn ? 'animate-spin' : ''}`} />
+                <span>{isLoggingIn ? 'Connecting...' : 'Try Again'}</span>
+              </button>
+
+              {isEmbeddedIframe() && typeof window !== 'undefined' && (
+                <a
+                  href={window.location.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-red-300 dark:border-red-500/40 text-zinc-900 dark:text-white font-semibold hover:border-blue-500 transition-colors"
+                >
+                  <span>Open in Full Tab</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+
+              {activeView === 'studio' && includeQr && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleQrMode(false);
+                    setAuthErrorMsg(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/90 dark:bg-zinc-900 border border-red-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-semibold hover:border-blue-500 cursor-pointer"
+                >
+                  <span>Use Clean Cover</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setAuthErrorMsg(null)}
+                className="px-2 py-1 text-red-700 dark:text-red-300 hover:text-red-950 dark:hover:text-white font-semibold cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1540,10 +1685,14 @@ export default function App() {
         </main>
       ) : (
         <main
-          className={`flex-1 w-full mx-auto px-3 sm:px-6 py-5 ${
+          className={`flex-1 w-full mx-auto px-3 sm:px-6 ${
             activeView === 'studio'
-              ? 'max-w-[1660px] lg:px-6 pb-12'
-              : 'max-w-7xl lg:px-8 pb-12'
+              ? studioSection === 'editor'
+                ? 'max-w-[1660px] lg:px-6 py-2.5 pb-20 md:pb-3'
+                : 'max-w-[1660px] lg:px-6 py-4 pb-12'
+              : activeView === 'tools' || activeView === 'image-tools'
+              ? 'max-w-[1600px] lg:px-6 py-3 pb-8'
+              : 'max-w-7xl lg:px-8 py-5 pb-12'
           }`}
         >
           {activeView === 'privacy' || activeView === 'terms' ? (
@@ -1566,7 +1715,7 @@ export default function App() {
               onToolChange={setActiveImageTool}
               onUseAsCoverLogo={(dataUrl) => {
                 setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
-                setStudioSection('editor');
+                selectStudioSection('editor');
                 navigateView('studio');
                 setCurrentStep(3);
               }}
@@ -1574,125 +1723,184 @@ export default function App() {
               onPreviewDocument={setPreviewTarget}
             />
           ) : (
-            /* COVER STUDIO WORKSPACE: CONSTANT LEFT PREVIEW + CENTER WORKSPACE + ZOOM-SAFE RIGHT SIDEBAR */
-            <div className="space-y-4">
-              {/* Streamlined Studio Header Bar (Clean, No Duplicate Section Tabs on Desktop) */}
-              <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl px-3.5 py-2.5 sm:px-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-                    <span className="text-sm font-extrabold tracking-tight text-zinc-900 dark:text-white">
+            /* COVER STUDIO WORKSPACE: FIXED-VIEWPORT DESKTOP WORKBENCH + CONSTANT NEXT BUTTON + ZERO CLUTTER */
+            <div className="space-y-3">
+              {/* Unified Studio Control Bar (Single Navigation Row for Editor / Crop / Batch / Library + Mode Switch) */}
+              <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl px-3 py-2 sm:px-4">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                  {/* Left: Brand Title + Step Readout */}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-extrabold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap">
                       Cover Studio
                     </span>
-                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/35">
+                    <span className="text-zinc-400 dark:text-zinc-600" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="text-xs font-mono font-semibold text-amber-700 dark:text-yellow-400 tabular-nums whitespace-nowrap">
                       {studioSection === 'scan-crop'
-                        ? 'Crop / Scan'
+                        ? 'Crop & Scan'
                         : studioSection === 'batch'
                         ? `Batch (${batchItems.length})`
                         : studioSection === 'library'
                         ? `Library (${savedDocs.length})`
-                        : `Step ${currentDisplayStep} of ${totalStudioSteps}`}
+                        : `Step ${currentDisplayStep} / ${totalStudioSteps}`}
                     </span>
+                  </div>
 
+                  {/* Center: Clean Unified Studio Mode Tabs with Proper Boundaries */}
+                  <div
+                    role="tablist"
+                    aria-label="Cover Studio workspace sections"
+                    className="flex items-center gap-1 p-1 rounded-2xl bg-slate-100/95 dark:bg-zinc-950/95 border border-slate-200/95 dark:border-zinc-700/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_2px_10px_-3px_rgba(15,23,42,0.08)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] overflow-x-auto no-scrollbar max-w-full"
+                  >
+                    {[
+                      { id: 'editor' as StudioSection, label: 'Cover Editor', icon: Layout },
+                      { id: 'scan-crop' as StudioSection, label: 'Crop / Scan', icon: ScanLine },
+                      { id: 'batch' as StudioSection, label: `Batch (${batchItems.length})`, icon: Files },
+                      { id: 'library' as StudioSection, label: `Library (${savedDocs.length})`, icon: FolderOpen },
+                    ].map((tab) => {
+                      const Icon = tab.icon;
+                      const isActive = studioSection === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          role="tab"
+                          aria-selected={isActive}
+                          type="button"
+                          onClick={() => selectStudioSection(tab.id)}
+                          className={`relative px-2.5 sm:px-3.5 py-1.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 transition-colors ${
+                            isActive
+                              ? 'text-[var(--pl-cta-text)] border-[var(--pl-cta-border)]'
+                              : 'text-slate-700 dark:text-zinc-300 border-transparent hover:text-slate-950 dark:hover:text-white hover:border-slate-300/85 dark:hover:border-zinc-700 hover:bg-white/80 dark:hover:bg-zinc-900/75'
+                          }`}
+                        >
+                          {isActive && (
+                            <motion.span
+                              layoutId="studioSectionPill"
+                              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                              className="absolute inset-0 rounded-[11px] bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
+                            />
+                          )}
+                          <Icon className="w-3.5 h-3.5 relative z-10 shrink-0" />
+                          <span className="relative z-10">{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right: Step Guide (Hover Typewriter 6.5s) + QR / Offline Mode Switch */}
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     {studioSection === 'editor' && (
-                      <button
-                        type="button"
+                      <TypewriterButton
+                        variant="dark"
+                        size="sm"
+                        lingerMs={6500}
+                        icon={<HelpCircle className="w-3.5 h-3.5 text-amber-700 dark:text-yellow-400" />}
+                        text="Step Guide"
                         onClick={() => {
                           setCurrentStep(1);
                           setTimeout(() => setIsTutorialOpen(true), 80);
                         }}
-                        title="Replay Step Spotlight guide"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-yellow-400 text-xs font-semibold text-zinc-700 dark:text-zinc-300 cursor-pointer whitespace-nowrap shrink-0 transition-colors"
-                      >
-                        <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                        <span>Step Guide</span>
-                      </button>
+                      />
                     )}
-                  </div>
 
-                  {/* Neon QR & Drive Mode Toggle Button */}
-                  <div
-                    data-tour-target="studio-mode-toggle"
-                    role="group"
-                    aria-label="Cover output mode"
-                    className={`relative grid grid-cols-2 p-1 rounded-xl border bg-zinc-950 transition-shadow duration-300 shrink-0 ${
-                      neonGlowMode === 'full'
-                        ? includeQr
-                          ? 'border-yellow-400/75 shadow-[0_0_20px_-3px_rgba(250,204,21,0.45)]'
-                          : 'border-cyan-400/75 shadow-[0_0_20px_-3px_rgba(34,211,238,0.45)]'
-                        : 'border-zinc-700'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleToggleQrMode(true)}
-                      aria-pressed={includeQr}
-                      className={`relative z-10 px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-left transition-colors cursor-pointer whitespace-nowrap ${
-                        includeQr ? 'text-black' : 'text-zinc-300 hover:text-white'
+                    <div
+                      data-tour-target="studio-mode-toggle"
+                      role="group"
+                      aria-label="Cover output mode"
+                      className={`relative grid grid-cols-2 p-1 rounded-xl border bg-zinc-100/95 dark:bg-zinc-950 transition-shadow duration-300 shrink-0 ${
+                        neonGlowMode === 'full'
+                          ? includeQr
+                            ? 'border-[var(--pl-accent)]/75 dark:border-yellow-400/75 shadow-[0_0_18px_-4px_rgba(var(--pl-accent-rgb),0.4)]'
+                            : 'border-sky-600/70 dark:border-cyan-400/75 shadow-[0_0_18px_-4px_rgba(var(--pl-glow-rgb),0.4)]'
+                          : 'border-zinc-200 dark:border-zinc-700'
                       }`}
                     >
-                      {includeQr && (
-                        <motion.span
-                          layoutId="studioQrNeonThumb"
-                          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-                          className={`absolute inset-0 rounded-lg bg-yellow-400 ${
-                            neonGlowMode === 'full' ? 'shadow-[0_0_16px_rgba(250,204,21,0.65)]' : ''
-                          }`}
-                        />
-                      )}
-                      <QrCode className="w-3.5 h-3.5 relative z-10 shrink-0 stroke-[2.25]" />
-                      <span className="relative z-10 flex flex-col leading-none">
-                        <span className="text-[11px] font-extrabold">Cover + QR Code</span>
-                        <span
-                          className={`text-[9px] font-mono mt-0.5 ${
-                            includeQr ? 'text-black/75 font-semibold' : 'text-zinc-400'
-                          }`}
-                        >
-                          Saves to Google Drive
-                        </span>
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleQrMode(true)}
+                        aria-pressed={includeQr}
+                        className={`relative z-10 px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-left transition-colors cursor-pointer whitespace-nowrap ${
+                          includeQr ? 'text-[var(--pl-cta-text)]' : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
+                        }`}
+                      >
+                        {includeQr && (
+                          <motion.span
+                            layoutId="studioQrNeonThumb"
+                            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                            className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))]"
+                          />
+                        )}
+                        <QrCode className="w-3.5 h-3.5 relative z-10 shrink-0 stroke-[2.25]" />
+                        <span className="relative z-10 text-[11px] font-extrabold">Cover + QR</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleToggleQrMode(false)}
-                      aria-pressed={!includeQr}
-                      className={`relative z-10 px-3 py-1.5 rounded-lg flex items-center justify-center gap-2 text-left transition-colors cursor-pointer whitespace-nowrap ${
-                        !includeQr ? 'text-slate-950' : 'text-zinc-300 hover:text-white'
-                      }`}
-                    >
-                      {!includeQr && (
-                        <motion.span
-                          layoutId="studioQrNeonThumb"
-                          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-                          className={`absolute inset-0 rounded-lg bg-cyan-400 ${
-                            neonGlowMode === 'full' ? 'shadow-[0_0_16px_rgba(34,211,238,0.65)]' : ''
-                          }`}
-                        />
-                      )}
-                      <ShieldCheck className="w-3.5 h-3.5 relative z-10 shrink-0 stroke-[2.25]" />
-                      <span className="relative z-10 flex flex-col leading-none">
-                        <span className="text-[11px] font-extrabold">Without QR</span>
-                        <span
-                          className={`text-[9px] font-mono mt-0.5 ${
-                            !includeQr ? 'text-slate-950/75 font-semibold' : 'text-zinc-400'
-                          }`}
-                        >
-                          No sign-in needed
-                        </span>
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleQrMode(false)}
+                        aria-pressed={!includeQr}
+                        className={`relative z-10 px-2.5 py-1 rounded-lg flex items-center justify-center gap-1.5 text-left transition-colors cursor-pointer whitespace-nowrap ${
+                          !includeQr ? 'text-[var(--pl-cta-text)]' : 'text-zinc-600 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white'
+                        }`}
+                      >
+                        {!includeQr && (
+                          <motion.span
+                            layoutId="studioQrNeonThumb"
+                            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                            className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] dark:bg-cyan-400 dark:bg-none"
+                          />
+                        )}
+                        <ShieldCheck className="w-3.5 h-3.5 relative z-10 shrink-0 stroke-[2.25]" />
+                        <span className="relative z-10 text-[11px] font-extrabold">Clean Cover</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </LiquidCrystalCard>
 
-              {/* 3-COLUMN FLUID WORKSPACE: CONSTANT LEFT PREVIEW · CENTER WORKSPACE · RIGHT SIDEBAR */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 xl:gap-5 items-start">
-                {/* 1. VERY LEFT CONSTANT STICKY COVER PREVIEW (Always left even under Ctrl + Zoom) */}
+              {/* Mobile Collapsible Preview Toggle & Doc Scale Strip (< md) */}
+              {studioSection === 'editor' && (
+                <div className="md:hidden flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setMobilePreviewOpen((p) => !p)}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-blue-700 dark:text-yellow-400" />
+                    <span>{mobilePreviewOpen ? 'Hide Cover Preview' : 'Show Live Preview'}</span>
+                    {mobilePreviewOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-zinc-600 dark:text-zinc-400 font-semibold">Scale</span>
+                    <input
+                      type="range"
+                      min={50}
+                      max={125}
+                      step={1}
+                      aria-label="Mobile document page scale"
+                      value={coverData.documentPageScale ?? 100}
+                      onChange={(e) =>
+                        setCoverData((prev) => ({ ...prev, documentPageScale: Number(e.target.value) }))
+                      }
+                      className="w-20 h-1.5 accent-[var(--pl-accent)] dark:accent-yellow-400 cursor-pointer"
+                    />
+                    <span className="font-mono text-[11px] font-bold text-blue-700 dark:text-yellow-400 tabular-nums">
+                      {coverData.documentPageScale ?? 100}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 3-COLUMN LOCKED-HEIGHT WORKBENCH: CONSTANT LEFT PREVIEW · CENTER PANEL WITH FIXED FOOTER · RIGHT INSPECTOR */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch lg:h-[calc(100vh-8.75rem)] lg:min-h-[540px]">
+                {/* 1. VERY LEFT CONSTANT COVER PREVIEW (Always pinned left on md+; collapsible on mobile) */}
                 <div
                   data-tour-target="studio-preview"
-                  className="order-1 md:col-span-5 lg:col-span-4 md:sticky md:top-20 md:h-[calc(100vh-6rem)] min-w-0"
+                  className={`${
+                    mobilePreviewOpen ? 'block h-[420px]' : 'hidden md:block'
+                  } md:col-span-5 lg:col-span-4 md:h-[calc(100vh-10rem)] lg:h-full min-h-0 min-w-0`}
                 >
-                  <div className="h-full min-h-0 flex flex-col p-3 sm:p-3.5 bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm dark:shadow-none">
+                  <div className="h-full min-h-0 flex flex-col p-3 bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xs">
                     <CoverPreview
                       coverData={coverData}
                       currentDoc={currentDoc}
@@ -1706,47 +1914,81 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 2. CENTER WORKSPACE (Step 1 Pick File, Active Step Editor, Crop/Scan, Batch, Library) */}
-                <div className="order-2 md:col-span-7 lg:col-span-5 space-y-4 min-w-0">
-                  {/* Compact Section + Step Switcher for < lg (Mobile & high Ctrl+ browser zoom) */}
-                  <div className="lg:hidden space-y-2">
-                    <div className="grid grid-cols-4 gap-1 bg-white dark:bg-[#121215] p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-                      {[
-                        { id: 'editor' as StudioSection, label: 'Editor', icon: Layout },
-                        { id: 'scan-crop' as StudioSection, label: 'Crop/Scan', icon: ScanLine },
-                        { id: 'batch' as StudioSection, label: `Batch (${batchItems.length})`, icon: Files },
-                        { id: 'library' as StudioSection, label: `Library (${savedDocs.length})`, icon: FolderOpen },
-                      ].map((item) => {
-                        const Icon = item.icon;
-                        const active = studioSection === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setStudioSection(item.id)}
-                            className={`px-2 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-                              active
-                                ? 'bg-yellow-400 text-black'
-                                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-                            }`}
-                          >
-                            <Icon className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {studioSection === 'editor' && (
-                      <div
-                        data-tour-target="studio-steps-mobile"
-                        className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2"
-                      >
-                        <div
-                          className={`grid gap-1.5 ${
-                            STEPS_NAV.length === 4 ? 'grid-cols-4' : 'grid-cols-5'
-                          }`}
+                {/* 2. CENTER WORKSPACE (Fixed-position Back/Next bar pinned at bottom on md+ with smooth directional slide-in between sections) */}
+                <div className="md:col-span-7 lg:col-span-5 lg:h-full flex flex-col min-h-0 min-w-0 overflow-hidden">
+                  <AnimatePresence mode="wait" custom={studioSlideDir}>
+                    <motion.div
+                      key={studioSection}
+                      custom={studioSlideDir}
+                      initial={{ opacity: 0, x: studioSlideDir * 24 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: studioSlideDir * -16 }}
+                      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                      className="flex-1 flex flex-col min-h-0 min-w-0"
+                    >
+                      {studioSection === 'scan-crop' ? (
+                        <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pr-0.5">
+                          <StudioScanCropPanel
+                            onApplyPdfToCoverStudio={handleReceivePdfFromTools}
+                            onPreviewDocument={setPreviewTarget}
+                            onTaskComplete={triggerTaskTypewriter}
+                            onBackToEditor={() => selectStudioSection('editor')}
+                          />
+                        </div>
+                      ) : studioSection === 'batch' ? (
+                        <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pr-0.5">
+                          <BatchProcessingPanel
+                            batchItems={batchItems}
+                            setBatchItems={setBatchItems}
+                            currentCoverTheme={coverData}
+                            accessToken={token}
+                            userEmail={user?.email || undefined}
+                            onRequireAuth={(needsConsent) => {
+                              if (needsConsent) setForceConsent(true);
+                              setAuthGateAction(
+                                needsConsent
+                                  ? 'Reconnect Google Drive With File Permissions'
+                                  : 'Upload Batch Documents to Google Drive'
+                              );
+                              setIsAuthGateOpen(true);
+                            }}
+                            onShareDoc={(title, link, qrUrl) => {
+                              setEmailShareTarget({ title, link, qrUrl });
+                              setIsEmailModalOpen(true);
+                            }}
+                          />
+                        </div>
+                      ) : studioSection === 'library' ? (
+                        <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto pr-0.5">
+                          <HistoryDashboard
+                            documents={savedDocs}
+                            onSelectDocument={handleSelectFromLibrary}
+                            onRefresh={refreshDocuments}
+                            onOpenEmailShare={(doc) => {
+                              setEmailShareTarget({
+                                title: doc.title,
+                                link: doc.driveLink,
+                              });
+                              setIsEmailModalOpen(true);
+                            }}
+                            onPreviewDoc={(doc) =>
+                              setPreviewTarget({
+                                title: doc.title || doc.fileName,
+                                fileName: doc.fileName,
+                                driveUrl: doc.driveLink,
+                                subtitle: 'Google Drive Document Preview',
+                              })
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <LiquidCrystalCard
+                          accentGlow="yellow"
+                          className="flex-1 flex flex-col min-h-0 md:h-[calc(100vh-10rem)] lg:h-full rounded-2xl overflow-hidden"
                         >
+                      {/* Pinned Top Step Rail + Auto-Save Status */}
+                      <div className="shrink-0 px-3.5 py-2.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-950/80 space-y-2">
+                        <div className={`grid gap-1.5 ${STEPS_NAV.length === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
                           {STEPS_NAV.map((step) => {
                             const isActive = currentStep === step.num;
                             const isCompleted =
@@ -1762,67 +2004,360 @@ export default function App() {
                                 disabled={!canOpen}
                                 onClick={() => setCurrentStep(step.num)}
                                 aria-current={isActive ? 'step' : undefined}
-                                className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl border transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl border text-xs transition-colors cursor-pointer disabled:cursor-not-allowed whitespace-nowrap ${
                                   isActive
-                                    ? 'border-yellow-400 bg-yellow-400 text-black font-bold'
+                                    ? 'border-[var(--pl-cta-border)] bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] font-bold shadow-xs'
                                     : isCompleted
-                                    ? 'border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-amber-700 dark:text-yellow-300'
+                                    ? 'border-zinc-300 dark:border-zinc-700 bg-[var(--pl-surface)] text-zinc-900 dark:text-yellow-300 font-semibold hover:border-[var(--pl-accent)]'
                                     : 'border-zinc-200 dark:border-zinc-800/80 bg-zinc-50 dark:bg-zinc-950 text-zinc-400 dark:text-zinc-500 opacity-60'
                                 }`}
                               >
                                 <span
-                                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold flex-shrink-0 tabular-nums ${
+                                  className={`w-4.5 h-4.5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 tabular-nums ${
                                     isActive
-                                      ? 'bg-black text-yellow-400'
+                                      ? 'bg-black/20 dark:bg-black text-white dark:text-yellow-400'
                                       : isCompleted
-                                      ? 'bg-yellow-400/20 text-amber-700 dark:text-yellow-400'
-                                      : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
+                                      ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                                      : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
                                   }`}
                                 >
                                   {isCompleted && !isActive ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
+                                    <CheckCircle2 className="w-3 h-3" />
                                   ) : (
                                     step.displayNum
                                   )}
                                 </span>
-                                <span className="hidden sm:inline text-xs font-semibold truncate">
-                                  {step.short}
-                                </span>
+                                <span className="hidden sm:inline truncate">{step.short}</span>
                               </button>
                             );
                           })}
                         </div>
-                      </div>
-                    )}
 
-                    {studioSection === 'editor' && (
-                      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl px-3.5 py-2.5 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="inline-flex items-center gap-1.5 font-semibold text-zinc-800 dark:text-zinc-200">
-                            <Maximize2 className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                            <span>Doc Page Scale</span>
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {(coverData.documentPageScale ?? 100) !== 100 && (
+                        {(lastAutoSavedAt || hasDraftEdits) && (
+                          <div className="flex items-center justify-between gap-2 text-[11px] px-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
+                              <Save className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span className="tabular-nums">
+                                Draft saved locally
+                                {lastAutoSavedAt
+                                  ? ` · ${new Date(lastAutoSavedAt).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  : ''}
+                              </span>
+                            </span>
+                            {hasDraftEdits && (
                               <button
                                 type="button"
-                                onClick={() => setCoverData((prev) => ({ ...prev, documentPageScale: 100 }))}
-                                className="text-[10px] font-bold text-amber-700 dark:text-yellow-400 hover:underline cursor-pointer"
+                                onClick={handleDiscardCoverDraft}
+                                className="font-semibold text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer"
                               >
-                                Fit 100%
+                                Reset draft
                               </button>
                             )}
-                            <span className="font-mono font-bold text-[11px] px-1.5 py-0.5 rounded bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/35 tabular-nums">
-                              {coverData.documentPageScale ?? 100}%
-                            </span>
                           </div>
+                        )}
+                      </div>
+
+                      {/* Scrollable Step Canvas — Zero Layout Shift on Back/Next */}
+                      <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`studio-step-${currentStep}`}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                            className="space-y-4"
+                          >
+                            {currentStep === 1 && (
+                              <div data-tour-target="studio-upload">
+                                <DocumentUploader
+                                  currentDoc={currentDoc}
+                                  onDocumentParsed={handleDocumentParsed}
+                                  isLoading={isLoadingDoc}
+                                  setIsLoading={setIsLoadingDoc}
+                                  onSwitchToBatch={() => selectStudioSection('batch')}
+                                  onPreviewDoc={
+                                    currentDoc
+                                      ? () =>
+                                          setPreviewTarget({
+                                            title: currentDoc.name,
+                                            fileName: currentDoc.name,
+                                            blob: currentDoc.file,
+                                            subtitle: `${currentDoc.pageCount || 1} page(s) · Source Upload`,
+                                          })
+                                      : undefined
+                                  }
+                                />
+                              </div>
+                            )}
+
+                            {currentStep === 2 && (
+                              <div className="space-y-3">
+                                {/* Clean Sub-Tab Switcher so Step 2 Never Requires Giant Scrolling */}
+                                <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => setStep2Tab('themes')}
+                                    className={`px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                                      step2Tab === 'themes'
+                                        ? 'bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] shadow-xs'
+                                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                                    }`}
+                                  >
+                                    <Layout className="w-3.5 h-3.5" />
+                                    <span>Cover Themes ({COVER_THEMES.length})</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setStep2Tab('ai-art')}
+                                    className={`px-3 py-2 rounded-lg text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                                      step2Tab === 'ai-art'
+                                        ? 'bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] shadow-xs'
+                                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                                    }`}
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>AI Art Backgrounds</span>
+                                  </button>
+                                </div>
+
+                                {step2Tab === 'themes' ? (
+                                  <ThemeSelector
+                                    selectedThemeId={coverData.themeId}
+                                    onSelectTheme={handleSelectTheme}
+                                  />
+                                ) : (
+                                  <CoverSuggestionsCard
+                                    currentDoc={currentDoc}
+                                    coverData={coverData}
+                                    suggestions={coverSuggestions}
+                                    setSuggestions={setCoverSuggestions}
+                                    suggestionCount={suggestionCount}
+                                    setSuggestionCount={setSuggestionCount}
+                                    engine={suggestionEngine}
+                                    setEngine={setSuggestionEngine}
+                                    isLoading={isGeneratingSuggestions}
+                                    errorMsg={suggestionsError}
+                                    detectedTopic={detectedSuggestionTopic}
+                                    onGenerate={(opts) => handleGenerateCoverSuggestions(opts)}
+                                    onApplySuggestion={handleApplyCoverSuggestion}
+                                    onClearBackground={handleClearCoverBackground}
+                                    onChangeOpacity={(opacity) =>
+                                      setCoverData((prev) => ({ ...prev, backgroundImageOpacity: opacity }))
+                                    }
+                                  />
+                                )}
+                              </div>
+                            )}
+
+                            {currentStep === 3 && (
+                              <ColorCarousel
+                                coverData={coverData}
+                                onChange={setCoverData}
+                                brandKits={brandKits}
+                                onSaveBrandKit={handleSaveBrandKit}
+                                onApplyBrandKit={handleApplyBrandKit}
+                                onDeleteBrandKit={handleDeleteBrandKit}
+                              />
+                            )}
+
+                            {currentStep === 4 && includeQr && (
+                              <DriveSyncPanel
+                                uploadResult={uploadResult}
+                                isUploading={isUploading}
+                                uploadProgress={uploadProgress}
+                                uploadError={uploadError}
+                                onUploadClick={handleUploadToDrive}
+                                canUpload={!!currentDoc && !isUploading}
+                                needsAuth={!token}
+                                onLoginClick={() => {
+                                  setAuthGateAction(
+                                    forceConsent
+                                      ? 'Reconnect Google Drive (Allow Drive File Permission)'
+                                      : 'Connect Google Drive to Upload Document'
+                                  );
+                                  setIsAuthGateOpen(true);
+                                }}
+                                onManualLinkSubmit={handleManualLinkSubmit}
+                                onDownloadMergedPdf={handleDirectDownloadMergedPdf}
+                                isDownloadingMerged={isDownloading}
+                                totalPages={totalPages}
+                                uploadMode={uploadMode}
+                                onUploadModeChange={setUploadMode}
+                                tokenExpiry={tokenExpiry}
+                                qrDataUrl={qrDataUrl}
+                              />
+                            )}
+
+                            {currentStep === 5 && (
+                              <div className="bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-5 space-y-4 shadow-xs">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-amber-700 dark:text-yellow-400 font-mono">
+                                      Step {currentDisplayStep}
+                                    </span>
+                                    <span aria-hidden="true" className="text-zinc-400">·</span>
+                                    <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+                                      Download &amp; Share Your PDF
+                                    </h3>
+                                  </div>
+                                  <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 tabular-nums">
+                                    {includeQr
+                                      ? `Your QR cover attaches cleanly to Page 1 of your file (${totalPages} pages total).`
+                                      : `Your clean cover attaches to Page 1 of your file (${totalPages} pages total · No sign-in required).`}
+                                  </p>
+                                </div>
+
+                                {downloadSuccessMsg && (
+                                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                                    <span>{downloadSuccessMsg}</span>
+                                  </div>
+                                )}
+
+                                {downloadErrorMsg && (
+                                  <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                    <span>{downloadErrorMsg}</span>
+                                  </div>
+                                )}
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  <TypewriterButton
+                                    alwaysExpanded
+                                    onClick={handleDirectDownloadMergedPdf}
+                                    disabled={isDownloading}
+                                    loading={isDownloading}
+                                    variant="primary"
+                                    size="lg"
+                                    className="w-full"
+                                    icon={<Download className="w-5 h-5 stroke-[2.5]" />}
+                                    text={`Download PDF (${totalPages} Pages)`}
+                                  />
+
+                                  <TypewriterButton
+                                    alwaysExpanded
+                                    onClick={handlePreviewMergedPdf}
+                                    disabled={isPreparingPreview || (includeQr && !qrDataUrl)}
+                                    loading={isPreparingPreview}
+                                    variant="dark"
+                                    size="lg"
+                                    className="w-full"
+                                    icon={<Eye className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />}
+                                    text={`Preview All ${totalPages} Pages`}
+                                  />
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                                  <TypewriterButton
+                                    lingerMs={6500}
+                                    onClick={handlePrint}
+                                    variant="dark"
+                                    icon={<Printer className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
+                                    text="Print Packet"
+                                  />
+
+                                  {includeQr && (
+                                    <TypewriterButton
+                                      lingerMs={6500}
+                                      onClick={() => {
+                                        setEmailShareTarget({
+                                          title: coverData.title || currentDoc?.name || 'Document',
+                                          link: uploadResult?.webViewLink || 'https://drive.google.com',
+                                          qrUrl: qrDataUrl || undefined,
+                                        });
+                                        setIsEmailModalOpen(true);
+                                      }}
+                                      variant="dark"
+                                      icon={<Mail className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
+                                      text="Share Email"
+                                    />
+                                  )}
+
+                                  <TypewriterButton
+                                    lingerMs={6500}
+                                    onClick={() => setIsExportModalOpen(true)}
+                                    variant="dark"
+                                    icon={<Layers className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
+                                    text="More Formats"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </motion.div>
+                        </AnimatePresence>
+                      </div>
+
+                      {/* CONSTANT FIXED-POSITION BACK / NEXT FOOTER BAR ON DESKTOP (Exact same vertical coordinate across all steps) */}
+                      {(footer.back || footer.next) && (
+                        <div className="hidden md:flex shrink-0 items-center justify-between gap-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-zinc-950/90 px-4 py-3">
+                          {footer.back ? (
+                            <LiquidCrystalButton
+                              variant="neutral"
+                              onClick={footer.back.onClick}
+                              disabled={footer.back.disabled}
+                              className="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap"
+                            >
+                              {footer.back.icon}
+                              <span>{footer.back.text}</span>
+                            </LiquidCrystalButton>
+                          ) : (
+                            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                              {currentDoc ? 'File loaded — click Next to continue' : 'Pick a file to unlock next steps'}
+                            </span>
+                          )}
+
+                          {footer.next && (
+                            <LiquidCrystalButton
+                              variant={footer.next.variant === 'primary' ? 'primary' : 'secondary'}
+                              onClick={footer.next.onClick}
+                              disabled={footer.next.disabled}
+                              className="px-4 py-2 rounded-xl text-xs whitespace-nowrap"
+                            >
+                              <span>{footer.next.text}</span>
+                              {footer.next.icon}
+                            </LiquidCrystalButton>
+                          )}
                         </div>
+                      )}
+                    </LiquidCrystalCard>
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+
+                {/* 3. RIGHT SIDEBAR INSPECTOR (Doc Page Scale + Steps Overview + Packet Summary) */}
+                <aside
+                  data-tour-target="studio-sidebar"
+                  aria-label="Cover Studio inspector"
+                  className="hidden lg:flex lg:col-span-3 lg:h-full lg:flex-col overflow-y-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-[var(--pl-surface)]/95 backdrop-blur-md p-4 space-y-4 min-w-0"
+                >
+                  {/* Document Pages Relative Scale Control */}
+                  {studioSection === 'editor' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2 px-0.5">
+                        <label
+                          htmlFor="studio-doc-scale-slider"
+                          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-zinc-700 dark:text-zinc-300"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5 text-amber-700 dark:text-yellow-400" />
+                          <span>Doc Page Scale</span>
+                        </label>
+                        <span className="text-[11px] font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
+                          {coverData.documentPageScale ?? 100}%
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
                         <input
+                          id="studio-doc-scale-slider"
                           type="range"
                           min={50}
                           max={125}
                           step={1}
-                          aria-label="Uploaded document page scale percentage"
                           value={coverData.documentPageScale ?? 100}
                           onChange={(e) =>
                             setCoverData((prev) => ({
@@ -1830,408 +2365,42 @@ export default function App() {
                               documentPageScale: Number(e.target.value),
                             }))
                           }
-                          className="w-full h-1.5 accent-yellow-400 cursor-pointer"
+                          className="w-full h-1.5 accent-[var(--pl-accent)] dark:accent-yellow-400 cursor-pointer"
                         />
-                      </div>
-                    )}
-                  </div>
 
-                  {studioSection === 'scan-crop' ? (
-                    <StudioScanCropPanel
-                      onApplyPdfToCoverStudio={handleReceivePdfFromTools}
-                      onPreviewDocument={setPreviewTarget}
-                      onTaskComplete={triggerTaskTypewriter}
-                      onBackToEditor={() => setStudioSection('editor')}
-                    />
-                  ) : studioSection === 'batch' ? (
-                    <BatchProcessingPanel
-                      batchItems={batchItems}
-                      setBatchItems={setBatchItems}
-                      currentCoverTheme={coverData}
-                      accessToken={token}
-                      userEmail={user?.email || undefined}
-                      onRequireAuth={(needsConsent) => {
-                        if (needsConsent) setForceConsent(true);
-                        setAuthGateAction(
-                          needsConsent
-                            ? 'Reconnect Google Drive With File Permissions'
-                            : 'Upload Batch Documents to Google Drive'
-                        );
-                        setIsAuthGateOpen(true);
-                      }}
-                      onShareDoc={(title, link, qrUrl) => {
-                        setEmailShareTarget({ title, link, qrUrl });
-                        setIsEmailModalOpen(true);
-                      }}
-                    />
-                  ) : studioSection === 'library' ? (
-                    <HistoryDashboard
-                      documents={savedDocs}
-                      onSelectDocument={handleSelectFromLibrary}
-                      onRefresh={refreshDocuments}
-                      onOpenEmailShare={(doc) => {
-                        setEmailShareTarget({
-                          title: doc.title,
-                          link: doc.driveLink,
-                        });
-                        setIsEmailModalOpen(true);
-                      }}
-                      onPreviewDoc={(doc) =>
-                        setPreviewTarget({
-                          title: doc.title || doc.fileName,
-                          fileName: doc.fileName,
-                          driveUrl: doc.driveLink,
-                          subtitle: 'Google Drive Document Preview',
-                        })
-                      }
-                    />
-                  ) : (
-                    <>
-                      {/* Subtle Cover Editor Auto-Save Draft Bar */}
-                      {(lastAutoSavedAt || hasDraftEdits) && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800/90 bg-zinc-50/90 dark:bg-[#111116] text-xs">
-                          <span className="inline-flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-                            <Save className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                            <span>
-                              Draft saved locally
-                              {lastAutoSavedAt
-                                ? ` · ${new Date(lastAutoSavedAt).toLocaleTimeString([], {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}`
-                                : ''}
-                            </span>
-                          </span>
-                          {hasDraftEdits && (
-                            <button
-                              type="button"
-                              onClick={handleDiscardCoverDraft}
-                              className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 underline underline-offset-2 cursor-pointer"
-                            >
-                              Reset draft
-                            </button>
-                          )}
+                        <div className="flex items-center justify-between gap-1">
+                          {[75, 90, 100, 115].map((preset) => {
+                            const active = (coverData.documentPageScale ?? 100) === preset;
+                            return (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() =>
+                                  setCoverData((prev) => ({ ...prev, documentPageScale: preset }))
+                                }
+                                className={`flex-1 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer tabular-nums ${
+                                  active
+                                    ? 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)]'
+                                    : 'bg-zinc-200/70 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                                }`}
+                              >
+                                {preset === 100 ? 'Fit' : `${preset}%`}
+                              </button>
+                            );
+                          })}
                         </div>
-                      )}
 
-                      <AnimatePresence mode="wait">
-                        <motion.div
-                          key={`studio-step-${currentStep}`}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                          className="space-y-4"
-                        >
-                          {currentStep === 1 && (
-                            <div data-tour-target="studio-upload">
-                              <DocumentUploader
-                                currentDoc={currentDoc}
-                                onDocumentParsed={handleDocumentParsed}
-                                isLoading={isLoadingDoc}
-                                setIsLoading={setIsLoadingDoc}
-                                onSwitchToBatch={() => setStudioSection('batch')}
-                                onPreviewDoc={
-                                  currentDoc
-                                    ? () =>
-                                        setPreviewTarget({
-                                          title: currentDoc.name,
-                                          fileName: currentDoc.name,
-                                          blob: currentDoc.file,
-                                          subtitle: `${currentDoc.pageCount || 1} page(s) · Source Upload`,
-                                        })
-                                    : undefined
-                                }
-                              />
-                            </div>
-                          )}
-
-                          {currentStep === 2 && (
-                            <div className="space-y-4">
-                              <ThemeSelector selectedThemeId={coverData.themeId} onSelectTheme={handleSelectTheme} />
-                              <CoverSuggestionsCard
-                                currentDoc={currentDoc}
-                                coverData={coverData}
-                                suggestions={coverSuggestions}
-                                setSuggestions={setCoverSuggestions}
-                                suggestionCount={suggestionCount}
-                                setSuggestionCount={setSuggestionCount}
-                                engine={suggestionEngine}
-                                setEngine={setSuggestionEngine}
-                                isLoading={isGeneratingSuggestions}
-                                errorMsg={suggestionsError}
-                                detectedTopic={detectedSuggestionTopic}
-                                onGenerate={(opts) => handleGenerateCoverSuggestions(opts)}
-                                onApplySuggestion={handleApplyCoverSuggestion}
-                                onClearBackground={handleClearCoverBackground}
-                                onChangeOpacity={(opacity) =>
-                                  setCoverData((prev) => ({ ...prev, backgroundImageOpacity: opacity }))
-                                }
-                              />
-                            </div>
-                          )}
-
-                          {currentStep === 3 && (
-                            <ColorCarousel
-                              coverData={coverData}
-                              onChange={setCoverData}
-                              brandKits={brandKits}
-                              onSaveBrandKit={handleSaveBrandKit}
-                              onApplyBrandKit={handleApplyBrandKit}
-                              onDeleteBrandKit={handleDeleteBrandKit}
-                            />
-                          )}
-
-                          {currentStep === 4 && includeQr && (
-                            <DriveSyncPanel
-                              uploadResult={uploadResult}
-                              isUploading={isUploading}
-                              uploadProgress={uploadProgress}
-                              uploadError={uploadError}
-                              onUploadClick={handleUploadToDrive}
-                              canUpload={!!currentDoc && !isUploading}
-                              needsAuth={!token}
-                              onLoginClick={() => {
-                                setAuthGateAction(
-                                  forceConsent
-                                    ? 'Reconnect Google Drive (Allow Drive File Permission)'
-                                    : 'Connect Google Drive to Upload Document'
-                                );
-                                setIsAuthGateOpen(true);
-                              }}
-                              onManualLinkSubmit={handleManualLinkSubmit}
-                              onDownloadMergedPdf={handleDirectDownloadMergedPdf}
-                              isDownloadingMerged={isDownloading}
-                              totalPages={totalPages}
-                              uploadMode={uploadMode}
-                              onUploadModeChange={setUploadMode}
-                              tokenExpiry={tokenExpiry}
-                              qrDataUrl={qrDataUrl}
-                            />
-                          )}
-
-                          {currentStep === 5 && (
-                            <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-yellow-400/15 text-amber-700 dark:text-yellow-400 border border-yellow-400/30">
-                                    Step {currentDisplayStep}
-                                  </span>
-                                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">
-                                    Download &amp; Share Your PDF
-                                  </h3>
-                                </div>
-                                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 tabular-nums">
-                                  {includeQr
-                                    ? `Your QR cover attaches cleanly to Page 1 of your file (${totalPages} pages total).`
-                                    : `Your clean cover attaches to Page 1 of your file (${totalPages} pages total · No sign-in required).`}
-                                </p>
-                              </div>
-
-                              {downloadSuccessMsg && (
-                                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-                                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                                  <span>{downloadSuccessMsg}</span>
-                                </div>
-                              )}
-
-                              {downloadErrorMsg && (
-                                <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-                                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                                  <span>{downloadErrorMsg}</span>
-                                </div>
-                              )}
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                <TypewriterButton
-                                  onClick={handleDirectDownloadMergedPdf}
-                                  disabled={isDownloading}
-                                  loading={isDownloading}
-                                  variant="primary"
-                                  size="lg"
-                                  className="w-full"
-                                  icon={<Download className="w-5 h-5 stroke-[2.5]" />}
-                                  text={`Download PDF (${totalPages} Pages)`}
-                                />
-
-                                <TypewriterButton
-                                  onClick={handlePreviewMergedPdf}
-                                  disabled={isPreparingPreview || (includeQr && !qrDataUrl)}
-                                  loading={isPreparingPreview}
-                                  variant="dark"
-                                  size="lg"
-                                  className="w-full"
-                                  icon={<Eye className="w-5 h-5 text-cyan-400" />}
-                                  text={`Preview All ${totalPages} Pages`}
-                                />
-                              </div>
-
-                              <div
-                                className={`grid gap-2.5 pt-1 ${
-                                  includeQr ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
-                                }`}
-                              >
-                                <TypewriterButton
-                                  onClick={handlePrint}
-                                  variant="dark"
-                                  icon={<Printer className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                                  text="Print"
-                                />
-
-                                {includeQr && (
-                                  <TypewriterButton
-                                    onClick={() => {
-                                      setEmailShareTarget({
-                                        title: coverData.title || currentDoc?.name || 'Document',
-                                        link: uploadResult?.webViewLink || 'https://drive.google.com',
-                                        qrUrl: qrDataUrl || undefined,
-                                      });
-                                      setIsEmailModalOpen(true);
-                                    }}
-                                    variant="dark"
-                                    icon={<Mail className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                                    text="Share Email"
-                                  />
-                                )}
-
-                                <TypewriterButton
-                                  onClick={() => setIsExportModalOpen(true)}
-                                  variant="dark"
-                                  icon={<Layers className="w-4 h-4 text-amber-600 dark:text-yellow-400" />}
-                                  text="More Formats"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </motion.div>
-                      </AnimatePresence>
-
-                      {/* Single Clean Back / Next Step Bar */}
-                      {(footer.back || footer.next) && (
-                        <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            {footer.back ? (
-                              <LiquidCrystalButton
-                                variant="neutral"
-                                onClick={footer.back.onClick}
-                                disabled={footer.back.disabled}
-                                className="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap"
-                              >
-                                {footer.back.icon}
-                                <span>{footer.back.text}</span>
-                              </LiquidCrystalButton>
-                            ) : (
-                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                Pick a file to unlock the next steps
-                              </span>
-                            )}
-
-                            {footer.next && (
-                              <LiquidCrystalButton
-                                variant={footer.next.variant === 'primary' ? 'primary' : 'neutral'}
-                                onClick={footer.next.onClick}
-                                disabled={footer.next.disabled}
-                                className="px-4 py-2 rounded-xl text-xs whitespace-nowrap"
-                              >
-                                <span>{footer.next.text}</span>
-                                {footer.next.icon}
-                              </LiquidCrystalButton>
-                            )}
-                          </div>
-                        </LiquidCrystalCard>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* 3. FLOW-BASED RIGHT SIDEBAR (Desktop lg+ · Zero Overlap on Ctrl+ Browser Zoom) */}
-                <aside
-                  data-tour-target="studio-sidebar"
-                  aria-label="Cover Studio sidebar"
-                  className="order-3 hidden lg:flex lg:col-span-3 lg:flex-col lg:sticky lg:top-20 max-h-[calc(100vh-6rem)] overflow-y-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#121215]/95 backdrop-blur-md p-4 space-y-4 min-w-0"
-                >
-                  {/* Workspace Tools Switcher */}
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 px-1">
-                      Studio Tools
-                    </p>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {[
-                        {
-                          id: 'editor' as StudioSection,
-                          label: 'Cover Editor',
-                          sub: 'Design cover & QR',
-                          icon: Layout,
-                        },
-                        {
-                          id: 'scan-crop' as StudioSection,
-                          label: 'Crop / Scan',
-                          sub: 'Perspective flatten & clean',
-                          icon: ScanLine,
-                          isNew: true,
-                        },
-                        {
-                          id: 'batch' as StudioSection,
-                          label: `Batch Queue (${batchItems.length})`,
-                          sub: 'Bulk covers & Drive sync',
-                          icon: Files,
-                        },
-                        {
-                          id: 'library' as StudioSection,
-                          label: `Saved Library (${savedDocs.length})`,
-                          sub: 'Recent Drive documents',
-                          icon: FolderOpen,
-                        },
-                      ].map((item) => {
-                        const Icon = item.icon;
-                        const isActive = studioSection === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setStudioSection(item.id)}
-                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
-                              isActive
-                                ? 'border-yellow-400 bg-yellow-400 text-black font-bold shadow-xs'
-                                : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 hover:border-yellow-400/60'
-                            }`}
-                          >
-                            <span
-                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                isActive
-                                  ? 'bg-black text-yellow-400'
-                                  : 'bg-zinc-200/70 dark:bg-zinc-800 text-amber-600 dark:text-yellow-400'
-                              }`}
-                            >
-                              <Icon className="w-3.5 h-3.5" />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="text-xs font-bold truncate">{item.label}</span>
-                                {item.isNew && !isActive && (
-                                  <span className="px-1.5 py-0.5 rounded bg-yellow-400/20 text-amber-700 dark:text-yellow-300 text-[9px] font-bold uppercase">
-                                    Scan
-                                  </span>
-                                )}
-                              </div>
-                              <p
-                                className={`text-[10px] truncate ${
-                                  isActive ? 'text-black/75 font-medium' : 'text-zinc-500 dark:text-zinc-400'
-                                }`}
-                              >
-                                {item.sub}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-tight">
+                          Scales Pages 2+ relative to {coverData.paperSize.toUpperCase()} cover
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Cover Editor Steps List */}
                   <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
-                    <div className="flex items-center justify-between px-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400">
                         Cover Steps
                       </span>
                       <span className="text-[11px] font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
@@ -2255,24 +2424,24 @@ export default function App() {
                             type="button"
                             disabled={!canOpen}
                             onClick={() => {
-                              setStudioSection('editor');
+                              selectStudioSection('editor');
                               setCurrentStep(step.num);
                             }}
                             aria-current={isActive ? 'step' : undefined}
                             className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border text-left transition-all duration-150 cursor-pointer disabled:cursor-not-allowed ${
                               isActive
-                                ? 'border-yellow-400/85 bg-yellow-400/18 text-zinc-950 dark:text-yellow-200 font-bold'
+                                ? 'border-[var(--pl-cta-border)] bg-[var(--pl-accent)]/16 text-zinc-950 dark:text-yellow-200 font-bold'
                                 : isCompleted
-                                ? 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-zinc-900 dark:text-zinc-100 hover:border-yellow-400/60'
+                                ? 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 text-zinc-900 dark:text-zinc-100 hover:border-[var(--pl-accent)]/60'
                                 : 'border-zinc-200/80 dark:border-zinc-800/60 bg-zinc-50/50 dark:bg-zinc-950/50 text-zinc-400 dark:text-zinc-500 opacity-65'
                             }`}
                           >
                             <span
                               className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-mono font-bold shrink-0 ${
                                 isActive
-                                  ? 'bg-yellow-400 text-black'
+                                  ? 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)]'
                                   : isCompleted
-                                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
                                   : 'bg-zinc-200/70 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
                               }`}
                             >
@@ -2301,72 +2470,10 @@ export default function App() {
                     </nav>
                   </div>
 
-                  {/* Document Pages Relative Scale Control */}
-                  {studioSection === 'editor' && (
-                    <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
-                      <div className="flex items-center justify-between gap-2 px-1">
-                        <label
-                          htmlFor="studio-doc-scale-slider"
-                          className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400"
-                        >
-                          <Maximize2 className="w-3 h-3 text-amber-600 dark:text-yellow-400" />
-                          <span>Doc Page Scale</span>
-                        </label>
-                        <span className="text-[11px] font-mono font-bold text-amber-700 dark:text-yellow-400 tabular-nums">
-                          {coverData.documentPageScale ?? 100}%
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
-                        <input
-                          id="studio-doc-scale-slider"
-                          type="range"
-                          min={50}
-                          max={125}
-                          step={1}
-                          value={coverData.documentPageScale ?? 100}
-                          onChange={(e) =>
-                            setCoverData((prev) => ({
-                              ...prev,
-                              documentPageScale: Number(e.target.value),
-                            }))
-                          }
-                          className="w-full h-1.5 accent-yellow-400 cursor-pointer"
-                        />
-
-                        <div className="flex items-center justify-between gap-1">
-                          {[75, 90, 100, 115].map((preset) => {
-                            const active = (coverData.documentPageScale ?? 100) === preset;
-                            return (
-                              <button
-                                key={preset}
-                                type="button"
-                                onClick={() =>
-                                  setCoverData((prev) => ({ ...prev, documentPageScale: preset }))
-                                }
-                                className={`flex-1 py-1 rounded-md text-[10px] font-mono font-bold transition-colors cursor-pointer tabular-nums ${
-                                  active
-                                    ? 'bg-yellow-400 text-black'
-                                    : 'bg-zinc-200/70 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
-                                }`}
-                              >
-                                {preset === 100 ? 'Fit' : `${preset}%`}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 leading-tight">
-                          Scales Pages 2+ relative to {coverData.paperSize.toUpperCase()} cover
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
                   {/* Compact Output Summary */}
                   <div
                     data-tour-target="studio-sidebar-download"
-                    className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2"
+                    className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2 mt-auto"
                   >
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-zinc-500 dark:text-zinc-400 font-semibold">Output Pages</span>
@@ -2385,9 +2492,9 @@ export default function App() {
                       <span
                         className={`font-semibold ${
                           !includeQr
-                            ? 'text-cyan-600 dark:text-cyan-400'
+                            ? 'text-cyan-700 dark:text-cyan-400'
                             : uploadResult
-                            ? 'text-emerald-600 dark:text-emerald-400'
+                            ? 'text-emerald-700 dark:text-emerald-400'
                             : 'text-zinc-500 dark:text-zinc-400'
                         }`}
                       >
@@ -2397,6 +2504,39 @@ export default function App() {
                   </div>
                 </aside>
               </div>
+
+              {/* Mobile Constant Fixed-Bottom Next / Back Bar (< md, compact 56px height <= 10% mobile viewport) */}
+              {studioSection === 'editor' && (footer.back || footer.next) && (
+                <div className="no-print md:hidden fixed inset-x-0 bottom-0 z-30 h-14 px-3 bg-[var(--pl-surface)]/95 backdrop-blur-xl border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.18)]">
+                  {footer.back ? (
+                    <LiquidCrystalButton
+                      variant="neutral"
+                      onClick={footer.back.onClick}
+                      disabled={footer.back.disabled}
+                      className="min-h-[40px] px-3 py-1.5 rounded-xl text-xs whitespace-nowrap"
+                    >
+                      {footer.back.icon}
+                      <span>Back</span>
+                    </LiquidCrystalButton>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 truncate">
+                      {currentDoc ? `Step 1/${totalStudioSteps} ready` : 'Pick a file first'}
+                    </span>
+                  )}
+
+                  {footer.next && (
+                    <LiquidCrystalButton
+                      variant={footer.next.variant === 'primary' ? 'primary' : 'secondary'}
+                      onClick={footer.next.onClick}
+                      disabled={footer.next.disabled}
+                      className="min-h-[40px] px-4 py-1.5 rounded-xl text-xs whitespace-nowrap ml-auto"
+                    >
+                      <span>{footer.next.text}</span>
+                      {footer.next.icon}
+                    </LiquidCrystalButton>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -2438,7 +2578,7 @@ export default function App() {
         onOpenDocInCoverStudio={handleReceivePdfFromTools}
         onUseImageAsCoverLogo={(dataUrl) => {
           setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
-          setStudioSection('editor');
+          selectStudioSection('editor');
           navigateView('studio');
           setCurrentStep(3);
         }}
@@ -2450,6 +2590,11 @@ export default function App() {
         onMinimizeChange={setIsChatbotMinimized}
         soundEnabled={aiSoundEnabled}
         onSoundEnabledChange={setAiSoundEnabled}
+        showMiniRobot={showMiniRobot}
+        onOpenFeedback={() => {
+          setSettingsInitialTab('feedback');
+          setIsSettingsOpen(true);
+        }}
       />
       </div>
     </MotionConfig>

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { LiquidCrystalCard } from './LiquidCrystal';
-import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   Eraser,
   Layers,
@@ -72,7 +73,12 @@ interface ImageToolsPanelProps {
   activeTool: ImageToolTab;
   onToolChange: (tool: ImageToolTab) => void;
   onUseAsCoverLogo?: (dataUrl: string) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -241,6 +247,12 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         headline: 'Background Removed Successfully',
         subtext: `${res.fileName} (${res.width}×${res.height}px) is ready for download.`,
         statusLabel: 'Image Cutout Ready',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'BG Remover',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to remove background.');
@@ -326,20 +338,32 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         }
       }
 
+      let zipBlob: Blob | null = null;
       if (completedForZip.length > 0) {
         setProgress({ percent: 95, status: 'Bundling transparent cutouts into ZIP...' });
-        const zip = await createImagesZip(completedForZip);
-        setBulkZipBlob(zip);
+        zipBlob = await createImagesZip(completedForZip);
+        setBulkZipBlob(zipBlob);
       }
       setProgress({
         percent: 100,
         status: `Processed ${completedForZip.length} of ${snapshot.length} image(s).`,
       });
       if (completedForZip.length > 0) {
+        const single = completedForZip.length === 1 ? completedForZip[0] : null;
         onTaskComplete?.({
           headline: `Bulk Cutout Finished (${completedForZip.length} Images)`,
-          subtext: 'All clean cutouts are packed into a ZIP archive ready to download.',
+          subtext: 'All clean cutouts are packed and ready to download.',
           statusLabel: 'Bulk BG Remover Complete',
+          downloadFile: zipBlob
+            ? {
+                blob: single ? single.blob : zipBlob,
+                fileName: single
+                  ? single.fileName
+                  : `PaperLink_Cutouts_${completedForZip.length}.zip`,
+                fileSizeBytes: single ? single.blob.size : zipBlob.size,
+                toolLabel: 'Bulk BG Remover',
+              }
+            : undefined,
         });
       }
     } finally {
@@ -423,14 +447,25 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         out.push(res);
       }
       setResizeResults(out);
+      let zipBlob: Blob | null = null;
       if (out.length > 1) {
-        setResizeZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
+        zipBlob = await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob })));
+        setResizeZipBlob(zipBlob);
       }
       setProgress({ percent: 100, status: `Resized ${out.length} image(s) cleanly.` });
       onTaskComplete?.({
         headline: `Resized ${out.length} Image${out.length === 1 ? '' : 's'} Cleanly`,
         subtext: `Scaled to ${resizeW}×${resizeH}px (${resizeFit}) and ready to save.`,
         statusLabel: 'Image Resize Complete',
+        downloadFile:
+          zipBlob || out[0]
+            ? {
+                blob: zipBlob || out[0].blob,
+                fileName: zipBlob ? `PaperLink_Resized_${out.length}.zip` : out[0].fileName,
+                fileSizeBytes: zipBlob ? zipBlob.size : out[0].sizeBytes,
+                toolLabel: 'Resize Image',
+              }
+            : undefined,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Resize failed.');
@@ -484,14 +519,27 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         );
       }
       setConvertResults(out);
+      let zipBlob: Blob | null = null;
       if (out.length > 1) {
-        setConvertZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
+        zipBlob = await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob })));
+        setConvertZipBlob(zipBlob);
       }
       setProgress({ percent: 100, status: `Converted ${out.length} image(s) to .${convertFormat}.` });
       onTaskComplete?.({
         headline: `Converted ${out.length} File${out.length === 1 ? '' : 's'} to .${convertFormat.toUpperCase()}`,
         subtext: 'Your reformatted graphics are ready for download.',
         statusLabel: 'Format Conversion Complete',
+        downloadFile:
+          zipBlob || out[0]
+            ? {
+                blob: zipBlob || out[0].blob,
+                fileName: zipBlob
+                  ? `PaperLink_Converted_${convertFormat.toUpperCase()}_${out.length}.zip`
+                  : out[0].fileName,
+                fileSizeBytes: zipBlob ? zipBlob.size : out[0].sizeBytes,
+                toolLabel: 'Convert Format',
+              }
+            : undefined,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Conversion failed.');
@@ -626,6 +674,12 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         headline: 'Image Cropped & Exported',
         subtext: `Saved ${res.fileName} (${res.width}×${res.height}px) ready to download.`,
         statusLabel: 'Crop & Rotate Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Crop & Rotate',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to crop image.');
@@ -679,8 +733,10 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         );
       }
       setCompResults(out);
+      let zipBlob: Blob | null = null;
       if (out.length > 1) {
-        setCompZipBlob(await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob }))));
+        zipBlob = await createImagesZip(out.map((r) => ({ fileName: r.fileName, blob: r.blob })));
+        setCompZipBlob(zipBlob);
       }
       setProgress({ percent: 100, status: `Compressed ${out.length} image(s).` });
       const totalOrig = out.reduce((acc, r) => acc + r.originalSizeBytes, 0);
@@ -690,6 +746,15 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         headline: `Compressed ${out.length} Image${out.length === 1 ? '' : 's'}`,
         subtext: `${formatBytes(totalOrig)} → ${formatBytes(totalFinal)} (${savedPct}% smaller).`,
         statusLabel: 'Image Compression Complete',
+        downloadFile:
+          zipBlob || out[0]
+            ? {
+                blob: zipBlob || out[0].blob,
+                fileName: zipBlob ? `PaperLink_Compressed_${out.length}.zip` : out[0].fileName,
+                fileSizeBytes: zipBlob ? zipBlob.size : out[0].sizeBytes,
+                toolLabel: 'Compress Image',
+              }
+            : undefined,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Compression failed.');
@@ -737,6 +802,12 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
         headline: 'Graded Image Rendered',
         subtext: `${res.fileName} (${formatBytes(res.sizeBytes)}) is ready for download.`,
         statusLabel: 'Color Grade Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Filters & Palette',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to apply image filters.');
@@ -784,24 +855,65 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   }, []);
 
   return (
-    <div className="space-y-6">
-      {/* Header & 11-Tool Graphic Designer Suite Switcher */}
-      <LiquidCrystalCard className="rounded-2xl p-5 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-mono font-semibold text-amber-700 dark:text-yellow-400 uppercase tracking-wider">
-              Graphic Designer Studio · Client-Side Processing
+    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 lg:h-[calc(100vh-5.75rem)] lg:overflow-hidden">
+      {/* Desktop Left Compact 11-Tool Sidebar (Fits 100% zoom cleanly without scrolling past header) */}
+      <aside className="hidden lg:flex lg:w-56 shrink-0 lg:h-full flex-col">
+        <LiquidCrystalCard className="h-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden">
+          <div className="px-1">
+            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+              Image Studio
             </p>
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight mt-0.5">
-              PaperLink Image &amp; Graphic Design Toolkit
+            <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
+              Graphic Design Suite
             </h1>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-              11 pixel-accurate daily tools running locally in your browser — remove backgrounds, erase watermarks, blur/redact info, join ID grids, render PDFs, resize, convert, crop, compress, and grade colors.
-            </p>
           </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-1">
+            {IMAGE_TOOL_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTool === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    resetFeedback();
+                    onToolChange(tab.id);
+                  }}
+                  className={`relative w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    isActive
+                      ? 'text-[var(--pl-cta-text)] font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100/80 dark:hover:bg-zinc-900/80'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="imageStudioActiveDroplet"
+                      transition={{ type: 'spring', stiffness: 380, damping: 28, mass: 0.75 }}
+                      className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
+                    />
+                  )}
+                  <Icon className="w-3.5 h-3.5 relative z-10 shrink-0" />
+                  <span className="relative z-10 truncate">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </LiquidCrystalCard>
+      </aside>
+
+      {/* Mobile & Tablet Horizontal Strip (< lg) */}
+      <LiquidCrystalCard className="lg:hidden rounded-2xl p-3 space-y-2.5 shrink-0">
+        <div>
+          <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+            Image Studio · Client-Side Processing
+          </p>
+          <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight mt-0.5">
+            Graphic Design Toolkit
+          </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100/90 dark:bg-zinc-950/90 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           {IMAGE_TOOL_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTool === tab.id;
@@ -813,61 +925,47 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
                   resetFeedback();
                   onToolChange(tab.id);
                 }}
-                className={`relative inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   isActive
-                    ? 'text-black font-bold'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-zinc-900'
+                    ? 'text-[var(--pl-cta-text)] font-bold bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))]'
+                    : 'text-zinc-600 dark:text-zinc-400 bg-zinc-100/90 dark:bg-zinc-950/90 border border-zinc-200 dark:border-zinc-800'
                 }`}
               >
-                {isActive && (
-                  <motion.span
-                    layoutId="imageStudioActiveDroplet"
-                    transition={{ type: 'spring', stiffness: 380, damping: 28, mass: 0.75 }}
-                    className="absolute inset-0 rounded-lg bg-gradient-to-b from-yellow-300 via-yellow-400 to-amber-400 shadow-[0_4px_14px_-2px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.75)]"
-                  />
-                )}
-                <Icon className="w-3.5 h-3.5 relative z-10" />
-                <span className="relative z-10">{tab.label}</span>
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{tab.label}</span>
               </button>
             );
           })}
         </div>
       </LiquidCrystalCard>
 
-      {/* Global Error / Progress */}
-      {errorMsg && (
-        <div
-          role="alert"
-          className="p-4 rounded-xl border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-200 text-xs flex items-center gap-2.5"
-        >
-          <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
+      {/* Right Scrollable Image Tool Stage */}
+      <div className="flex-1 min-w-0 lg:h-full lg:overflow-y-auto pr-0.5 space-y-4">
+        {/* Global Error / Progress */}
+        {errorMsg && (
+          <div
+            role="alert"
+            className="p-4 rounded-xl border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-200 text-xs flex items-center gap-2.5"
+          >
+            <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
-      {isWorking && progress && (
-        <div className="p-4 rounded-xl border border-yellow-400/40 bg-yellow-400/10 space-y-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <ClipingPapersLogo size="sm" layout="inline" statusText={progress.status} />
-            <span className="font-mono text-xs font-bold text-amber-800 dark:text-yellow-300 tabular-nums shrink-0">
-              {progress.percent}%
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-900 overflow-hidden">
-            <div
-              className="h-full bg-yellow-400 transition-all duration-200"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-        </div>
-      )}
+        {isWorking && progress && (
+          <RobotProgressBar
+            percent={progress.percent}
+            status={progress.status}
+            subText="Processing pixel buffers privately in browser"
+          />
+        )}
 
       {/* ===================================================== */}
       {/* TOOL 1: SINGLE BACKGROUND REMOVER                     */}
       {/* ===================================================== */}
       {activeTool === 'bg-remove' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Background Remover Studio
@@ -1123,7 +1221,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           </div>
 
           {/* Right Before/After Stage */}
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
@@ -1297,7 +1395,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'bulk-bg-remove' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-4 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Bulk Image BG Remover
@@ -1488,7 +1586,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </div>
           </div>
 
-          <div className="lg:col-span-8 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-8 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
@@ -1610,7 +1708,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'resize' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Image Resizer &amp; Social Presets
@@ -1824,7 +1922,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Resized Results</h3>
               {resizeZipBlob && (
@@ -1886,7 +1984,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'convert' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Image Format Converter
@@ -2009,7 +2107,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Converted Files</h3>
               {convertZipBlob && (
@@ -2076,7 +2174,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'crop' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Crop, Rotate &amp; Flip Studio
@@ -2285,7 +2383,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
                 {cropResult ? 'Cropped Export Preview' : 'Crop Frame Preview'}
@@ -2343,7 +2441,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'compress' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Web &amp; Print Image Compressor
@@ -2499,7 +2597,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Compression Savings</h3>
               {compZipBlob && (
@@ -2574,7 +2672,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* ===================================================== */}
       {activeTool === 'filters' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Color Grading &amp; Palette Extractor
@@ -2714,7 +2812,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-5">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
                 Live Color Grade &amp; Swatches
@@ -2818,6 +2916,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           onSendResultToTool={sendResultToTool}
         />
       )}
+      </div>
     </div>
   );
 };

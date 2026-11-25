@@ -22,6 +22,7 @@ import {
 } from '../services/pdfSecurity';
 
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 
 interface PdfProtectToolProps {
   onOpenInCoverStudio: (blob: Blob, fileName: string) => void;
@@ -29,7 +30,12 @@ interface PdfProtectToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -157,6 +163,13 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
         headline: `PDF Protected with ${algorithm} Encryption`,
         subtext: `${res.fileName} is locked and ready for private download`,
         statusLabel: 'PDF Security Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: `Protect PDF (${algorithm})`,
+          openInStudio: false,
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to encrypt PDF.');
@@ -180,6 +193,12 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
         headline: 'PDF Password Protection Removed',
         subtext: `${res.fileName} unlocked cleanly in your browser`,
         statusLabel: 'PDF Decrypt Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Unlock PDF',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to unlock PDF.');
@@ -191,7 +210,7 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left Configuration Form */}
-      <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+      <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white">
@@ -459,7 +478,7 @@ export const PdfProtectTool: React.FC<PdfProtectToolProps> = ({
       </div>
 
       {/* Right Result & Privacy Card */}
-      <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between gap-5">
+      <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between gap-5">
         {protectResult ? (
           <div className="space-y-4">
             <div className="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400">

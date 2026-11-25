@@ -95,7 +95,7 @@ export const EmailShareModal: React.FC<EmailShareModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 dark:bg-black/85 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-yellow-500/40 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-6">
+      <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-yellow-500/40 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-6">
         {/* Header */}
         <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

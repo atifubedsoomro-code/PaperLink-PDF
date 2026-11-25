@@ -14,7 +14,9 @@ import {
   Sparkles,
   Trash2,
   Wand2,
+  X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   PdfQuadCorners,
   PdfScanEnhanceMode,
@@ -27,8 +29,10 @@ import {
 } from '../services/pdfToolkit';
 import { renderPdfPages } from '../services/documentParser';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
 
 interface ScanQueuePage {
   id: string;
@@ -43,7 +47,12 @@ interface ScanQueuePage {
 interface StudioScanCropPanelProps {
   onApplyPdfToCoverStudio: (file: File) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onBackToEditor?: () => void;
 }
 
@@ -118,12 +127,33 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
   const [previewResultUrl, setPreviewResultUrl] = useState<string | null>(null);
   const [isRenderingPreview, setIsRenderingPreview] = useState(false);
 
-  // Export state
+  // Export state & completion toast notification
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<{ percent: number; status: string } | null>(null);
   const [lastResult, setLastResult] = useState<{ blob: Blob; fileName: string; pageCount: number } | null>(
     null
   );
+  const [previewProgressPct, setPreviewProgressPct] = useState<number>(0);
+  const [scanToast, setScanToast] = useState<{
+    id: number;
+    title: string;
+    detail: string;
+  } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showCompletionToast = useCallback((title: string, detail: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setScanToast({ id: Date.now(), title, detail });
+    toastTimerRef.current = window.setTimeout(() => {
+      setScanToast(null);
+    }, 3800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const activePage = pages[selectedIdx] ?? null;
 
@@ -135,8 +165,10 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
     }
 
     let cancelled = false;
+    setPreviewProgressPct(18);
     const timer = window.setTimeout(async () => {
       setIsRenderingPreview(true);
+      setPreviewProgressPct(48);
       try {
         const img = await decodeImageUrl(activePage.dataUrl);
         if (cancelled) return;
@@ -152,6 +184,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
         sCtx.fillRect(0, 0, srcCanvas.width, srcCanvas.height);
         sCtx.drawImage(img, 0, 0, srcCanvas.width, srcCanvas.height);
 
+        setPreviewProgressPct(74);
         const warped = warpPerspectiveCanvas(srcCanvas, activePage.quad, 760);
         if (flattenShadows || autoRemoveWatermark || enhanceMode !== 'none') {
           const wCtx = warped.getContext('2d');
@@ -169,19 +202,30 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
 
         if (!cancelled) {
           setPreviewResultUrl(warped.toDataURL('image/jpeg', 0.88));
+          setPreviewProgressPct(100);
+          showCompletionToast(
+            autoRemoveWatermark
+              ? 'Perspective & Watermark Cleanup Complete'
+              : 'Perspective Correction Complete',
+            `Page ${selectedIdx + 1} flattened cleanly into rectangular preview.`
+          );
+          window.setTimeout(() => {
+            if (!cancelled) setPreviewProgressPct(0);
+          }, 1500);
         }
       } catch (err) {
         console.warn('Scan preview render error:', err);
+        if (!cancelled) setPreviewProgressPct(0);
       } finally {
         if (!cancelled) setIsRenderingPreview(false);
       }
-    }, 90);
+    }, 180);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activePage, enhanceMode, flattenShadows, autoRemoveWatermark, watermarkCutoff]);
+  }, [activePage, enhanceMode, flattenShadows, autoRemoveWatermark, watermarkCutoff, selectedIdx, showCompletionToast]);
 
   const detectQuadForDataUrl = async (
     dataUrl: string
@@ -348,7 +392,14 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
         },
         (percent, status) => setExportProgress({ percent, status })
       );
+      setExportProgress({ percent: 100, status: 'Perspective correction & cleanup complete!' });
       setLastResult({ blob: res.blob, fileName: res.fileName, pageCount: res.pageCount });
+      showCompletionToast(
+        autoRemoveWatermark
+          ? 'Scan & Watermark Removal Finished'
+          : 'Perspective Scan PDF Finished',
+        `${res.fileName} (${res.pageCount} rectangular page${res.pageCount === 1 ? '' : 's'}) ready.`
+      );
       return res;
     } catch (err: any) {
       setLoadError(err?.message || 'Perspective scan failed.');
@@ -380,6 +431,13 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
       headline: 'Document Scanned & Cleaned',
       subtext: `${res.fileName} (${res.pageCount} page${res.pageCount === 1 ? '' : 's'}) packed into crisp rectangular PDF format.`,
       statusLabel: 'Crop & Perspective Scan Complete',
+      downloadFile: {
+        blob: res.blob,
+        fileName: res.fileName,
+        fileSizeBytes: res.blob.size,
+        toolLabel: 'Crop & Scan Studio',
+        openInStudio: false,
+      },
     });
   };
 
@@ -472,7 +530,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
             if (e.dataTransfer.files) void handleUploadFiles(e.dataTransfer.files);
           }}
           onClick={() => fileInputRef.current?.click()}
-          className={`bg-white dark:bg-[#121215] border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${
+          className={`bg-white dark:bg-[var(--pl-surface)] border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${
             isDragOver
               ? 'border-yellow-400 bg-yellow-400/10'
               : 'border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 hover:bg-zinc-50 dark:hover:bg-zinc-950'
@@ -513,7 +571,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
       ) : (
         <div className="space-y-4">
           {/* Page Filmstrip + View Mode Tabs */}
-          <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-0.5">
               {pages.map((pg, idx) => (
                 <div
@@ -597,7 +655,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
             }`}
           >
             {viewMode !== 'result' && activePage && (
-              <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2.5">
+              <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
                     <Crop className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
@@ -672,7 +730,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
                             left: `${pt.x * 100}%`,
                             top: `${pt.y * 100}%`,
                           }}
-                          className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-yellow-400 border-2 border-zinc-950 shadow-[0_0_0_2px_rgba(250,204,21,0.45),0_2px_6px_rgba(0,0,0,0.6)] cursor-grab active:cursor-grabbing hover:scale-125 transition-transform touch-none z-10"
+                          className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-yellow-400 border-2 border-zinc-950 shadow-[0_0_0_2px_rgba(var(--pl-accent-rgb),0.45),0_2px_6px_rgba(0,0,0,0.6)] cursor-grab active:cursor-grabbing hover:scale-125 transition-transform touch-none z-10"
                         />
                       );
                     })}
@@ -682,19 +740,36 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
             )}
 
             {viewMode !== 'cropper' && activePage && (
-              <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2.5">
+              <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
                     Perspective-Corrected Rectangular Preview
                   </span>
-                  {isRenderingPreview && (
+                  {isRenderingPreview ? (
                     <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-yellow-400 font-medium">
                       <Loader2 className="w-3 h-3 animate-spin" />
                       Updating
                     </span>
-                  )}
+                  ) : previewProgressPct === 100 ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Finished
+                    </span>
+                  ) : null}
                 </div>
+
+                {/* Subtle Live Scan & Cleanup Progress Bar */}
+                {previewProgressPct > 0 && (
+                  <div className="w-full h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-200 ${
+                        previewProgressPct >= 100 ? 'bg-emerald-500' : 'bg-yellow-400'
+                      }`}
+                      style={{ width: `${previewProgressPct}%` }}
+                    />
+                  </div>
+                )}
 
                 <div className="min-h-[260px] max-h-[380px] flex items-center justify-center bg-zinc-100 dark:bg-zinc-950 rounded-xl p-3 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
                   {previewResultUrl ? (
@@ -712,7 +787,7 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
           </div>
 
           {/* Scan & Watermark Cleanup Controls */}
-          <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-4">
+          <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Scan Style */}
               <div className="space-y-1.5">
@@ -822,12 +897,11 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
             </div>
 
             {isExporting && exportProgress && (
-              <div className="p-3 rounded-xl bg-yellow-400/10 border border-yellow-400/40 flex items-center justify-between gap-3">
-                <ClipingPapersLogo size="xs" layout="inline" statusText={exportProgress.status} />
-                <span className="text-xs font-mono font-bold text-amber-700 dark:text-yellow-300 tabular-nums">
-                  {exportProgress.percent}%
-                </span>
-              </div>
+              <RobotProgressBar
+                compact
+                percent={exportProgress.percent}
+                status={exportProgress.status}
+              />
             )}
 
             {lastResult && !isExporting && (
@@ -893,6 +967,43 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
           </div>
         </div>
       )}
+      {/* Floating Toast Notification on Perspective Correction & Watermark Removal Completion */}
+      <AnimatePresence>
+        {scanToast && (
+          <motion.div
+            key={scanToast.id}
+            initial={{ opacity: 0, y: 18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96, transition: { duration: 0.16 } }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-4 left-4 right-4 sm:right-auto sm:left-5 sm:max-w-sm z-50 rounded-2xl bg-white/95 dark:bg-[var(--pl-surface)]/95 backdrop-blur-xl border border-emerald-400/65 dark:border-emerald-500/45 shadow-[0_14px_34px_-8px_rgba(16,185,129,0.28)] px-3.5 py-2.5 flex items-start justify-between gap-2.5"
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <span className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                <CheckCircle2 className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">
+                  {scanToast.title}
+                </p>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-snug">
+                  {scanToast.detail}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScanToast(null)}
+              aria-label="Dismiss scan notification"
+              className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-white rounded-lg cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

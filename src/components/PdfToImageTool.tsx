@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfRenderedImagePage,
   PdfToImageFormat,
@@ -25,7 +26,12 @@ interface PdfToImageToolProps {
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
   onSendImageToTool?: (file: File, targetTool: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'filters') => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -93,12 +99,22 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
         (percent, status) => onProgress({ percent, status })
       );
       setResult(res);
+      const outBlob = res.zipBlob || res.pages[0]?.blob;
+      const outName = res.zipBlob ? res.zipFileName : res.pages[0]?.fileName || `page.${res.format}`;
       onTaskComplete?.({
         headline: `Rendered ${res.pages.length} PDF Page${res.pages.length === 1 ? '' : 's'} to ${res.format.toUpperCase()}`,
         subtext: res.zipBlob
           ? `Ready for individual save or ${res.pages.length}-image ZIP download`
           : `Ready for instant download or Image Studio editing`,
         statusLabel: 'PDF to Image Complete',
+        downloadFile: outBlob
+          ? {
+              blob: outBlob,
+              fileName: outName,
+              fileSizeBytes: outBlob.size,
+              toolLabel: 'PDF to Image',
+            }
+          : undefined,
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to render PDF pages as images.');
@@ -122,7 +138,7 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Left Configuration Card */}
-      <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+      <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
         <div>
           <h2 className="text-base font-bold text-zinc-900 dark:text-white">
             Convert PDF Pages to High-Res Images
@@ -292,7 +308,7 @@ export const PdfToImageTool: React.FC<PdfToImageToolProps> = ({
       </div>
 
       {/* Right Rendered Gallery Card */}
-      <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+      <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">

@@ -23,6 +23,7 @@ import {
   createPhotoGridCollage,
   removeImageWatermark,
 } from '../services/imageToolkit';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 
 interface ImageRoutineToolsProps {
   mode: 'watermark-remove' | 'blur-redact' | 'grid-collage';
@@ -30,7 +31,12 @@ interface ImageRoutineToolsProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onSendResultToTool?: (
     res: ProcessedImageResult,
     target: 'bg-remove' | 'resize' | 'convert' | 'crop' | 'compress' | 'filters'
@@ -209,6 +215,12 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
         headline: 'Watermark Removed from Image',
         subtext: `${res.fileName} (${formatBytes(res.sizeBytes)}) is ready`,
         statusLabel: 'Watermark Remover Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Image Watermark Remover',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to remove watermark.');
@@ -242,6 +254,12 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
         headline: 'Privacy Redaction Applied',
         subtext: `${brRegions.length} sensitive zone(s) masked in ${res.fileName}`,
         statusLabel: 'Blur & Redact Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Privacy Blur & Redact',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to apply blur/redact.');
@@ -288,6 +306,12 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
         headline: 'Photo Grid Created',
         subtext: `${res.fileName} (${res.width}×${res.height}px) is ready`,
         statusLabel: 'Photo Grid Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Photo Grid & ID Joiner',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to build photo grid.');
@@ -302,7 +326,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
   if (mode === 'watermark-remove') {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <Eraser className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -484,7 +508,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
         </div>
 
         {/* Interactive Mask Painting Stage + Result Preview */}
-        <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
               {wmResult ? 'Result Comparison (Original vs Cleaned)' : 'Paint or Box Over the Watermark'}
@@ -641,7 +665,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
   if (mode === 'blur-redact') {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <EyeOff className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -784,7 +808,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
           )}
         </div>
 
-        <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
               Drag Boxes Over Sensitive Areas
@@ -928,7 +952,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
   // =========================================================
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
             <LayoutGrid className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -1109,7 +1133,7 @@ export const ImageRoutineTools: React.FC<ImageRoutineToolsProps> = ({
         </button>
       </div>
 
-      <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
             Combined Sheet Preview

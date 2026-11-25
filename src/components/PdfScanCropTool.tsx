@@ -16,6 +16,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfCropRect,
   PdfScanCropResult,
@@ -34,7 +35,12 @@ interface PdfScanCropToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -335,6 +341,12 @@ export const PdfScanCropTool: React.FC<PdfScanCropToolProps> = ({
         headline: 'Phone PDF Cropped, Auto-Scanned & Fitted',
         subtext: `${res.processedPages} page(s) cleaned and fitted cleanly into ${res.fileName}`,
         statusLabel: 'Auto-Scan Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Crop & Auto-Scan PDF',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to crop and auto-scan PDF.');
@@ -360,7 +372,7 @@ export const PdfScanCropTool: React.FC<PdfScanCropToolProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Controls */}
-        <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-zinc-950 dark:text-white flex items-center gap-2">
@@ -614,7 +626,7 @@ export const PdfScanCropTool: React.FC<PdfScanCropToolProps> = ({
         </div>
 
         {/* Right Interactive Crop & Auto-Scan Stage */}
-        <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-3">
+        <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-3">
           {!sourceFile ? (
             <div className="min-h-[360px] flex flex-col items-center justify-center text-center p-8 border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl">
               <Crop className="w-10 h-10 text-zinc-400 dark:text-zinc-600 mb-3" />

@@ -30,6 +30,7 @@ import {
   ScanLine,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   CompressionLevel,
   PdfMergeSource,
@@ -179,7 +180,12 @@ export interface PdfEditorSidebarPanelsProps {
   onOpenSignatureModal: () => void;
   onAddStampPreset: (preset: { text: string; color: string }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
 }
 
 const STAMP_PRESETS = [
@@ -434,6 +440,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'PDF Pages Updated',
           subtext: `Applied rotations/deletes directly inside Edit PDF (${res.pageCount} pages).`,
           statusLabel: 'Pages Organized',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Organize',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to update PDF pages.');
@@ -608,6 +621,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'PDFs Merged into Active Workspace',
           subtext: `${res.totalPages} total pages ready to continue editing.`,
           statusLabel: 'PDF Merge Applied',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Merge',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to merge PDFs.');
@@ -717,6 +737,14 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'PDF Split / Extract Complete',
           subtext: `${res.files.length} file(s) generated cleanly.`,
           statusLabel: 'PDF Split Complete',
+          downloadFile: res.files[0]
+            ? {
+                blob: res.files[0].blob,
+                fileName: res.files[0].fileName,
+                fileSizeBytes: res.files[0].blob.size,
+                toolLabel: 'PDF Split',
+              }
+            : undefined,
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to split PDF.');
@@ -836,6 +864,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Phone PDF Cropped, Cleaned & Auto-Scanned',
           subtext: `Processed ${res.processedPages} of ${res.pageCount} page(s) to whole-page fit.`,
           statusLabel: 'Auto-Scanned',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Auto-Scan',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to crop & auto-scan PDF.');
@@ -996,6 +1031,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Watermark Cleaned on Active PDF',
           subtext: `Processed ${res.cleanedPages} page(s) in-place.`,
           statusLabel: 'Watermark Removed',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Watermark Clean',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to remove watermark.');
@@ -1127,6 +1169,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Watermark & Page Numbers Applied',
           subtext: `Stamped across ${res.processedPages} page(s) in the active workspace.`,
           statusLabel: 'Watermark Applied',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Stamped',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to add watermark.');
@@ -1306,6 +1355,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'PDF Compressed in Workspace',
           subtext: `${formatBytes(res.originalSize)} -> ${formatBytes(res.compressedSize)}`,
           statusLabel: 'PDF Compressed',
+          downloadFile: {
+            blob: res.blob,
+            fileName: nextFile.name,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Edit PDF · Compress',
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Compression failed.');
@@ -1413,6 +1469,13 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Encrypted PDF Ready',
           subtext: `${res.fileName} protected with ${res.algorithm}.`,
           statusLabel: 'PDF Encrypted',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: `Protect PDF (${res.algorithm})`,
+            openInStudio: false,
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to protect PDF.');
@@ -1440,6 +1503,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'PDF Unlocked into Editor',
           subtext: `${res.fileName} is ready to edit cleanly.`,
           statusLabel: 'PDF Unlocked',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'Unlock PDF',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Incorrect password or unreadable PDF.');
@@ -1583,6 +1652,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Converted Edited PDF to Word',
           subtext: `${res.fileName} ready for download.`,
           statusLabel: 'PDF to Word Ready',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'PDF to Word',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Word export failed.');
@@ -1653,6 +1728,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Converted PDF Pages to Images',
           subtext: `${res.pages.length} page image(s) ready.`,
           statusLabel: 'PDF to Image Ready',
+          downloadFile: {
+            blob,
+            fileName,
+            fileSizeBytes: blob.size,
+            toolLabel: 'PDF to Image',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'PDF to Image export failed.');
@@ -1733,6 +1814,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Converted PDF Tables to Spreadsheet',
           subtext: `${res.fileName} (${res.totalRows} rows) ready.`,
           statusLabel: 'PDF to Excel Ready',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'PDF to Excel',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'PDF to Excel export failed.');
@@ -1806,6 +1893,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Converted PDF to PowerPoint',
           subtext: `${res.fileName} (${res.slideCount} slides) ready.`,
           statusLabel: 'PDF to PPT Ready',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'PDF to PPT',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'PDF to PPT export failed.');
@@ -1904,6 +1997,12 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           headline: 'Converted & Loaded into Edit PDF',
           subtext: `${convertedName} is ready on the interactive canvas.`,
           statusLabel: 'Office Import Ready',
+          downloadFile: {
+            blob: convertedBlob,
+            fileName: convertedName,
+            fileSizeBytes: convertedBlob.size,
+            toolLabel: 'Office Import',
+          },
         });
       } catch (err: any) {
         onError(err?.message || 'Failed to convert file.');

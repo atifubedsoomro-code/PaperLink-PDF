@@ -184,7 +184,10 @@ export function computeLocalStats(entries: FeedbackEntry[]): FeedbackTrackerStat
     totalSubmissions > 0
       ? Number((entries.reduce((acc, e) => acc + (Number(e.rating) || 0), 0) / totalSubmissions).toFixed(1))
       : 0;
-  const resolvedCount = entries.filter((e) => e.status.toLowerCase().includes('resolved') || e.status.toLowerCase().includes('closed')).length;
+  const resolvedCount = entries.filter((e) => {
+    const st = (e.status || '').toLowerCase();
+    return st.includes('resolved') || st.includes('closed') || Boolean((e.resolutionNotes || '').trim());
+  }).length;
   const openIssues = Math.max(0, totalSubmissions - resolvedCount);
   const resolutionRate = totalSubmissions > 0 ? Math.round((resolvedCount / totalSubmissions) * 100) : 0;
 
@@ -193,10 +196,85 @@ export function computeLocalStats(entries: FeedbackEntry[]): FeedbackTrackerStat
     averageRating,
     openIssues,
     resolutionRate,
-    source: 'local',
-    recentRows: entries.slice(0, 6),
+    source: entries.some((e) => e.syncedToGoogleSheet) ? 'google-sheet' : 'local',
+    recentRows: entries.slice(0, 12),
   };
 }
+
+export function mergeFeedbackEntries(
+  remoteEntries: FeedbackEntry[],
+  localEntries: FeedbackEntry[]
+): FeedbackEntry[] {
+  const map = new Map<string, FeedbackEntry>();
+  for (const loc of localEntries) {
+    map.set(loc.feedbackId, loc);
+  }
+  for (const rem of remoteEntries) {
+    const existing = map.get(rem.feedbackId);
+    map.set(rem.feedbackId, {
+      ...existing,
+      ...rem,
+      status: rem.status === 'Saved Locally' ? 'New' : rem.status || existing?.status || 'New',
+      resolutionNotes: rem.resolutionNotes || existing?.resolutionNotes || '',
+      syncedToGoogleSheet: true,
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export async function fetchLiveFeedbackEntries(options?: {
+  sheetUrl?: string;
+  webhookUrl?: string;
+}): Promise<{
+  entries: FeedbackEntry[];
+  source: 'google-sheet' | 'server-store' | 'local';
+  webhookConfigured: boolean;
+  sheetConfigured: boolean;
+}> {
+  const local = getLocalFeedbackEntries();
+  try {
+    const params = new URLSearchParams();
+    if (options?.sheetUrl?.trim()) params.set('sheetUrl', options.sheetUrl.trim());
+    if (options?.webhookUrl?.trim()) params.set('webhookUrl', options.webhookUrl.trim());
+    const qs = params.toString();
+    const res = await fetch(`/api/feedback${qs ? `?${qs}` : ''}`);
+    if (!res.ok) {
+      return { entries: local, source: 'local', webhookConfigured: false, sheetConfigured: false };
+    }
+    const data = await res.json();
+    const remote: FeedbackEntry[] = Array.isArray(data?.entries) ? data.entries : [];
+    const merged = mergeFeedbackEntries(remote, local);
+    try {
+      localStorage.setItem(LOCAL_FEEDBACK_KEY, JSON.stringify(merged.slice(0, 100)));
+    } catch {
+      // ignore storage restrictions
+    }
+    return {
+      entries: merged,
+      source: data?.source || 'server-store',
+      webhookConfigured: Boolean(data?.webhookConfigured),
+      sheetConfigured: Boolean(data?.sheetConfigured),
+    };
+  } catch {
+    return { entries: local, source: 'local', webhookConfigured: false, sheetConfigured: false };
+  }
+}
+
+export const GOOGLE_APPS_SCRIPT_TEMPLATE = `function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var data = JSON.parse(e.postData.contents);
+  sheet.appendRow([
+    data.feedbackId, data.date, data.userName || 'Anonymous',
+    data.toolCategory, data.specificTool, data.feedbackType,
+    data.rating, data.details, data.priority, data.status || 'New', data.resolutionNotes || ''
+  ]);
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+function doGet() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var rows = sheet.getDataRange().getValues();
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, rows: rows })).setMimeType(ContentService.MimeType.JSON);
+}`;
 
 export interface SheetStructureInfo {
   spreadsheetId: string;

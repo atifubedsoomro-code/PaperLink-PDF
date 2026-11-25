@@ -38,7 +38,8 @@ import {
 import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
-import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfToWordMode,
   CompressionLevel,
@@ -97,7 +98,12 @@ interface PdfToolsPanelProps {
   activeTool: PdfToolTab;
   onToolChange: (tool: PdfToolTab) => void;
   onSendPdfToCoverStudio: (file: File) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -249,6 +255,13 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: 'PDF Converted to Word (.docx)',
         subtext: `${res.fileName} (${res.pageCount} pages) ready for download`,
         statusLabel: 'PDF to Word Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'PDF to Word',
+          openInStudio: false,
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to convert PDF to Word.');
@@ -271,6 +284,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: 'Word Converted to Paginated PDF',
         subtext: `${res.fileName} (${res.pageCount} pages) ready to save or add QR cover`,
         statusLabel: 'Word to PDF Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Word to PDF',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to convert Word file to PDF.');
@@ -328,6 +347,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: `Merged ${res.totalPages} Pages Into Single PDF`,
         subtext: `${res.fileName} is ready for download or Cover Studio`,
         statusLabel: 'PDF Merge Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'PDF Merge',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to merge PDFs.');
@@ -382,6 +407,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           ? `Already tightly packed — original ${formatBytes(res.originalSize)} preserved`
           : `Reduced by ${savedPct}% (${formatBytes(res.originalSize)} -> ${formatBytes(res.compressedSize)})`,
         statusLabel: 'PDF Compression Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.compressedSize,
+          toolLabel: 'Compress PDF',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to compress PDF.');
@@ -468,8 +499,19 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       setSplitResult(res);
       onTaskComplete?.({
         headline: `Extracted ${res.files.length} PDF File${res.files.length === 1 ? '' : 's'}`,
-        subtext: 'Your split PDF files are ready for instant download',
+        subtext:
+          res.files.length > 1
+            ? `${res.files[0]?.fileName || 'Part 1'} is ready above — all ${res.files.length} files are also listed below.`
+            : 'Your split PDF file is ready for instant download.',
         statusLabel: 'PDF Split Complete',
+        downloadFile: res.files[0]
+          ? {
+              blob: res.files[0].blob,
+              fileName: res.files[0].fileName,
+              fileSizeBytes: res.files[0].blob.size,
+              toolLabel: res.files.length > 1 ? `Split PDF (1 of ${res.files.length})` : 'Split PDF',
+            }
+          : undefined,
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to split PDF.');
@@ -518,6 +560,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: `Built ${res.pageCount}-Page PDF From Images`,
         subtext: `${res.fileName} is ready to download or open in Cover Studio`,
         statusLabel: 'Images to PDF Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Images to PDF',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to build PDF from images.');
@@ -587,6 +635,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: `Rebuilt ${res.pageCount}-Page PDF Document`,
         subtext: 'Page rotations and deletions applied cleanly',
         statusLabel: 'PDF Organize Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Rotate & Delete',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to rebuild PDF pages.');
@@ -677,6 +731,12 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         headline: 'Signature Applied to PDF',
         subtext: `${res.fileName} is signed and ready for download`,
         statusLabel: 'PDF Signature Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Sign & Stamp',
+        },
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to stamp signature onto PDF.');
@@ -686,20 +746,17 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header & Grouped Tool Selector */}
-      <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-mono font-semibold text-amber-700 dark:text-yellow-400 uppercase tracking-wider">
-              PDF &amp; Office Studio · Client-Side Processing
+    <div className="flex flex-col lg:flex-row lg:items-stretch gap-4 lg:h-[calc(100vh-5.75rem)] lg:overflow-hidden">
+      {/* Desktop Left Compact Sidebar Navigation (Fits cleanly in 100% zoom without vertical scrolling) */}
+      <aside className="hidden lg:flex lg:w-60 shrink-0 lg:h-full flex-col">
+        <LiquidCrystalCard accentGlow="yellow" className="h-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden">
+          <div className="px-1">
+            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+              PDF &amp; Office Studio
             </p>
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-white tracking-tight mt-0.5">
-              PaperLink Local PDF &amp; Office Studio
+            <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
+              Local Document Tools
             </h1>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-              Open <span className="font-semibold text-amber-700 dark:text-yellow-400">Edit PDF</span> for the unified all-in-one sidebar studio on one document, or select an individual utility below.
-            </p>
           </div>
 
           <LiquidCrystalButton
@@ -708,126 +765,173 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               resetFeedback();
               onToolChange('pdf-edit');
             }}
-            className={`px-5 py-2.5 rounded-full text-xs font-extrabold whitespace-nowrap shrink-0 ${
+            className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-extrabold whitespace-nowrap shrink-0 justify-start ${
               activeTool === 'pdf-edit'
-                ? 'bg-gradient-to-b from-yellow-300 via-yellow-400 to-amber-400 text-black shadow-[0_0_20px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.75)] ring-2 ring-yellow-300/60 ring-offset-2 ring-offset-white dark:ring-offset-[#121215]'
-                : 'bg-yellow-400/12 hover:bg-yellow-400/22 text-amber-800 dark:text-yellow-300'
+                ? 'bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] shadow-md ring-2 ring-[var(--pl-accent)]/35'
+                : 'bg-[var(--pl-accent)]/10 hover:bg-[var(--pl-accent)]/18 text-blue-800 dark:text-yellow-300'
             }`}
           >
             <Edit3 className="w-4 h-4 shrink-0" />
             <span>Edit PDF</span>
           </LiquidCrystalButton>
+
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-3">
+            <div>
+              <p className="px-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                PDF &amp; Word Core
+              </p>
+              <div className="space-y-0.5">
+                {PDF_TOOL_TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTool === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        resetFeedback();
+                        onToolChange(tab.id);
+                      }}
+                      className={`relative w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                        isActive
+                          ? 'text-[var(--pl-cta-text)] font-bold'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100/80 dark:hover:bg-zinc-900/80'
+                      }`}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId="pdfStudioActiveDroplet"
+                          transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                          className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
+                        />
+                      )}
+                      <Icon className="w-3.5 h-3.5 relative z-10 shrink-0" />
+                      <span className="relative z-10 truncate">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="px-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1">
+                Office Utilities
+              </p>
+              <div className="space-y-0.5">
+                {OFFICE_TOOL_TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTool === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        resetFeedback();
+                        onToolChange(tab.id);
+                      }}
+                      className={`relative w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                        isActive
+                          ? 'text-[var(--pl-cta-text)] font-bold'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100/80 dark:hover:bg-zinc-900/80'
+                      }`}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId="pdfStudioActiveDroplet"
+                          transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                          className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
+                        />
+                      )}
+                      <Icon className="w-3.5 h-3.5 relative z-10 shrink-0" />
+                      <span className="relative z-10 truncate">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </LiquidCrystalCard>
+      </aside>
+
+      {/* Mobile & Tablet Compact Horizontal Switcher (< lg) */}
+      <LiquidCrystalCard accentGlow="yellow" className="lg:hidden rounded-2xl p-3 space-y-2.5 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+              PDF &amp; Office Studio
+            </p>
+            <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight">
+              Local Document Tools
+            </h1>
+          </div>
+          <LiquidCrystalButton
+            variant="yellow-parent"
+            onClick={() => {
+              resetFeedback();
+              onToolChange('pdf-edit');
+            }}
+            className={`px-3.5 py-2 rounded-full text-xs font-extrabold whitespace-nowrap shrink-0 ${
+              activeTool === 'pdf-edit'
+                ? 'bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] shadow-sm'
+                : 'bg-[var(--pl-accent)]/12 hover:bg-[var(--pl-accent)]/20 text-blue-800 dark:text-yellow-300'
+            }`}
+          >
+            <Edit3 className="w-3.5 h-3.5 shrink-0" />
+            <span>Edit PDF</span>
+          </LiquidCrystalButton>
         </div>
 
-        <div className="space-y-3 mt-4">
-          <div>
-            <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5">
-              PDF &amp; Word Core Tools
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100/90 dark:bg-zinc-950/90 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 backdrop-blur-md">
-              {PDF_TOOL_TABS.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTool === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      resetFeedback();
-                      onToolChange(tab.id);
-                    }}
-                    className={`relative inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                      isActive
-                        ? 'text-black font-bold'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-zinc-900'
-                    }`}
-                  >
-                    {isActive && (
-                      <motion.span
-                        layoutId="pdfStudioActiveDroplet"
-                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                        className="absolute inset-0 rounded-lg bg-gradient-to-b from-yellow-300 to-yellow-400 shadow-[0_4px_14px_-3px_rgba(250,204,21,0.5),inset_0_1px_0_rgba(255,255,255,0.75)]"
-                      />
-                    )}
-                    <Icon className="w-3.5 h-3.5 relative z-10" />
-                    <span className="relative z-10">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mb-1.5">
-              Office Presentation &amp; Spreadsheet Utilities
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5 bg-zinc-100/90 dark:bg-zinc-950/90 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 backdrop-blur-md">
-              {OFFICE_TOOL_TABS.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTool === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      resetFeedback();
-                      onToolChange(tab.id);
-                    }}
-                    className={`relative inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                      isActive
-                        ? 'text-black font-bold'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white hover:bg-white/60 dark:hover:bg-zinc-900'
-                    }`}
-                  >
-                    {isActive && (
-                      <motion.span
-                        layoutId="pdfStudioActiveDroplet"
-                        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-                        className="absolute inset-0 rounded-lg bg-gradient-to-b from-yellow-300 to-yellow-400 shadow-[0_4px_14px_-3px_rgba(250,204,21,0.5),inset_0_1px_0_rgba(255,255,255,0.75)]"
-                      />
-                    )}
-                    <Icon className="w-3.5 h-3.5 relative z-10" />
-                    <span className="relative z-10">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          {[...PDF_TOOL_TABS, ...OFFICE_TOOL_TABS].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTool === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  resetFeedback();
+                  onToolChange(tab.id);
+                }}
+                className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  isActive
+                    ? 'text-[var(--pl-cta-text)] font-bold bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))]'
+                    : 'text-zinc-600 dark:text-zinc-400 bg-zinc-100/90 dark:bg-zinc-950/90 border border-zinc-200 dark:border-zinc-800'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </LiquidCrystalCard>
 
-      {/* Global Error / Progress Banner */}
-      {errorMsg && (
-        <div
-          role="alert"
-          className="p-4 rounded-xl border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-200 text-xs flex items-center gap-2.5"
-        >
-          <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
+      {/* Right Scrollable Tool Stage */}
+      <div className="flex-1 min-w-0 lg:h-full lg:overflow-y-auto pr-0.5 space-y-4">
+        {/* Global Error / Progress Banner */}
+        {errorMsg && (
+          <div
+            role="alert"
+            className="p-4 rounded-xl border border-red-200 dark:border-red-500/40 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-200 text-xs flex items-center gap-2.5"
+          >
+            <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
-      {isWorking && progress && (
-        <div className="p-4 rounded-xl border border-yellow-400/40 bg-yellow-400/10 space-y-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <ClipingPapersLogo size="sm" layout="inline" statusText={progress.status} />
-            <span className="font-mono text-xs font-bold text-amber-800 dark:text-yellow-300 tabular-nums shrink-0">
-              {progress.percent}%
-            </span>
-          </div>
-          <div className="w-full h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-900 overflow-hidden">
-            <div
-              className="h-full bg-yellow-400 transition-all duration-200"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-        </div>
-      )}
+        {isWorking && progress && (
+          <RobotProgressBar
+            percent={progress.percent}
+            status={progress.status}
+            subText="Running locally in your browser"
+          />
+        )}
 
       {/* TOOL 1: PDF TO WORD */}
       {activeTool === 'pdf-to-word' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert PDF to Microsoft Word (.docx)
@@ -926,7 +1030,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
             {p2wResult ? (
               <div className="space-y-5">
                 <div className="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400">
@@ -1007,7 +1111,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 2: WORD TO PDF */}
       {activeTool === 'word-to-pdf' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert Word (.docx) to PDF
@@ -1100,7 +1204,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
             {w2pResult ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -1171,7 +1275,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 3: PDF MERGE */}
       {activeTool === 'pdf-merge' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="lg:col-span-8 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white">Merge Multiple PDFs</h2>
@@ -1294,7 +1398,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             )}
           </div>
 
-          <div className="lg:col-span-4 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between space-y-5">
+          <div className="lg:col-span-4 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between space-y-5">
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Merge Settings</h3>
               <div>
@@ -1390,7 +1494,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 4: PDF COMPRESS */}
       {activeTool === 'pdf-compress' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">Compress PDF File Size</h2>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
@@ -1540,7 +1644,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
             {compressResult ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-2">
@@ -1698,7 +1802,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 5: PDF SPLIT & EXTRACT */}
       {activeTool === 'pdf-split' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">Split PDF & Extract Pages</h2>
               <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
@@ -1819,7 +1923,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
             {splitResult ? (
               <>
                 <div className="flex items-center justify-between gap-2">
@@ -1957,7 +2061,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 6: IMAGE TO PDF */}
       {activeTool === 'image-to-pdf' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white">Images to PDF Scan Pack</h2>
@@ -2077,7 +2181,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-center">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-center">
             {imgResult ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
@@ -2137,7 +2241,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
 
       {/* TOOL 7: ROTATE, DELETE & REORDER PAGES */}
       {activeTool === 'pdf-organize' && (
-        <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+        <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">Rotate, Reorder & Delete PDF Pages</h2>
@@ -2394,7 +2498,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 8: SIGN & STAMP PDF */}
       {activeTool === 'pdf-sign' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white">Sign & Stamp PDF</h2>
@@ -2586,7 +2690,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           </div>
 
           {/* Click-to-place PDF page preview */}
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-3">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-zinc-900 dark:text-white">
                 Click anywhere on page to set signature position
@@ -2740,6 +2844,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           onPreviewDocument={onPreviewDocument}
         />
       )}
+      </div>
     </div>
   );
 };

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import {
   PdfEditElement,
@@ -58,7 +59,12 @@ interface PdfEditorToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -565,15 +571,21 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
         setLastSavedStatus(`Downloaded ${outName}`);
         onTaskComplete?.({
           headline: 'Edited PDF Exported Successfully',
-          subtext: `${outName} (${pagePreviews.length} pages) saved to your device.`,
+          subtext: `${outName} (${pagePreviews.length} pages) ready to save.`,
           statusLabel: 'PDF Editor Export',
+          downloadFile: {
+            blob: committed,
+            fileName: outName,
+            fileSizeBytes: committed.size,
+            toolLabel: 'Edit PDF',
+          },
         });
       } else if (action === 'preview' && onPreviewDocument) {
         onPreviewDocument({
           title: outName,
           fileName: outName,
           blob: committed,
-          subtitle: `Parent Edit PDF · ${pagePreviews.length} pages`,
+          subtitle: `Edit PDF · ${pagePreviews.length} pages`,
         });
       } else if (action === 'cover') {
         onOpenInCoverStudio(committed, outName);
@@ -712,7 +724,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
       {/* Main Split Workspace: Left Proper Sidebar + Right Interactive PDF Stage */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* LEFT ALL-IN-ONE SIDEBAR */}
-        <aside className="lg:col-span-4 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-4 lg:sticky lg:top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
+        <aside className="lg:col-span-4 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-4 lg:sticky lg:top-20 max-h-[calc(100vh-6rem)] overflow-y-auto">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-semibold">
@@ -753,7 +765,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                           <motion.span
                             layoutId="pdfSidebarActiveDroplet"
                             transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                            className="absolute inset-0 rounded-[11px] bg-gradient-to-b from-yellow-300 to-yellow-400 shadow-[0_4px_12px_-3px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.7)]"
+                            className="absolute inset-0 rounded-[11px] bg-gradient-to-b from-yellow-300 to-yellow-400 shadow-[0_4px_12px_-3px_rgba(var(--pl-accent-rgb),0.45),inset_0_1px_0_rgba(255,255,255,0.7)]"
                           />
                         )}
                         <Icon className="w-3.5 h-3.5 shrink-0 relative z-10" />
@@ -1262,7 +1274,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                 const f = e.dataTransfer.files?.[0];
                 if (f) void handleLoadPdf(f);
               }}
-              className="bg-white dark:bg-[#121215] border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 rounded-2xl p-12 sm:p-16 text-center cursor-pointer transition-colors"
+              className="bg-white dark:bg-[var(--pl-surface)] border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 rounded-2xl p-12 sm:p-16 text-center cursor-pointer transition-colors"
             >
               <Upload className="w-11 h-11 text-amber-600 dark:text-yellow-400 mx-auto mb-3" />
               <h3 className="text-base font-bold text-zinc-950 dark:text-white">
@@ -1277,7 +1289,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
               </p>
             </div>
           ) : (
-            <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
+            <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
               {/* Quick Visual Canvas Toolbar */}
               <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-zinc-200 dark:border-zinc-800">
                 <button
@@ -1587,7 +1599,7 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
       {/* Freehand Ink Drawing Modal */}
       {showDrawModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
                 Draw Freehand Annotation / Signature

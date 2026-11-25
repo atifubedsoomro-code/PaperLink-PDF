@@ -7,10 +7,155 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Light Mode: Warm Ivory & Marigold Gold */
+:root,
+html.theme-light {
+  --pl-bg: #fafaf9;
+  --pl-surface: #ffffff;
+  --pl-surface-soft: #f4f4f5;
+  --pl-surface-elevated: #ffffff;
+  --pl-header-bg: rgba(255, 255, 255, 0.9);
+  --pl-chatbot-bg: rgba(255, 255, 255, 0.84);
+  --pl-accent: #facc15;
+  --pl-accent-bright: #fde047;
+  --pl-accent-text: #b45309;
+  --pl-accent-rgb: 245, 158, 11;
+  --pl-glow-rgb: 56, 189, 248;
+  --pl-cta-from: #fde047;
+  --pl-cta-via: #facc15;
+  --pl-cta-to: #f59e0b;
+  --pl-cta-hover-from: #fef08a;
+  --pl-cta-hover-via: #fde047;
+  --pl-cta-hover-to: #facc15;
+  --pl-cta-text: #09090b;
+  --pl-cta-border: #eab308;
+  --pl-robot-accent: #f59e0b;
+  --pl-robot-led: #fde047;
+}
+
+/* Dark Mode: Deep Obsidian & Electric Gold */
+html.dark.theme-dark {
+  --pl-bg: #09090b;
+  --pl-surface: #121215;
+  --pl-surface-soft: #0c0c10;
+  --pl-surface-elevated: #13131a;
+  --pl-header-bg: rgba(9, 9, 11, 0.88);
+  --pl-chatbot-bg: rgba(13, 20, 32, 0.62);
+  --pl-accent: #facc15;
+  --pl-accent-bright: #fde047;
+  --pl-accent-text: #facc15;
+  --pl-accent-rgb: 250, 204, 21;
+  --pl-glow-rgb: 125, 211, 252;
+  --pl-cta-from: #fde047;
+  --pl-cta-via: #facc15;
+  --pl-cta-to: #f59e0b;
+  --pl-cta-hover-from: #fef08a;
+  --pl-cta-hover-via: #fde047;
+  --pl-cta-hover-to: #facc15;
+  --pl-cta-text: #09090b;
+  --pl-cta-border: #fde047;
+  --pl-robot-accent: #facc15;
+  --pl-robot-led: #fde047;
+}
+
+/* Default Studio Theme (Coolors Editorial Palette: Alabaster Mist + Oxford Ink + Royal Cobalt + Sky) */
+html.theme-studio,
+html.theme-green {
+  --pl-bg: #f4f7fb;
+  --pl-surface: #ffffff;
+  --pl-surface-soft: #ebf1f8;
+  --pl-surface-elevated: #ffffff;
+  --pl-header-bg: rgba(248, 250, 252, 0.92);
+  --pl-chatbot-bg: rgba(248, 251, 255, 0.88);
+  --pl-accent: #2563eb;
+  --pl-accent-bright: #60a5fa;
+  --pl-accent-text: #1d4ed8;
+  --pl-accent-rgb: 37, 99, 235;
+  --pl-glow-rgb: 14, 165, 233;
+
+  --pl-cta-from: #2563eb;
+  --pl-cta-via: #1d4ed8;
+  --pl-cta-to: #1e3a8a;
+  --pl-cta-hover-from: #3b82f6;
+  --pl-cta-hover-via: #2563eb;
+  --pl-cta-hover-to: #1d4ed8;
+  --pl-cta-text: #ffffff;
+  --pl-cta-border: #1d4ed8;
+  --pl-robot-accent: #2563eb;
+  --pl-robot-led: #38bdf8;
+
+  /* Cool Slate Neutral Scale for crisp readability */
+  --color-zinc-50: #f8fafc;
+  --color-zinc-100: #f1f5f9;
+  --color-zinc-200: #e2e8f0;
+  --color-zinc-300: #cbd5e1;
+  --color-zinc-400: #94a3b8;
+  --color-zinc-500: #64748b;
+  --color-zinc-600: #475569;
+  --color-zinc-700: #334155;
+  --color-zinc-800: #1e293b;
+  --color-zinc-900: #0f172a;
+  --color-zinc-950: #020617;
+
+  /* Harmonize Amber / Yellow accents to Coolors Royal Cobalt + Sky inside Studio theme */
+  --color-yellow-50: #eff6ff;
+  --color-yellow-100: #dbeafe;
+  --color-yellow-200: #bfdbfe;
+  --color-yellow-300: #60a5fa;
+  --color-yellow-400: #2563eb;
+  --color-yellow-500: #1d4ed8;
+  --color-yellow-600: #1e40af;
+
+  --color-amber-50: #eff6ff;
+  --color-amber-100: #dbeafe;
+  --color-amber-200: #bfdbfe;
+  --color-amber-300: #93c5fd;
+  --color-amber-400: #3b82f6;
+  --color-amber-500: #2563eb;
+  --color-amber-600: #1d4ed8;
+  --color-amber-700: #1e40af;
+  --color-amber-800: #1e3a8a;
+  --color-amber-900: #172554;
+}
+
+/* Ensure active primary yellow-400 utility buttons in Studio default theme use Cobalt CTA + white text */
+html.theme-studio button.bg-yellow-400:not(#printable-cover-sheet button),
+html.theme-studio a.bg-yellow-400:not(#printable-cover-sheet a),
+html.theme-studio span.bg-yellow-400:not(#printable-cover-sheet span),
+html.theme-green button.bg-yellow-400:not(#printable-cover-sheet button),
+html.theme-green a.bg-yellow-400:not(#printable-cover-sheet a),
+html.theme-green span.bg-yellow-400:not(#printable-cover-sheet span) {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 58%, #1e3a8a 100%);
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+html.theme-studio button.bg-yellow-400:hover:not(#printable-cover-sheet button),
+html.theme-studio a.bg-yellow-400:hover:not(#printable-cover-sheet a),
+html.theme-green button.bg-yellow-400:hover:not(#printable-cover-sheet button),
+html.theme-green a.bg-yellow-400:hover:not(#printable-cover-sheet a) {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 58%, #1d4ed8 100%);
+  color: #ffffff;
+}
+
+/* Keep Cover Preview print canvas strictly isolated from UI theme tokens */
+#printable-cover-sheet {
+  --color-black: #000000;
+  --color-white: #ffffff;
+  --color-zinc-950: #09090b;
+  --color-zinc-900: #18181b;
+  --color-zinc-800: #27272a;
+  --color-yellow-400: #facc15;
+  --color-amber-500: #f59e0b;
+}
+
 @layer base {
   html {
     font-family: var(--font-sans);
     scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--pl-bg);
   }
 
   h1,
@@ -32,10 +177,12 @@
 }
 
 /* Hide scrollbars cleanly where horizontal preset strips overflow */
-.scrollbar-none::-webkit-scrollbar {
+.scrollbar-none::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-.scrollbar-none {
+.scrollbar-none,
+.no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }

@@ -17,6 +17,7 @@ import {
   Trash2,
   ShieldCheck,
 } from 'lucide-react';
+import { RobotProgressBar } from './RobotProgressBar';
 
 interface BatchProcessingPanelProps {
   batchItems: BatchItem[];
@@ -250,7 +251,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
   return (
     <div className="space-y-5">
       {/* Batch Header */}
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 text-xs text-zinc-600 dark:text-zinc-400 mb-1">
             <span className="font-mono text-amber-700 dark:text-yellow-400 font-semibold">Batch Processor</span>
@@ -329,6 +330,15 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
         </div>
       </div>
 
+      {isProcessingAll && globalProgress && (
+        <RobotProgressBar
+          compact
+          percent={Math.round((globalProgress.current / Math.max(1, globalProgress.total)) * 100)}
+          status={`Processing file ${globalProgress.current} of ${globalProgress.total}…`}
+          subText="Building QR cover and syncing to Google Drive"
+        />
+      )}
+
       {bannerMessage && (
         <div
           role={bannerMessage.type === 'error' ? 'alert' : 'status'}
@@ -352,7 +362,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/60 bg-white dark:bg-[#121215]/70 hover:bg-zinc-50 dark:hover:bg-[#121215] rounded-2xl p-12 text-center cursor-pointer transition-colors"
+          className="border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/60 bg-white dark:bg-[var(--pl-surface)]/70 hover:bg-zinc-50 dark:hover:bg-[#121215] rounded-2xl p-12 text-center cursor-pointer transition-colors"
         >
           <Files className="w-9 h-9 text-amber-600 dark:text-yellow-400 mx-auto mb-3" />
           <h3 className="text-base font-bold text-zinc-900 dark:text-white">
@@ -370,7 +380,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
           </span>
         </div>
       ) : (
-        <div className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-[#121215]">
+        <div className="divide-y divide-zinc-200 dark:divide-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-[var(--pl-surface)]">
           {batchItems.map((item, idx) => (
             <div
               key={item.id}

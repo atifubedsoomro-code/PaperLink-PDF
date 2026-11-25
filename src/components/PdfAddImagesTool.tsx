@@ -19,6 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfPicturePlacement,
   PdfAddPicturesResult,
@@ -33,7 +34,12 @@ interface PdfAddImagesToolProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -271,6 +277,12 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
         headline: 'Pictures Embedded Into PDF',
         subtext: `${res.picturesCount} picture${res.picturesCount === 1 ? '' : 's'} placed cleanly in ${res.fileName}`,
         statusLabel: 'Add Pictures Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Add Pictures to PDF',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to add pictures to PDF.');
@@ -281,7 +293,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
 
   return (
     <div className="space-y-5">
-      <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
             <ImagePlus className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -345,7 +357,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
             const f = e.dataTransfer.files?.[0];
             if (f && f.name.toLowerCase().endsWith('.pdf')) void handleLoadPdf(f);
           }}
-          className="bg-white dark:bg-[#121215] border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 rounded-2xl p-12 text-center cursor-pointer transition-colors"
+          className="bg-white dark:bg-[var(--pl-surface)] border-2 border-dashed border-zinc-300 dark:border-zinc-800 hover:border-yellow-500/70 rounded-2xl p-12 text-center cursor-pointer transition-colors"
         >
           <ImagePlus className="w-10 h-10 text-amber-600 dark:text-yellow-400 mx-auto mb-3" />
           <h3 className="text-base font-bold text-zinc-900 dark:text-white">
@@ -362,7 +374,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Interactive PDF Page Canvas */}
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 text-xs">
               <span className="font-mono text-zinc-600 dark:text-zinc-400 truncate">
                 {sourceFile.name} · {pagePlacements.length} picture(s) on page {currentPage}
@@ -492,7 +504,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
           {/* Right Panel: Picture Library + Picture Controls + Export */}
           <div className="lg:col-span-5 space-y-4">
             {/* Uploaded Pictures Shelf */}
-            <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
+            <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
                   Picture Tray ({uploadedAssets.length})
@@ -540,7 +552,7 @@ export const PdfAddImagesTool: React.FC<PdfAddImagesToolProps> = ({
             </div>
 
             {/* Selected Picture Controls */}
-            <div className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
+            <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
                   {selected ? 'Picture Properties' : 'Select a Placed Picture'}

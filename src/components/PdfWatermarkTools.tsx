@@ -16,6 +16,7 @@ import {
   Hash,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfExcludeBox,
   PdfWatermarkAddOptions,
@@ -35,7 +36,12 @@ interface PdfWatermarkToolsProps {
   onProgress: (prog: { percent: number; status: string } | null) => void;
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -206,6 +212,12 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
         headline: 'PDF Watermark Removed',
         subtext: `Cleaned ${res.cleanedPages} page(s) in ${res.fileName}`,
         statusLabel: 'Watermark Removal Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Watermark Remover',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to remove PDF watermark.');
@@ -260,6 +272,12 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
         headline: 'PDF Watermark & Page Numbers Added',
         subtext: `${res.processedPages} page(s) stamped cleanly in ${res.fileName}`,
         statusLabel: 'PDF Stamping Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Watermark & Page #',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to apply PDF watermark.');
@@ -271,7 +289,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
   if (mode === 'remove') {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <Eraser className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -525,7 +543,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
         </div>
 
         {/* Right Side: Live Before/After & Manual Corner Box Eraser */}
-        <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
@@ -677,7 +695,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
   // MODE === 'add' (Add Watermark & Page Numbers to PDF)
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
             <Stamp className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
@@ -930,7 +948,7 @@ export const PdfWatermarkTools: React.FC<PdfWatermarkToolsProps> = ({
       </div>
 
       {/* Right Live Overlay Preview */}
-      <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4">
         <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
           Live Stamp &amp; Page Number Preview
         </h3>

@@ -5,7 +5,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { executePaperLinkChat } from './api/chat.ts';
 import type { ChatRequestBody } from './api/chat.ts';
-import { executeFeedbackSubmission, getFeedbackHealthStatus } from './api/feedback.ts';
+import {
+  executeFeedbackSubmission,
+  executeFetchFeedbackEntries,
+} from './api/feedback.ts';
 import type { FeedbackSubmissionPayload } from './api/feedback.ts';
 import { executeCoverSuggestions } from './api/cover-suggestions.ts';
 import type { CoverSuggestionsStartRequest } from './api/cover-suggestions.ts';
@@ -39,8 +42,11 @@ async function createAppServer() {
     res.status(result.status).json(result.payload);
   });
 
-  app.get('/api/feedback', (_req: Request, res: Response) => {
-    res.status(200).json(getFeedbackHealthStatus());
+  app.get('/api/feedback', async (req: Request, res: Response) => {
+    const sheetUrl = typeof req.query.sheetUrl === 'string' ? req.query.sheetUrl : undefined;
+    const webhookUrl = typeof req.query.webhookUrl === 'string' ? req.query.webhookUrl : undefined;
+    const result = await executeFetchFeedbackEntries({ sheetUrl, webhookUrl });
+    res.status(200).json(result);
   });
 
   app.post('/api/feedback', async (req: Request, res: Response) => {

@@ -3,9 +3,16 @@ import * as mammoth from 'mammoth';
 import { UploadedDocInfo } from '../types';
 import { convertWordToPdf, convertTextToPdf } from './pdfToolkit';
 
+function cloneArrayBuffer(buf: ArrayBuffer): ArrayBuffer {
+  if (!buf || buf.byteLength === 0) {
+    throw new Error('Document buffer is empty or detached. Please re-upload the file.');
+  }
+  return new Uint8Array(buf).slice().buffer;
+}
+
 export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo> {
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  const arrayBuffer = await file.arrayBuffer();
+  const arrayBuffer = new Uint8Array(await file.arrayBuffer()).slice().buffer;
 
   const baseInfo: UploadedDocInfo = {
     id: `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
@@ -18,14 +25,14 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
 
   try {
     if (extension === 'pdf') {
-      const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+      const pdfDoc = await PDFDocument.load(cloneArrayBuffer(arrayBuffer), { ignoreEncryption: true });
       const pageCount = pdfDoc.getPageCount();
       const title = pdfDoc.getTitle();
 
       let renderedPagePreviews: string[] = [];
       let extractedText = '';
       try {
-        const extracted = await renderPdfPagesAndExtractText(arrayBuffer);
+        const extracted = await renderPdfPagesAndExtractText(cloneArrayBuffer(arrayBuffer));
         renderedPagePreviews = extracted.pageImageUrls;
         extractedText = extracted.extractedText;
       } catch (e) {
@@ -37,13 +44,13 @@ export async function parseUploadedDocument(file: File): Promise<UploadedDocInfo
         pageCount,
         extractedTitle: title || cleanFileName(file.name),
         extractedText: extractedText || undefined,
-        pdfArrayBuffer: arrayBuffer,
+        pdfArrayBuffer: cloneArrayBuffer(arrayBuffer),
         renderedPagePreviews,
       };
     }
 
     if (extension === 'docx') {
-      const result = await mammoth.extractRawText({ arrayBuffer });
+      const result = await mammoth.extractRawText({ arrayBuffer: cloneArrayBuffer(arrayBuffer) });
       const rawText = result.value || '';
       const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
       const firstLine = lines[0] || '';
@@ -138,7 +145,7 @@ async function renderPdfPagesAndExtractText(
   arrayBuffer: ArrayBuffer,
   maxPages = 12
 ): Promise<{ pageImageUrls: string[]; extractedText: string }> {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !arrayBuffer || arrayBuffer.byteLength === 0) {
     return { pageImageUrls: [], extractedText: '' };
   }
 
@@ -164,7 +171,7 @@ async function renderPdfPagesAndExtractText(
       // ignore worker setup errors
     }
 
-    const safeBuffer = new Uint8Array(arrayBuffer).slice().buffer;
+    const safeBuffer = cloneArrayBuffer(arrayBuffer);
     const loadingTask = window.pdfjsLib.getDocument({
       data: safeBuffer,
       useSystemFonts: true,

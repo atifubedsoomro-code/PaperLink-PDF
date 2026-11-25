@@ -19,7 +19,7 @@ import {
 import { DriveUploadMode, DriveUploadResult } from '../types';
 import { TokenExpiryInfo } from '../firebase';
 import { TypewriterButton } from './TypewriterButton';
-import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
 
 interface DriveSyncPanelProps {
   uploadResult: DriveUploadResult | null;
@@ -87,7 +87,7 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
+    <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
       {/* Step Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
@@ -228,23 +228,11 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
           )}
 
           {isUploading ? (
-            <div className="p-4 bg-yellow-400/10 rounded-xl border border-yellow-400/40 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <ClipingPapersLogo size="xs" statusText={uploadProgress.status} />
-                <span className="font-mono text-xs font-bold text-amber-800 dark:text-yellow-300 tabular-nums shrink-0">
-                  {uploadProgress.percent}%
-                </span>
-              </div>
-              <div className="w-full bg-zinc-200 dark:bg-zinc-900 rounded-full h-2 overflow-hidden border border-zinc-300 dark:border-zinc-800">
-                <div
-                  className="bg-yellow-400 h-full rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress.percent}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                Streaming document bytes to Google Drive and setting viewer permissions.
-              </p>
-            </div>
+            <RobotProgressBar
+              percent={uploadProgress.percent}
+              status={uploadProgress.status || 'Uploading to Google Drive…'}
+              subText="Streaming document bytes & applying viewer permissions"
+            />
           ) : uploadResult ? (
             <div className="space-y-3">
               {uploadResult.permissionWarning && (

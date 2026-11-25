@@ -67,14 +67,14 @@ export const LiquidCrystalButton: React.FC<LiquidCrystalButtonProps> = ({
   const variantClasses = (() => {
     switch (variant) {
       case 'primary':
-        return 'bg-gradient-to-b from-yellow-300 via-yellow-400 to-amber-400 hover:from-yellow-200 hover:via-yellow-300 hover:to-yellow-400 text-zinc-950 font-bold border border-yellow-300/90 shadow-[0_6px_18px_-4px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.75)]';
+        return 'bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-via)_55%,var(--pl-cta-to))] hover:bg-[linear-gradient(180deg,var(--pl-cta-hover-from),var(--pl-cta-hover-via)_55%,var(--pl-cta-hover-to))] text-[var(--pl-cta-text)] font-bold border border-[var(--pl-cta-border)] shadow-[0_8px_22px_-4px_rgba(var(--pl-accent-rgb),0.42),inset_0_1px_0_rgba(255,255,255,0.45)]';
       case 'secondary':
-        return 'bg-gradient-to-b from-zinc-800 to-zinc-950 dark:from-zinc-800/95 dark:to-zinc-950/95 hover:from-zinc-700 hover:to-zinc-900 text-yellow-400 font-bold border border-zinc-700/90 shadow-[0_6px_18px_-6px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.16)]';
+        return 'bg-gradient-to-b from-slate-900 to-slate-950 dark:from-zinc-800/95 dark:to-zinc-950/95 hover:from-slate-800 hover:to-slate-900 text-sky-200 dark:text-yellow-400 font-bold border border-slate-700/90 dark:border-zinc-700/90 shadow-[0_6px_18px_-6px_rgba(15,23,42,0.38),inset_0_1px_0_rgba(255,255,255,0.16)]';
       case 'yellow-parent':
-        return 'border-2 border-yellow-400 backdrop-blur-xl backdrop-saturate-[160%] shadow-[0_6px_20px_-4px_rgba(250,204,21,0.34),inset_0_1px_0_rgba(255,255,255,0.65)]';
+        return 'border-2 border-yellow-400 backdrop-blur-xl backdrop-saturate-[160%] shadow-[0_6px_20px_-4px_rgba(var(--pl-accent-rgb),0.34),inset_0_1px_0_rgba(255,255,255,0.65)]';
       case 'neutral':
       default:
-        return 'bg-white/85 dark:bg-zinc-900/85 backdrop-blur-xl backdrop-saturate-[160%] hover:bg-white dark:hover:bg-zinc-800/95 border border-zinc-200/90 dark:border-zinc-700/85 hover:border-yellow-400 text-zinc-800 dark:text-zinc-100 font-semibold shadow-[0_4px_14px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-[0_6px_16px_-6px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]';
+        return 'bg-[var(--pl-surface)]/92 dark:bg-zinc-900/85 backdrop-blur-xl backdrop-saturate-[160%] hover:bg-white dark:hover:bg-zinc-800/95 border border-zinc-200/95 dark:border-zinc-700/85 hover:border-yellow-500 text-zinc-900 dark:text-zinc-100 font-semibold shadow-[0_4px_14px_-4px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.75)] dark:shadow-[0_6px_16px_-6px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.12)]';
     }
   })();
 
@@ -109,7 +109,7 @@ export const LiquidCrystalButton: React.FC<LiquidCrystalButtonProps> = ({
             background:
               variant === 'primary' || variant === 'yellow-parent'
                 ? 'radial-gradient(ellipse at center, rgba(255,255,255,0.72) 0%, rgba(255,255,255,0.24) 48%, transparent 76%)'
-                : 'radial-gradient(ellipse at center, rgba(254,240,138,0.34) 0%, rgba(255,255,255,0.22) 48%, transparent 76%)',
+                : 'radial-gradient(ellipse at center, rgba(var(--pl-accent-rgb),0.32) 0%, rgba(255,255,255,0.22) 48%, transparent 76%)',
           }}
           className="pointer-events-none absolute inset-y-0 left-0 w-1/2 -skew-x-12"
         />
@@ -131,7 +131,7 @@ export const LiquidCrystalButton: React.FC<LiquidCrystalButtonProps> = ({
             background:
               variant === 'primary'
                 ? 'radial-gradient(circle, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.12) 60%, transparent 75%)'
-                : 'radial-gradient(circle, rgba(250,204,21,0.32) 0%, rgba(255,255,255,0.16) 60%, transparent 75%)',
+                : 'radial-gradient(circle, rgba(var(--pl-accent-rgb),0.32) 0%, rgba(255,255,255,0.16) 60%, transparent 75%)',
           }}
           className="pointer-events-none absolute rounded-full"
         />
@@ -228,7 +228,7 @@ export const LiquidCrystalCard: React.FC<LiquidCrystalCardProps> = ({
   );
 
   const baseGlassClasses =
-    'relative overflow-hidden backdrop-blur-xl backdrop-saturate-[155%] bg-white/90 dark:bg-[#121215]/90 border border-zinc-200/95 dark:border-zinc-800/95 shadow-[0_8px_28px_-10px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[0_14px_34px_-12px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)]';
+    'relative overflow-hidden backdrop-blur-xl backdrop-saturate-[155%] bg-white/90 dark:bg-[var(--pl-surface)]/90 border border-zinc-200/95 dark:border-zinc-800/95 shadow-[0_8px_28px_-10px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] dark:shadow-[0_14px_34px_-12px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)]';
 
   const overlayContent = (
     <>
@@ -249,7 +249,7 @@ export const LiquidCrystalCard: React.FC<LiquidCrystalCardProps> = ({
             height: 192,
             background:
               accentGlow === 'yellow'
-                ? 'radial-gradient(circle, rgba(250,204,21,0.16) 0%, rgba(255,255,255,0.22) 34%, transparent 70%)'
+                ? 'radial-gradient(circle, rgba(var(--pl-accent-rgb),0.16) 0%, rgba(255,255,255,0.22) 34%, transparent 70%)'
                 : 'radial-gradient(circle, rgba(186,230,253,0.22) 0%, rgba(255,255,255,0.22) 34%, transparent 70%)',
           }}
           animate={{ opacity: isHovered ? 1 : 0, scale: isHovered ? 1.06 : 0.85 }}
@@ -275,13 +275,19 @@ export const LiquidCrystalCard: React.FC<LiquidCrystalCardProps> = ({
           transition={{ duration: 0.85, ease: [0.22, 1, 0.36, 1] }}
           style={{
             background:
-              'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.42) 48%, rgba(254,240,138,0.18) 56%, transparent 80%)',
+              'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.42) 48%, rgba(var(--pl-accent-rgb),0.18) 56%, transparent 80%)',
           }}
           className="pointer-events-none absolute inset-y-0 left-0 w-2/3"
         />
       )}
 
-      <div className="relative z-10">{children}</div>
+      <div
+        className={`relative z-10 ${
+          className.includes('flex') ? 'flex-1 flex flex-col min-h-0 h-full' : ''
+        }`}
+      >
+        {children}
+      </div>
     </>
   );
 

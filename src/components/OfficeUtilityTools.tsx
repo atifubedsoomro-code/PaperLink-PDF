@@ -14,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   ExcelPdfOrientation,
   ExcelToImageResult,
@@ -50,7 +51,12 @@ interface OfficeUtilityToolsProps {
   isWorking: boolean;
   setIsWorking: (val: boolean) => void;
   onOpenInCoverStudio: (blob: Blob, fileName: string) => void;
-  onTaskComplete?: (info: { headline: string; subtext: string; statusLabel?: string }) => void;
+  onTaskComplete?: (info: {
+    headline: string;
+    subtext: string;
+    statusLabel?: string;
+    downloadFile?: ReadyDownloadPayload;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
 }
 
@@ -148,6 +154,12 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         headline: `Converted ${res.slideCount} Slide${res.slideCount === 1 ? '' : 's'} to PDF`,
         subtext: `${res.fileName} is ready for download or Cover Studio`,
         statusLabel: 'PPT to PDF Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'PPT to PDF',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to convert PowerPoint file to PDF.');
@@ -168,10 +180,20 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         (percent, status) => onProgress({ percent, status })
       );
       setPptImgResult(res);
+      const outBlob = res.zipBlob || res.slides[0]?.blob;
+      const outName = res.zipBlob ? res.zipFileName : res.slides[0]?.fileName || `slides.${res.format}`;
       onTaskComplete?.({
         headline: `Exported ${res.slides.length} Slide Image${res.slides.length === 1 ? '' : 's'}`,
         subtext: `${res.format.toUpperCase()} slides ready for download`,
         statusLabel: 'PPT to Image Complete',
+        downloadFile: outBlob
+          ? {
+              blob: outBlob,
+              fileName: outName,
+              fileSizeBytes: outBlob.size,
+              toolLabel: 'PPT to Image',
+            }
+          : undefined,
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to render PowerPoint slides as images.');
@@ -221,6 +243,12 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         headline: `Converted ${res.sheetCount} Sheet${res.sheetCount === 1 ? '' : 's'} to PDF`,
         subtext: `${res.fileName} (${res.pageCount} page${res.pageCount === 1 ? '' : 's'}) ready`,
         statusLabel: 'Excel to PDF Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'Excel to PDF',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to convert spreadsheet to PDF.');
@@ -246,10 +274,20 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         (percent, status) => onProgress({ percent, status })
       );
       setExcelImgResult(res);
+      const outBlob = res.zipBlob || res.pages[0]?.blob;
+      const outName = res.zipBlob ? res.zipFileName : res.pages[0]?.fileName || `sheets.${res.format}`;
       onTaskComplete?.({
         headline: `Exported ${res.pages.length} Spreadsheet Image${res.pages.length === 1 ? '' : 's'}`,
         subtext: `${res.format.toUpperCase()} sheet visuals ready for download`,
         statusLabel: 'Excel to Image Complete',
+        downloadFile: outBlob
+          ? {
+              blob: outBlob,
+              fileName: outName,
+              fileSizeBytes: outBlob.size,
+              toolLabel: 'Excel to Image',
+            }
+          : undefined,
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to export spreadsheet sheets to images.');
@@ -274,6 +312,12 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         headline: `Extracted ${res.totalRows} Rows to ${res.format.toUpperCase()}`,
         subtext: `${res.fileName} from ${res.pageCount} PDF page(s) ready`,
         statusLabel: 'PDF to Excel Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'PDF to Excel',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to extract PDF tables into Excel.');
@@ -298,6 +342,12 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
         headline: `Built ${res.slideCount}-Slide PowerPoint Deck`,
         subtext: `${res.fileName} ready to open in PowerPoint or Google Slides`,
         statusLabel: 'PDF to PPT Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.blob.size,
+          toolLabel: 'PDF to PPT',
+        },
       });
     } catch (err: any) {
       onError(err?.message || 'Failed to convert PDF pages into PowerPoint slides.');
@@ -324,7 +374,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 1. PPT TO PDF */}
       {activeTool === 'ppt-to-pdf' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert PowerPoint (.pptx) to PDF
@@ -429,7 +479,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between gap-4">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col justify-between gap-4">
             {pptPdfResult ? (
               <div className="space-y-4">
                 <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-between gap-3">
@@ -512,7 +562,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 2. PPT TO IMAGE */}
       {activeTool === 'ppt-to-image' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Export PowerPoint Slides to Images
@@ -633,7 +683,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             {pptImgResult ? (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-200 dark:border-zinc-800">
@@ -702,7 +752,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 3. EXCEL TO PDF */}
       {activeTool === 'excel-to-pdf' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert Excel / CSV to Formatted PDF
@@ -832,7 +882,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-6 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-6 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             {excelPdfResult ? (
               <>
                 <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 flex flex-wrap items-center justify-between gap-3">
@@ -941,7 +991,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 4. EXCEL TO IMAGE */}
       {activeTool === 'excel-to-image' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Export Excel / CSV Sheets as Images
@@ -1057,7 +1107,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             {excelImgResult ? (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-200 dark:border-zinc-800">
@@ -1124,7 +1174,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 5. PDF TO EXCEL / CSV */}
       {activeTool === 'pdf-to-excel' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert PDF Tables to Excel (.xlsx) or CSV
@@ -1223,7 +1273,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             {pdfXlsResult ? (
               <>
                 <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 flex flex-wrap items-center justify-between gap-3">
@@ -1290,7 +1340,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
       {/* 6. PDF TO PPT */}
       {activeTool === 'pdf-to-ppt' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-white">
                 Convert PDF to PowerPoint (.pptx)
@@ -1375,7 +1425,7 @@ export const OfficeUtilityTools: React.FC<OfficeUtilityToolsProps> = ({
             </button>
           </div>
 
-          <div className="lg:col-span-7 bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
             {pdfPptResult ? (
               <>
                 <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 flex flex-wrap items-center justify-between gap-3">

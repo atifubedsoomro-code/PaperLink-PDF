@@ -1,265 +1,335 @@
 /**
- * Web Audio API synthesized typewriter sound effects.
- * Creates mechanical clack sounds and a subtle bell on line endings.
+ * Web Audio API synthesized mechanical keyboard & typewriter sound effects.
+ * Uses pre-generated impulse noise buffers + soft dynamics compression so
+ * rapid bursts sound tactile, warm, and never clip or stutter.
  */
 
 class TypewriterAudio {
   private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
+  private shortClickBuffer: AudioBuffer | null = null;
+  private spaceThumpBuffer: AudioBuffer | null = null;
 
-  private initContext() {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
+  private ensureAudioGraph(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+
+    if (!this.ctx || this.ctx.state === 'closed') {
+      this.ctx = new AudioCtx();
+      this.masterGain = null;
+      this.shortClickBuffer = null;
+      this.spaceThumpBuffer = null;
+    }
+
+    if (this.ctx.state === 'suspended') {
+      void this.ctx.resume().catch(() => {});
+    }
+
+    if (!this.masterGain) {
+      const compressor = this.ctx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-16, this.ctx.currentTime);
+      compressor.knee.setValueAtTime(18, this.ctx.currentTime);
+      compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
+      compressor.attack.setValueAtTime(0.002, this.ctx.currentTime);
+      compressor.release.setValueAtTime(0.08, this.ctx.currentTime);
+
+      const master = this.ctx.createGain();
+      master.gain.setValueAtTime(0.88, this.ctx.currentTime);
+      master.connect(compressor);
+      compressor.connect(this.ctx.destination);
+      this.masterGain = master;
+    }
+
+    if (!this.shortClickBuffer) {
+      const len = Math.max(128, Math.floor(this.ctx.sampleRate * 0.018));
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        // Sharp initial stem transient followed by damped spring decay
+        const env = Math.exp(-i / (len * 0.18));
+        data[i] = (Math.random() * 2 - 1) * env;
       }
+      this.shortClickBuffer = buf;
     }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
-    }
-  }
 
-  /**
-   * Play a mechanical typewriter key click
-   */
-  public playKeyStroke() {
-    try {
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-
-      // 1. Noise burst for key impact
-      const bufferSize = this.ctx.sampleRate * 0.025; // 25ms
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const output = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.2));
+    if (!this.spaceThumpBuffer) {
+      const len = Math.max(192, Math.floor(this.ctx.sampleRate * 0.032));
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) {
+        const env = Math.exp(-i / (len * 0.25));
+        data[i] = (Math.random() * 2 - 1) * env;
       }
-
-      const whiteNoise = this.ctx.createBufferSource();
-      whiteNoise.buffer = buffer;
-
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(1200 + Math.random() * 800, now);
-      filter.Q.setValueAtTime(3, now);
-
-      const noiseGain = this.ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.35, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-
-      whiteNoise.connect(filter);
-      filter.connect(noiseGain);
-      noiseGain.connect(this.ctx.destination);
-
-      whiteNoise.start(now);
-      whiteNoise.stop(now + 0.035);
-
-      // 2. Resonant body thud
-      const osc = this.ctx.createOscillator();
-      const oscGain = this.ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(180 + Math.random() * 60, now);
-      osc.frequency.exponentialRampToValueAtTime(60, now + 0.04);
-
-      oscGain.gain.setValueAtTime(0.25, now);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
-
-      osc.connect(oscGain);
-      oscGain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.05);
-    } catch {
-      // Audio playback fails gracefully if user hasn't interacted or unsupported
+      this.spaceThumpBuffer = buf;
     }
+
+    return this.ctx;
   }
 
   /**
-   * Play a subtle key click on button hover
-   */
-  public playHoverTick() {
-    try {
-      this.initContext();
-      if (!this.ctx) return;
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(950, now);
-      osc.frequency.exponentialRampToValueAtTime(300, now + 0.018);
-      gain.gain.setValueAtTime(0.06, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.018);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.02);
-    } catch {}
-  }
-
-  /**
-   * Unlock AudioContext cleanly inside a user gesture handler
+   * Unlock AudioContext cleanly inside a user gesture handler.
    */
   public unlock() {
     try {
-      this.initContext();
+      this.ensureAudioGraph();
     } catch {
       // ignore restricted audio contexts
     }
   }
 
   /**
-   * Softer, slower, lower-pitched mechanical typewriter click tuned for AI chat output
+   * Play a layered mechanical keyboard switch press (tactile stem click + creamy keycap thock).
    */
-  public playChatKeyStroke(isSpaceOrPunct = false) {
+  public playKeyStroke(isSpaceOrEnter = false) {
     try {
-      this.initContext();
-      if (!this.ctx) return;
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain || !this.shortClickBuffer || !this.spaceThumpBuffer) return;
 
-      const now = this.ctx.currentTime;
-      if (this.ctx.state === 'suspended') {
-        void this.ctx.resume();
-      }
+      const now = ctx.currentTime;
+      const pitchJitter = 0.92 + Math.random() * 0.16;
 
-      // 1. Mellow mechanical key striker burst
-      const durationSec = isSpaceOrPunct ? 0.036 : 0.026;
-      const bufferSize = Math.max(64, Math.floor(this.ctx.sampleRate * durationSec));
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const output = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.24));
-      }
+      // 1. Crisp tactile switch leaf transient
+      const transient = ctx.createBufferSource();
+      transient.buffer = isSpaceOrEnter ? this.spaceThumpBuffer : this.shortClickBuffer;
 
-      const noise = this.ctx.createBufferSource();
-      noise.buffer = buffer;
-
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(
-        isSpaceOrPunct ? 520 + Math.random() * 140 : 820 + Math.random() * 280,
+      const bandpass = ctx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.setValueAtTime(
+        (isSpaceOrEnter ? 980 : 2150) * pitchJitter,
         now
       );
-      filter.Q.setValueAtTime(2.4, now);
+      bandpass.Q.setValueAtTime(isSpaceOrEnter ? 1.8 : 2.6, now);
 
-      const noiseGain = this.ctx.createGain();
-      const peakNoise = isSpaceOrPunct ? 0.14 : 0.17;
-      noiseGain.gain.setValueAtTime(peakNoise, now);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+      const clickGain = ctx.createGain();
+      clickGain.gain.setValueAtTime(isSpaceOrEnter ? 0.22 : 0.26, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, now + (isSpaceOrEnter ? 0.03 : 0.018));
 
-      noise.connect(filter);
-      filter.connect(noiseGain);
-      noiseGain.connect(this.ctx.destination);
+      transient.connect(bandpass);
+      bandpass.connect(clickGain);
+      clickGain.connect(this.masterGain);
+      transient.start(now);
+      transient.stop(now + 0.036);
 
-      noise.start(now);
-      noise.stop(now + durationSec + 0.005);
+      // 2. Keycap bottom-out housing thock (filtered low-mid resonance)
+      const thockOsc = ctx.createOscillator();
+      const lowpass = ctx.createBiquadFilter();
+      const thockGain = ctx.createGain();
 
-      // 2. Warm wooden platen resonance thud
-      const osc = this.ctx.createOscillator();
-      const oscGain = this.ctx.createGain();
-      osc.type = 'triangle';
-      const baseFreq = isSpaceOrPunct ? 86 + Math.random() * 16 : 122 + Math.random() * 28;
-      osc.frequency.setValueAtTime(baseFreq, now);
-      osc.frequency.exponentialRampToValueAtTime(42, now + 0.048);
+      thockOsc.type = 'triangle';
+      const startFreq = (isSpaceOrEnter ? 108 : 162) * pitchJitter;
+      thockOsc.frequency.setValueAtTime(startFreq, now);
+      thockOsc.frequency.exponentialRampToValueAtTime(isSpaceOrEnter ? 44 : 58, now + 0.034);
 
-      oscGain.gain.setValueAtTime(isSpaceOrPunct ? 0.16 : 0.12, now);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.052);
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(isSpaceOrEnter ? 380 : 620, now);
 
-      osc.connect(oscGain);
-      oscGain.connect(this.ctx.destination);
+      thockGain.gain.setValueAtTime(isSpaceOrEnter ? 0.26 : 0.19, now);
+      thockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
 
-      osc.start(now);
-      osc.stop(now + 0.055);
+      thockOsc.connect(lowpass);
+      lowpass.connect(thockGain);
+      thockGain.connect(this.masterGain);
+      thockOsc.start(now);
+      thockOsc.stop(now + 0.042);
     } catch {
-      // Audio playback fails gracefully if blocked
+      // Fail gracefully if Web Audio is blocked
     }
   }
 
   /**
-   * Gentle pop when sending a message or attaching a file in chat
+   * Subtle tactile micro-switch click on button hover.
    */
-  public playSendTick() {
+  public playHoverTick() {
     try {
-      this.initContext();
-      if (!this.ctx) return;
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(540, now);
-      osc.frequency.exponentialRampToValueAtTime(840, now + 0.045);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.075, now + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.075);
-    } catch {}
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain || !this.shortClickBuffer) return;
+      const now = ctx.currentTime;
+
+      const src = ctx.createBufferSource();
+      src.buffer = this.shortClickBuffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(2400 + Math.random() * 350, now);
+      filter.Q.setValueAtTime(3.2, now);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.065, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.014);
+
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      src.start(now);
+      src.stop(now + 0.018);
+    } catch {
+      // ignore
+    }
   }
 
   /**
-   * Subtle warm carriage-return chime when AI finishes typing a message
+   * Mechanical keyboard click tuned for fast streaming AI chat messages (creamy PBT keycap feel).
+   */
+  public playChatKeyStroke(isSpaceOrPunct = false) {
+    try {
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain || !this.shortClickBuffer || !this.spaceThumpBuffer) return;
+
+      const now = ctx.currentTime;
+      const jitter = 0.91 + Math.random() * 0.18;
+
+      // 1. Crisp switch click
+      const noise = ctx.createBufferSource();
+      noise.buffer = isSpaceOrPunct ? this.spaceThumpBuffer : this.shortClickBuffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime((isSpaceOrPunct ? 780 : 1850) * jitter, now);
+      filter.Q.setValueAtTime(isSpaceOrPunct ? 1.9 : 2.5, now);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(isSpaceOrPunct ? 0.14 : 0.165, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (isSpaceOrPunct ? 0.028 : 0.016));
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(this.masterGain);
+      noise.start(now);
+      noise.stop(now + 0.034);
+
+      // 2. Warm mechanical PBT bottom-out thock
+      const osc = ctx.createOscillator();
+      const lpf = ctx.createBiquadFilter();
+      const oscGain = ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime((isSpaceOrPunct ? 92 : 142) * jitter, now);
+      osc.frequency.exponentialRampToValueAtTime(42, now + 0.032);
+
+      lpf.type = 'lowpass';
+      lpf.frequency.setValueAtTime(isSpaceOrPunct ? 340 : 540, now);
+
+      oscGain.gain.setValueAtTime(isSpaceOrPunct ? 0.16 : 0.12, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.036);
+
+      osc.connect(lpf);
+      lpf.connect(oscGain);
+      oscGain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.04);
+    } catch {
+      // Fail gracefully if audio is blocked
+    }
+  }
+
+  /**
+   * Tactile Enter-key pop when sending a message or attaching a file in chat.
+   */
+  public playSendTick() {
+    try {
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain) return;
+      this.playKeyStroke(true);
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(560, now);
+      osc.frequency.exponentialRampToValueAtTime(860, now + 0.045);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.075);
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Subtle warm carriage-return chime when AI finishes typing a message.
    */
   public playSoftBell() {
     try {
-      this.initContext();
-      if (!this.ctx) return;
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const harmonic = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      const harmonicGain = this.ctx.createGain();
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const harmonic = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const harmonicGain = ctx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(987.77, now); // warm B5 bell
+      osc.frequency.setValueAtTime(987.77, now);
       harmonic.type = 'sine';
       harmonic.frequency.setValueAtTime(1975.53, now);
 
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.014);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+      gain.gain.exponentialRampToValueAtTime(0.075, now + 0.014);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
 
       harmonicGain.gain.setValueAtTime(0.0001, now);
-      harmonicGain.gain.exponentialRampToValueAtTime(0.025, now + 0.012);
-      harmonicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      harmonicGain.gain.exponentialRampToValueAtTime(0.022, now + 0.012);
+      harmonicGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
 
       osc.connect(gain);
       harmonic.connect(harmonicGain);
-      gain.connect(this.ctx.destination);
-      harmonicGain.connect(this.ctx.destination);
+      gain.connect(this.masterGain);
+      harmonicGain.connect(this.masterGain);
 
       osc.start(now);
       harmonic.start(now);
-      osc.stop(now + 0.45);
-      harmonic.stop(now + 0.25);
-    } catch {}
+      osc.stop(now + 0.42);
+      harmonic.stop(now + 0.24);
+    } catch {
+      // ignore
+    }
   }
 
   /**
-   * Play typewriter carriage return bell ding
+   * Classic mechanical carriage-return ding with Enter key thock.
    */
   public playBell() {
     try {
-      this.initContext();
-      if (!this.ctx) return;
-
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain) return;
+      this.playKeyStroke(true);
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const harmonic = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const hGain = ctx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(2400, now);
-      osc.frequency.setValueAtTime(2400, now + 0.02);
+      osc.frequency.setValueAtTime(2093, now);
+      harmonic.type = 'sine';
+      harmonic.frequency.setValueAtTime(4186, now);
 
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+      hGain.gain.setValueAtTime(0.0001, now);
+      hGain.gain.exponentialRampToValueAtTime(0.04, now + 0.008);
+      hGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
       osc.connect(gain);
-      gain.connect(this.ctx.destination);
+      harmonic.connect(hGain);
+      gain.connect(this.masterGain);
+      hGain.connect(this.masterGain);
 
       osc.start(now);
-      osc.stop(now + 0.85);
-    } catch {}
+      harmonic.start(now);
+      osc.stop(now + 0.7);
+      harmonic.stop(now + 0.34);
+    } catch {
+      // ignore
+    }
   }
 }
 

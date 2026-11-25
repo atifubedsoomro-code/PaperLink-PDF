@@ -10,6 +10,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { RobotProgressBar } from './RobotProgressBar';
 import {
   CoverData,
   CoverPictureSuggestion,
@@ -156,7 +157,7 @@ export const CoverSuggestionsCard: React.FC<CoverSuggestionsCardProps> = ({
   const hasAppliedBackground = Boolean(coverData.backgroundImageUrl);
 
   return (
-    <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
+    <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xs">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -297,14 +298,12 @@ export const CoverSuggestionsCard: React.FC<CoverSuggestionsCardProps> = ({
 
       {isLoading && suggestions.length === 0 && (
         <div className="space-y-3">
-          <div className="rounded-xl border border-yellow-400/35 bg-yellow-400/[0.08] p-4 flex items-center justify-center">
-            <ClipingPapersLogo
-              size="md"
-              layout="inline"
-              statusText="Fetching AI cover art results…"
-              subText="Reading document context & generating custom backgrounds"
-            />
-          </div>
+          <RobotProgressBar
+            compact
+            percent={64}
+            status="Fetching AI cover art results…"
+            subText="Reading document context & generating custom backgrounds"
+          />
           <div className={`grid gap-3 ${suggestionCount === 1 ? 'grid-cols-1 max-w-[220px]' : suggestionCount === 2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
             {Array.from({ length: suggestionCount }).map((_, idx) => (
               <div

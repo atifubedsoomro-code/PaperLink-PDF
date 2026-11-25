@@ -62,7 +62,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
   return (
     <div className="space-y-5">
       {/* Search & Header Bar */}
-      <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-base font-bold text-zinc-900 dark:text-white">Document Library</h2>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 tabular-nums">
@@ -84,7 +84,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
 
       {/* Document Grid */}
       {filteredDocs.length === 0 ? (
-        <div className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-12 text-center">
+        <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-12 text-center">
           <QrCode className="w-10 h-10 text-zinc-400 dark:text-zinc-600 mx-auto mb-3" />
           <h3 className="text-sm font-bold text-zinc-900 dark:text-white">No Saved Documents</h3>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-sm mx-auto mt-1">
@@ -104,7 +104,7 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
             return (
               <div
                 key={doc.id}
-                className="bg-white dark:bg-[#121215] rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 p-5 transition-colors flex flex-col justify-between gap-4"
+                className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 p-5 transition-colors flex flex-col justify-between gap-4"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400 mb-2">

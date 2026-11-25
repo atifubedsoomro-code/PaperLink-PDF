@@ -101,7 +101,7 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
   return (
     <section
       aria-label="Cover Mini Preview"
-      className="bg-white dark:bg-[#121215] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3.5 sm:p-4"
+      className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3.5 sm:p-4"
     >
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         {/* Scaled Live Cover Thumbnail */}

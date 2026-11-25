@@ -1140,6 +1140,9 @@ export async function mergeCoverWithPdf(
   qrDataUrl: string
 ): Promise<Uint8Array> {
   const coverPdf = await generateCoverPagePdf(coverData, qrDataUrl);
+  if (!originalPdfArrayBuffer || originalPdfArrayBuffer.byteLength === 0) {
+    throw new Error('The uploaded PDF buffer is empty or unavailable. Please re-upload your PDF.');
+  }
   const safeBuffer = new Uint8Array(originalPdfArrayBuffer).slice().buffer;
   const originalPdf = await PDFDocument.load(safeBuffer, { ignoreEncryption: true });
 

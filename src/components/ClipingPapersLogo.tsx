@@ -39,9 +39,9 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
     <div
       className={`relative shrink-0 ${cfg.box} ${
         tone === 'offline'
-          ? 'bg-gradient-to-b from-amber-300 via-yellow-400 to-amber-500 border border-amber-300/90'
-          : 'bg-gradient-to-b from-yellow-300 via-yellow-400 to-amber-400 border border-yellow-300/90'
-      } text-zinc-950 flex items-center justify-center overflow-hidden shadow-[0_6px_18px_-4px_rgba(250,204,21,0.45),inset_0_1px_0_rgba(255,255,255,0.8)]`}
+          ? 'bg-gradient-to-b from-amber-300 via-amber-400 to-orange-500 border border-amber-300/90 text-slate-950'
+          : 'bg-[linear-gradient(155deg,#1e3a8a_0%,#2563eb_58%,#0284c7_100%)] dark:bg-gradient-to-b dark:from-yellow-300 dark:via-yellow-400 dark:to-amber-400 border border-blue-400/80 dark:border-yellow-300/90 text-white dark:text-zinc-950'
+      } flex items-center justify-center overflow-hidden shadow-[0_6px_18px_-4px_rgba(var(--pl-accent-rgb),0.42),inset_0_1px_0_rgba(255,255,255,0.65)]`}
       aria-hidden="true"
     >
       {/* Subtle Liquid Crystal Gloss Sheen */}
@@ -81,9 +81,9 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
             width="13"
             height="16.5"
             rx="2.2"
-            fill="#09090b"
-            fillOpacity="0.16"
-            stroke="#09090b"
+            fill="#0f172a"
+            fillOpacity="0.2"
+            stroke="#0f172a"
             strokeWidth="1.6"
           />
         </motion.g>
@@ -109,7 +109,7 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
             height="18"
             rx="2.3"
             fill="#ffffff"
-            stroke="#09090b"
+            stroke="#0f172a"
             strokeWidth="1.75"
           />
           {/* Fetching text lines */}
@@ -118,7 +118,7 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
             y1="13"
             x2="21.5"
             y2="13"
-            stroke="#09090b"
+            stroke="#0f172a"
             strokeWidth="1.6"
             strokeLinecap="round"
             animate={prefersReduced ? undefined : { opacity: [0.35, 1, 0.35] }}
@@ -129,7 +129,7 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
             y1="16.8"
             x2="20"
             y2="16.8"
-            stroke="#09090b"
+            stroke="#0f172a"
             strokeWidth="1.6"
             strokeLinecap="round"
             animate={prefersReduced ? undefined : { opacity: [0.95, 0.35, 0.95] }}
@@ -140,7 +140,7 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
             y1="20.6"
             x2="18.2"
             y2="20.6"
-            stroke="#d97706"
+            stroke="#2563eb"
             strokeWidth="1.6"
             strokeLinecap="round"
             animate={prefersReduced ? undefined : { opacity: [0.4, 1, 0.4] }}
@@ -169,7 +169,7 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
         >
           <path
             d="M19.2 11.4V5.9C19.2 4.35 20.45 3.1 22 3.1C23.55 3.1 24.8 4.35 24.8 5.9V12.2C24.8 13.25 23.95 14.1 22.9 14.1C21.85 14.1 21 13.25 21 12.2V6.6"
-            stroke="#09090b"
+            stroke="#facc15"
             strokeWidth="2.1"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -202,8 +202,8 @@ export const ClipingPapersLogo: React.FC<ClipingPapersLogoProps> = ({
               layout === 'stacked' ? 'justify-center' : ''
             } gap-1 ${cfg.title}`}
           >
-            <span className="text-zinc-950 dark:text-white">Cliping</span>
-            <span className="text-amber-600 dark:text-yellow-400">Papers</span>
+            <span className="text-slate-900 dark:text-white">Cliping</span>
+            <span className="text-blue-600 dark:text-yellow-400">Papers</span>
             {tone === 'offline' && (
               <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[9px] font-mono uppercase tracking-wider text-amber-800 dark:text-yellow-300">
                 Offline

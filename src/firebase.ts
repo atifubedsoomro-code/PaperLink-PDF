@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  browserPopupRedirectResolver,
   GoogleAuthProvider,
   onAuthStateChanged,
   signOut,
@@ -41,12 +42,44 @@ const databaseId =
 export const auth = getAuth(app);
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 
-// Provider with minimal non-sensitive scope: Google Drive file management only (fast OAuth verification)
-const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/drive.file');
-provider.setCustomParameters({
-  prompt: 'select_account',
-});
+const buildGoogleProvider = (forceConsent = false) => {
+  const p = new GoogleAuthProvider();
+  // Minimal non-sensitive scope: Google Drive file management only (fast OAuth verification)
+  p.addScope('https://www.googleapis.com/auth/drive.file');
+  p.setCustomParameters({
+    prompt: forceConsent ? 'select_account consent' : 'select_account',
+  });
+  return p;
+};
+
+export const isEmbeddedIframe = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
+export class AuthSignInError extends Error {
+  code: string;
+  closedImmediately: boolean;
+  inIframe: boolean;
+
+  constructor(
+    message: string,
+    opts?: { code?: string; closedImmediately?: boolean; inIframe?: boolean }
+  ) {
+    super(message);
+    this.name = 'AuthSignInError';
+    this.code = opts?.code || 'unknown';
+    this.closedImmediately = Boolean(opts?.closedImmediately);
+    this.inIframe = Boolean(opts?.inIframe);
+  }
+}
+
+let isSigningIn = false;
+let inFlightSignIn: Promise<{ user: User; accessToken: string } | null> | null = null;
 
 const SESSION_TOKEN_KEY = 'paperlink_session_access_token';
 const SESSION_EXPIRES_AT_KEY = 'paperlink_session_expires_at';
@@ -128,14 +161,14 @@ export const initAuth = (
         if (onAuthSuccess) onAuthSuccess(user, stored);
       } else if (cachedAccessToken && !expiry.isExpired) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else {
+      } else if (!isSigningIn) {
         // Token expired after 1 hour; clear stale token so UI prompts clean reconnect
         if (expiry.isExpired) {
           setCachedToken(null);
         }
         if (onAuthFailure) onAuthFailure();
       }
-    } else {
+    } else if (!isSigningIn) {
       cachedAccessToken = null;
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem(SESSION_TOKEN_KEY);
@@ -150,36 +183,88 @@ export const initAuth = (
 export const googleSignIn = async (options?: {
   forceConsent?: boolean;
 }): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    provider.setCustomParameters({
-      prompt: options?.forceConsent ? 'select_account consent' : 'select_account',
-    });
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Google did not return an access token for Google Drive');
-    }
-
-    setCachedToken(credential.accessToken);
-    return { user: result.user, accessToken: credential.accessToken };
-  } catch (error: any) {
-    console.error('Sign-in error:', error);
-    const code = String(error?.code || '');
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
-
-    if (code === 'auth/unauthorized-domain' || String(error?.message || '').includes('auth/unauthorized-domain')) {
-      throw new Error(
-        `Domain "${host}" is not authorized in Firebase Auth yet. Open Firebase Console -> Authentication -> Settings -> Authorized domains and add "${host}".`
-      );
-    }
-    if (code === 'auth/popup-blocked') {
-      throw new Error('Google Sign-In popup was blocked by your browser. Allow popups for this site and try again.');
-    }
-    if (code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completing. Click Sign in with Google to try again.');
-    }
-    throw error;
+  if (inFlightSignIn) {
+    return inFlightSignIn;
   }
+
+  const startedAt = Date.now();
+  isSigningIn = true;
+
+  const task = (async (): Promise<{ user: User; accessToken: string } | null> => {
+    try {
+      const activeProvider = buildGoogleProvider(Boolean(options?.forceConsent));
+      const result = await signInWithPopup(auth, activeProvider, browserPopupRedirectResolver);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new AuthSignInError(
+          'Google sign-in completed, but Google Drive access was not granted. Please try again and allow Drive file access.',
+          { code: 'missing-access-token', inIframe: isEmbeddedIframe() }
+        );
+      }
+
+      setCachedToken(credential.accessToken);
+      return { user: result.user, accessToken: credential.accessToken };
+    } catch (error: any) {
+      if (error instanceof AuthSignInError) {
+        throw error;
+      }
+
+      console.error('Sign-in error:', error);
+      const code = String(error?.code || '');
+      const elapsedMs = Date.now() - startedAt;
+      const inIframe = isEmbeddedIframe();
+      const closedImmediately = elapsedMs < 1500;
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+      if (code === 'auth/unauthorized-domain' || String(error?.message || '').includes('auth/unauthorized-domain')) {
+        throw new AuthSignInError(
+          `Domain "${host}" is not authorized in Firebase Auth yet. Add "${host}" under Firebase Console -> Authentication -> Settings -> Authorized domains.`,
+          { code: 'auth/unauthorized-domain', inIframe }
+        );
+      }
+      if (code === 'auth/popup-blocked') {
+        throw new AuthSignInError(
+          inIframe
+            ? 'Google Sign-In popup was blocked inside the preview frame. Allow popups for this site or open PaperLink in a full browser tab.'
+            : 'Google Sign-In popup was blocked by your browser. Allow popups for this site and click Sign in with Google again.',
+          { code: 'auth/popup-blocked', closedImmediately: true, inIframe }
+        );
+      }
+      if (code === 'auth/cancelled-popup-request') {
+        throw new AuthSignInError(
+          'A previous sign-in window was interrupted before finishing. Click Sign in with Google once and keep the popup open.',
+          { code: 'auth/cancelled-popup-request', closedImmediately, inIframe }
+        );
+      }
+      if (code === 'auth/popup-closed-by-user') {
+        if (closedImmediately && inIframe) {
+          throw new AuthSignInError(
+            'Your browser closed the sign-in popup immediately inside this embedded preview (often caused by third-party cookie/storage restrictions or popup blockers). Try again or open PaperLink in a full tab to sign in.',
+            { code: 'auth/popup-closed-by-user', closedImmediately: true, inIframe: true }
+          );
+        }
+        throw new AuthSignInError(
+          inIframe
+            ? 'Sign-in popup was closed before completing. Keep the popup open until Drive permission finishes, or open PaperLink in a full tab if your browser blocks embedded popups.'
+            : 'Sign-in popup was closed before completing. Keep the popup window open until account selection and Drive permission finish.',
+          { code: 'auth/popup-closed-by-user', closedImmediately, inIframe }
+        );
+      }
+      if (code === 'auth/network-request-failed') {
+        throw new AuthSignInError(
+          'Network error while connecting to Google Sign-In. Check your internet connection and try again.',
+          { code: 'auth/network-request-failed', inIframe }
+        );
+      }
+      throw error;
+    } finally {
+      isSigningIn = false;
+      inFlightSignIn = null;
+    }
+  })();
+
+  inFlightSignIn = task;
+  return task;
 };
 
 export const getAccessToken = async (): Promise<string | null> => {

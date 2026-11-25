@@ -1109,11 +1109,15 @@ export async function solveDocumentWithAI(
   const rawPdfBuf = new Uint8Array(await normalizedPdf.arrayBuffer()).slice().buffer;
   let pdfDoc: PDFDocument;
   try {
-    pdfDoc = await PDFDocument.load(rawPdfBuf, { ignoreEncryption: false });
+    pdfDoc = await PDFDocument.load(new Uint8Array(rawPdfBuf).slice().buffer, {
+      ignoreEncryption: false,
+    });
   } catch {
     // Source PDF has owner/permission encryption — try clean empty-password decrypt first, else rebuild clean pages via pdf.js
     try {
-      const cantoo = await CantooPDFDocument.load(rawPdfBuf, { password: '' });
+      const cantoo = await CantooPDFDocument.load(new Uint8Array(rawPdfBuf).slice().buffer, {
+        password: '',
+      });
       const cleanCopy = await CantooPDFDocument.create();
       const idx = Array.from({ length: cantoo.getPageCount() }, (_, k) => k);
       const copied = await cleanCopy.copyPages(cantoo, idx);
@@ -1123,7 +1127,7 @@ export async function solveDocumentWithAI(
     } catch {
       const pdfjsLib = getPdfJs();
       const srcProxy = await pdfjsLib.getDocument({
-        data: rawPdfBuf,
+        data: new Uint8Array(rawPdfBuf).slice().buffer,
         useSystemFonts: true,
         cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
         cMapPacked: true,
