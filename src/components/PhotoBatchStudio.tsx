@@ -30,6 +30,7 @@ import {
 import {
   PhotoBatchAdjustConfig,
   PhotoBatchAnchor,
+  PhotoBatchLookStyle,
   PhotoBatchMark,
   PhotoBatchPresetCategory,
   PhotoBatchPresetRecord,
@@ -98,12 +99,22 @@ const WORKING_SETUP_STORAGE_KEY = 'paperlink_photobatch_working_setup_v1';
 const PREVIEW_MAX_EDGE = 1280;
 const MAX_HISTORY = 24;
 const PRESET_CATEGORIES: PhotoBatchPresetCategory[] = [
+  'Professional',
+  'Minimalist',
+  'Creative',
   'Events',
   'Portraits',
   'Product',
   'Social',
   'Print',
   'Custom',
+];
+
+const LOOK_STYLE_TABS: Array<'All' | PhotoBatchLookStyle> = [
+  'All',
+  'Professional',
+  'Minimalist',
+  'Creative',
 ];
 
 function formatBytes(bytes: number): string {
@@ -214,9 +225,10 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
   // Presets Library (Local + Firestore)
   const [savedPresets, setSavedPresets] = useState<PhotoBatchPresetRecord[]>([]);
   const [presetName, setPresetName] = useState('');
-  const [presetCategory, setPresetCategory] = useState<PhotoBatchPresetCategory>('Events');
+  const [presetCategory, setPresetCategory] = useState<PhotoBatchPresetCategory>('Professional');
   const [presetIncludeMarks, setPresetIncludeMarks] = useState(false);
   const [presetFilterCat, setPresetFilterCat] = useState<'All' | PhotoBatchPresetCategory>('All');
+  const [lookStyleFilter, setLookStyleFilter] = useState<'All' | PhotoBatchLookStyle>('All');
   const [isSavingPreset, setIsSavingPreset] = useState(false);
   const [appliedPresetId, setAppliedPresetId] = useState<string | null>(null);
 
@@ -354,7 +366,7 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
     void load();
   }, [curIndex, items]);
 
-  // Render live look thumbnails whenever current photo or Presets tab becomes visible
+  // Render live look thumbnails whenever current photo, Presets tab, or look style tab changes
   useEffect(() => {
     if (activeTab !== 'presets' || !curPreviewMeta.src) return;
     for (const look of PHOTO_BATCH_LOOKS) {
@@ -382,7 +394,7 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
         ...look.p,
       });
     }
-  }, [curPreviewMeta, activeTab]);
+  }, [curPreviewMeta, activeTab, lookStyleFilter]);
 
   // Preload logo watermark elements & fonts, then paint preview canvas via rAF
   const paintTokenRef = useRef(0);
@@ -1142,6 +1154,13 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
         : savedPresets.filter((p) => p.category === presetFilterCat),
     [savedPresets, presetFilterCat]
   );
+  const filteredLooks = useMemo(
+    () =>
+      lookStyleFilter === 'All'
+        ? PHOTO_BATCH_LOOKS
+        : PHOTO_BATCH_LOOKS.filter((l) => l.style === lookStyleFilter),
+    [lookStyleFilter]
+  );
 
   const renderSlider = (
     label: string,
@@ -1809,17 +1828,48 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
 
                 {/* Built-in Live-Rendered Look Grid */}
                 <div className="space-y-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h3 className="text-xs font-bold text-zinc-900 dark:text-white">
-                      Built-in Curated Looks ({PHOTO_BATCH_LOOKS.length})
+                      Built-in Curated Looks ({filteredLooks.length})
                     </h3>
                     <span className="text-[11px] font-mono text-zinc-500 tabular-nums">
                       {setup.filter.intensity}% strength
                     </span>
                   </div>
 
+                  {/* Style Filter Tabs: All / Professional / Minimalist / Creative */}
+                  <div
+                    role="tablist"
+                    aria-label="Filter image presets by style"
+                    className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
+                  >
+                    {LOOK_STYLE_TABS.map((styleTab) => {
+                      const count =
+                        styleTab === 'All'
+                          ? PHOTO_BATCH_LOOKS.length
+                          : PHOTO_BATCH_LOOKS.filter((l) => l.style === styleTab).length;
+                      const isActive = lookStyleFilter === styleTab;
+                      return (
+                        <button
+                          key={styleTab}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          onClick={() => setLookStyleFilter(styleTab)}
+                          className={`px-2 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer truncate ${
+                            isActive
+                              ? 'bg-zinc-900 dark:bg-yellow-400 text-white dark:text-black shadow-xs'
+                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {styleTab} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-3 gap-2">
-                    {PHOTO_BATCH_LOOKS.map((look) => {
+                    {filteredLooks.map((look) => {
                       const active = setup.filter.preset === look.id;
                       return (
                         <button
@@ -1846,8 +1896,13 @@ export const PhotoBatchStudio: React.FC<PhotoBatchStudioProps> = ({
                             height={78}
                             className="w-full h-14 object-cover bg-zinc-900 block"
                           />
-                          <div className="px-2 py-1 text-[11px] font-bold text-zinc-900 dark:text-white truncate">
-                            {look.name}
+                          <div className="px-2 py-1">
+                            <div className="text-[11px] font-bold text-zinc-900 dark:text-white truncate">
+                              {look.name}
+                            </div>
+                            <div className="text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                              {look.style}
+                            </div>
                           </div>
                         </button>
                       );

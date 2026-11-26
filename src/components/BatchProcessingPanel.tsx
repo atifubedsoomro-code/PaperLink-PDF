@@ -64,6 +64,8 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
           docInfo: parsed,
           coverData: itemCoverData,
           status: 'idle',
+          progress: 0,
+          stageLabel: 'Queued · Ready for processing',
         });
       } catch (err) {
         console.error('Error parsing file:', file.name, err);
@@ -84,19 +86,24 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
     setBatchItems((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const processSingleItem = async (item: BatchItem): Promise<BatchItem> => {
+  const processSingleItem = async (
+    item: BatchItem,
+    onItemProgress?: (progress: number, stageLabel: string) => void
+  ): Promise<BatchItem> => {
     if (!accessToken) {
       onRequireAuth(false);
       throw new Error('Sign in with Google to upload.');
     }
 
     try {
+      onItemProgress?.(14, 'Uploading source file to Drive…');
       const driveResult = await uploadDocumentToDrive(
         item.docInfo.file,
         item.docInfo.name,
         accessToken
       );
 
+      onItemProgress?.(62, 'Generating Drive QR code…');
       const qrDataUrl = await generateQRCodeDataUrl({
         url: driveResult.webViewLink,
         colorDark: item.coverData.qrColor,
@@ -104,6 +111,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
         width: 480,
       });
 
+      onItemProgress?.(88, 'Syncing cover & batch record…');
       await saveDocumentRecord({
         id: `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         title: item.coverData.title,
@@ -123,6 +131,8 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
         driveResult,
         qrDataUrl,
         errorMessage: undefined,
+        progress: 100,
+        stageLabel: 'QR & cover ready for PDF export',
       };
     } catch (err: any) {
       if (err instanceof DriveUploadError && (err.code === 'auth' || err.code === 'scope')) {
@@ -132,6 +142,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
         ...item,
         status: 'error',
         errorMessage: err.message || 'Upload failed',
+        stageLabel: 'Upload failed',
       };
     }
   };
@@ -148,23 +159,45 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
     setIsProcessingAll(true);
     setGlobalProgress({ current: 0, total: batchItems.length });
 
-    const updated = [...batchItems];
     let syncedCount = 0;
+    const totalCount = batchItems.length;
 
-    for (let i = 0; i < updated.length; i++) {
-      if (updated[i].status === 'synced') {
+    for (let i = 0; i < totalCount; i++) {
+      const targetItem = batchItems[i];
+      if (!targetItem) continue;
+      if (targetItem.status === 'synced') {
         syncedCount++;
         continue;
       }
 
-      updated[i] = { ...updated[i], status: 'uploading', errorMessage: undefined };
-      setBatchItems([...updated]);
-      setGlobalProgress({ current: i + 1, total: updated.length });
+      setGlobalProgress({ current: i + 1, total: totalCount });
+      setBatchItems((prev) =>
+        prev.map((it) =>
+          it.id === targetItem.id
+            ? {
+                ...it,
+                status: 'uploading',
+                progress: 10,
+                stageLabel: 'Preparing upload…',
+                errorMessage: undefined,
+              }
+            : it
+        )
+      );
 
-      const processed = await processSingleItem(updated[i]);
+      const processed = await processSingleItem(targetItem, (prog, label) => {
+        setBatchItems((prev) =>
+          prev.map((it) =>
+            it.id === targetItem.id
+              ? { ...it, status: 'uploading', progress: prog, stageLabel: label }
+              : it
+          )
+        );
+      });
       if (processed.status === 'synced') syncedCount++;
-      updated[i] = processed;
-      setBatchItems([...updated]);
+      setBatchItems((prev) =>
+        prev.map((it) => (it.id === targetItem.id ? processed : it))
+      );
     }
 
     setIsProcessingAll(false);
@@ -183,7 +216,16 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
       return;
     }
 
+    const updateItemStage = (progress: number, stageLabel: string) => {
+      setBatchItems((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, progress, stageLabel } : it))
+      );
+    };
+
     try {
+      updateItemStage(32, 'Generating cover & compressing PDF…');
+      await new Promise((r) => setTimeout(r, 30));
+
       let pdfBytes: Uint8Array;
       if (item.docInfo.pdfArrayBuffer) {
         pdfBytes = await mergeCoverWithPdf(
@@ -196,6 +238,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
         pdfBytes = await coverPdf.save();
       }
 
+      updateItemStage(84, 'Finalizing compressed PDF…');
       const blob = new Blob([new Uint8Array(pdfBytes).slice().buffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -205,8 +248,10 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      updateItemStage(100, 'PDF generated & downloaded');
     } catch (err: any) {
       console.error('Download error:', err);
+      updateItemStage(item.progress ?? 0, 'PDF generation failed');
       setBannerMessage({
         type: 'error',
         text: `Failed to generate PDF: ${err.message}`,
@@ -227,7 +272,7 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
     setIsDownloadingAll(true);
     for (const item of readyItems) {
       await handleDownloadItem(item);
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 350));
     }
     setIsDownloadingAll(false);
   };
@@ -457,6 +502,79 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
                       <span>{item.errorMessage}</span>
                     </p>
                   )}
+
+                  {/* Per-File Compression & Generation Progress Bar */}
+                  {(() => {
+                    const pct = Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        typeof item.progress === 'number'
+                          ? item.progress
+                          : item.status === 'synced'
+                          ? 100
+                          : item.status === 'uploading'
+                          ? 45
+                          : 0
+                      )
+                    );
+                    const isGeneratingPdf =
+                      item.status === 'synced' && pct > 0 && pct < 100;
+                    const isActive = item.status === 'uploading' || isGeneratingPdf;
+                    const statusText =
+                      item.stageLabel ||
+                      (item.status === 'synced'
+                        ? 'QR & cover ready for PDF export'
+                        : item.status === 'uploading'
+                        ? 'Processing file…'
+                        : item.status === 'error'
+                        ? 'Processing failed'
+                        : 'Queued · Ready for processing');
+
+                    return (
+                      <div className="mt-2.5 max-w-md space-y-1">
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span
+                            className={`font-medium truncate ${
+                              item.status === 'error'
+                                ? 'text-red-600 dark:text-red-400'
+                                : isActive
+                                ? 'text-amber-700 dark:text-yellow-400'
+                                : item.status === 'synced'
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-zinc-500 dark:text-zinc-400'
+                            }`}
+                          >
+                            {statusText}
+                          </span>
+                          <span className="font-mono font-bold tabular-nums text-zinc-700 dark:text-zinc-300 shrink-0">
+                            {pct}%
+                          </span>
+                        </div>
+                        <div
+                          role="progressbar"
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label={`${item.coverData.title} progress`}
+                          className="h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden"
+                        >
+                          <div
+                            style={{ width: `${pct}%` }}
+                            className={`h-full rounded-full transition-all duration-300 ease-out ${
+                              item.status === 'error'
+                                ? 'bg-red-500'
+                                : isActive
+                                ? 'bg-gradient-to-r from-amber-500 via-yellow-400 to-emerald-500 animate-pulse'
+                                : item.status === 'synced'
+                                ? 'bg-emerald-500'
+                                : 'bg-zinc-400 dark:bg-zinc-600'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -489,16 +607,39 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
                     type="button"
                     onClick={async () => {
                       setBatchItems((prev) =>
-                        prev.map((it) => (it.id === item.id ? { ...it, status: 'uploading', errorMessage: undefined } : it))
+                        prev.map((it) =>
+                          it.id === item.id
+                            ? {
+                                ...it,
+                                status: 'uploading',
+                                progress: 10,
+                                stageLabel: 'Preparing upload…',
+                                errorMessage: undefined,
+                              }
+                            : it
+                        )
                       );
                       try {
-                        const processed = await processSingleItem(item);
+                        const processed = await processSingleItem(item, (prog, label) => {
+                          setBatchItems((prev) =>
+                            prev.map((it) =>
+                              it.id === item.id
+                                ? { ...it, status: 'uploading', progress: prog, stageLabel: label }
+                                : it
+                            )
+                          );
+                        });
                         setBatchItems((prev) => prev.map((it) => (it.id === item.id ? processed : it)));
                       } catch (err: any) {
                         setBatchItems((prev) =>
                           prev.map((it) =>
                             it.id === item.id
-                              ? { ...it, status: 'error', errorMessage: err?.message || 'Upload failed' }
+                              ? {
+                                  ...it,
+                                  status: 'error',
+                                  stageLabel: 'Upload failed',
+                                  errorMessage: err?.message || 'Upload failed',
+                                }
                               : it
                           )
                         );

@@ -777,6 +777,8 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   const [filterFile, setFilterFile] = useState<File | null>(null);
   const [filterPreviewUrl, setFilterPreviewUrl] = useState<string | null>(null);
   const [filters, setFilters] = useState<ImageFiltersConfig>(DEFAULT_IMAGE_FILTERS);
+  const [filterPresetTab, setFilterPresetTab] = useState<'All' | 'Professional' | 'Minimalist' | 'Creative'>('All');
+  const [activeQuickPreset, setActiveQuickPreset] = useState<string>('Reset');
   const [filterFormat, setFilterFormat] = useState<'png' | 'jpg' | 'webp'>('png');
   const [paletteSwatches, setPaletteSwatches] = useState<string[]>([]);
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
@@ -2737,36 +2739,99 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               </span>
             </button>
 
-            {/* Quick Presets */}
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { label: 'Reset', val: DEFAULT_IMAGE_FILTERS },
-                {
-                  label: 'Vivid Punch',
-                  val: { ...DEFAULT_IMAGE_FILTERS, contrast: 118, saturate: 138, sharpen: true },
-                },
-                {
-                  label: 'Editorial B&W',
-                  val: { ...DEFAULT_IMAGE_FILTERS, grayscale: 100, contrast: 125, sharpen: true },
-                },
-                {
-                  label: 'Warm Film',
-                  val: { ...DEFAULT_IMAGE_FILTERS, sepia: 32, contrast: 108, brightness: 104 },
-                },
-                {
-                  label: 'Crisp Matte',
-                  val: { ...DEFAULT_IMAGE_FILTERS, contrast: 92, brightness: 106, saturate: 88 },
-                },
-              ].map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => setFilters(preset.val)}
-                  className="px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-yellow-400 text-[11px] font-semibold cursor-pointer"
+            {/* Categorized Quick Presets (Professional / Minimalist / Creative) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+                  Image Presets
+                </span>
+                <div
+                  role="tablist"
+                  aria-label="Filter image presets by style"
+                  className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
                 >
-                  {preset.label}
-                </button>
-              ))}
+                  {(['All', 'Professional', 'Minimalist', 'Creative'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={filterPresetTab === tab}
+                      onClick={() => setFilterPresetTab(tab)}
+                      className={`px-2 py-1 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                        filterPresetTab === tab
+                          ? 'bg-zinc-900 dark:bg-yellow-400 text-white dark:text-black'
+                          : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {([
+                  { label: 'Reset', style: 'Minimalist', val: DEFAULT_IMAGE_FILTERS },
+                  {
+                    label: 'Crisp Studio',
+                    style: 'Professional',
+                    val: { ...DEFAULT_IMAGE_FILTERS, contrast: 112, brightness: 103, saturate: 112, sharpen: true },
+                  },
+                  {
+                    label: 'Vivid Punch',
+                    style: 'Professional',
+                    val: { ...DEFAULT_IMAGE_FILTERS, contrast: 118, saturate: 138, sharpen: true },
+                  },
+                  {
+                    label: 'Editorial Clean',
+                    style: 'Professional',
+                    val: { ...DEFAULT_IMAGE_FILTERS, contrast: 110, saturate: 96, brightness: 102, sharpen: true },
+                  },
+                  {
+                    label: 'Crisp Matte',
+                    style: 'Minimalist',
+                    val: { ...DEFAULT_IMAGE_FILTERS, contrast: 92, brightness: 106, saturate: 88 },
+                  },
+                  {
+                    label: 'Editorial B&W',
+                    style: 'Minimalist',
+                    val: { ...DEFAULT_IMAGE_FILTERS, grayscale: 100, contrast: 125, sharpen: true },
+                  },
+                  {
+                    label: 'Warm Film',
+                    style: 'Creative',
+                    val: { ...DEFAULT_IMAGE_FILTERS, sepia: 32, contrast: 108, brightness: 104 },
+                  },
+                  {
+                    label: 'Cool Cyan',
+                    style: 'Creative',
+                    val: { ...DEFAULT_IMAGE_FILTERS, hueRotate: -16, contrast: 114, saturate: 118 },
+                  },
+                  {
+                    label: 'Noir Drama',
+                    style: 'Creative',
+                    val: { ...DEFAULT_IMAGE_FILTERS, grayscale: 100, contrast: 148, brightness: 94 },
+                  },
+                ] as const)
+                  .filter((p) => filterPresetTab === 'All' || p.style === filterPresetTab)
+                  .map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setFilters(preset.val);
+                        setActiveQuickPreset(preset.label);
+                      }}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer transition-colors ${
+                        activeQuickPreset === preset.label
+                          ? 'border-yellow-400 bg-yellow-400/15 text-zinc-950 dark:text-yellow-300 font-bold'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 hover:border-yellow-400'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+              </div>
             </div>
 
             {/* Adjustment Sliders */}

@@ -1,6 +1,7 @@
 import {
   PhotoBatchAdjustConfig,
   PhotoBatchAnchor,
+  PhotoBatchLookStyle,
   PhotoBatchMark,
   PhotoBatchSetup,
 } from '../types';
@@ -8,24 +9,25 @@ import {
 export interface PhotoBatchLook {
   id: string;
   name: string;
+  style: PhotoBatchLookStyle;
   p: Partial<PhotoBatchAdjustConfig>;
 }
 
 export const PHOTO_BATCH_LOOKS: PhotoBatchLook[] = [
-  { id: 'none', name: 'Original', p: {} },
-  { id: 'vivid', name: 'Vivid', p: { contrast: 18, saturation: 26, vibrance: 18, brightness: 2 } },
-  { id: 'punch', name: 'Stage Punch', p: { contrast: 30, saturation: 22, shadows: -12, highlights: 8, clarity: 14 } },
-  { id: 'warm', name: 'Warm Glow', p: { temperature: 28, saturation: 8, vibrance: 12, tint: 4, contrast: 6 } },
-  { id: 'golden', name: 'Golden Hour', p: { temperature: 40, exposure: 8, saturation: 16, highlights: -10, fade: 6 } },
-  { id: 'cool', name: 'Cool Crisp', p: { temperature: -26, contrast: 10, saturation: 6, clarity: 10 } },
-  { id: 'fresh', name: 'Fresh', p: { brightness: 8, vibrance: 18, temperature: -6, highlights: -8, shadows: 14 } },
-  { id: 'cinema', name: 'Cinematic', p: { contrast: 24, saturation: -12, temperature: -10, shadows: -8, fade: 10, tint: -6 } },
-  { id: 'matte', name: 'Matte', p: { fade: 28, contrast: -8, saturation: -10 } },
-  { id: 'editorial', name: 'Editorial', p: { contrast: 14, clarity: 20, vibrance: 10, highlights: -12, shadows: 10 } },
-  { id: 'fuji', name: 'Film Chrome', p: { contrast: 16, vibrance: 22, fade: 8, temperature: 8, tint: -6 } },
-  { id: 'bw', name: 'Mono', p: { grayscale: 100, contrast: 20 } },
-  { id: 'noir', name: 'Noir', p: { grayscale: 100, contrast: 42, brightness: -6, shadows: -16 } },
-  { id: 'sepia', name: 'Sepia', p: { sepia: 80, contrast: 8, fade: 8 } },
+  { id: 'none', name: 'Original', style: 'Minimalist', p: {} },
+  { id: 'vivid', name: 'Vivid', style: 'Professional', p: { contrast: 18, saturation: 26, vibrance: 18, brightness: 2 } },
+  { id: 'punch', name: 'Stage Punch', style: 'Professional', p: { contrast: 30, saturation: 22, shadows: -12, highlights: 8, clarity: 14 } },
+  { id: 'warm', name: 'Warm Glow', style: 'Professional', p: { temperature: 28, saturation: 8, vibrance: 12, tint: 4, contrast: 6 } },
+  { id: 'golden', name: 'Golden Hour', style: 'Creative', p: { temperature: 40, exposure: 8, saturation: 16, highlights: -10, fade: 6 } },
+  { id: 'cool', name: 'Cool Crisp', style: 'Professional', p: { temperature: -26, contrast: 10, saturation: 6, clarity: 10 } },
+  { id: 'fresh', name: 'Fresh', style: 'Minimalist', p: { brightness: 8, vibrance: 18, temperature: -6, highlights: -8, shadows: 14 } },
+  { id: 'cinema', name: 'Cinematic', style: 'Creative', p: { contrast: 24, saturation: -12, temperature: -10, shadows: -8, fade: 10, tint: -6 } },
+  { id: 'matte', name: 'Matte', style: 'Minimalist', p: { fade: 28, contrast: -8, saturation: -10 } },
+  { id: 'editorial', name: 'Editorial', style: 'Professional', p: { contrast: 14, clarity: 20, vibrance: 10, highlights: -12, shadows: 10 } },
+  { id: 'fuji', name: 'Film Chrome', style: 'Creative', p: { contrast: 16, vibrance: 22, fade: 8, temperature: 8, tint: -6 } },
+  { id: 'bw', name: 'Mono', style: 'Minimalist', p: { grayscale: 100, contrast: 20 } },
+  { id: 'noir', name: 'Noir', style: 'Creative', p: { grayscale: 100, contrast: 42, brightness: -6, shadows: -16 } },
+  { id: 'sepia', name: 'Sepia', style: 'Creative', p: { sepia: 80, contrast: 8, fade: 8 } },
 ];
 
 export const VIGNETTE_PROFILES = {

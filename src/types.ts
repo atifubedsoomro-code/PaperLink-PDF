@@ -137,6 +137,7 @@ export interface BatchItem {
   status: 'idle' | 'parsing' | 'uploading' | 'synced' | 'error';
   errorMessage?: string;
   progress?: number;
+  stageLabel?: string;
 }
 
 export type CoverSuggestionEngine = 'ai' | 'ai-sites';
@@ -259,7 +260,18 @@ export interface PhotoBatchSetup {
   };
 }
 
-export type PhotoBatchPresetCategory = 'Events' | 'Portraits' | 'Product' | 'Social' | 'Print' | 'Custom';
+export type PhotoBatchLookStyle = 'Professional' | 'Minimalist' | 'Creative';
+
+export type PhotoBatchPresetCategory =
+  | 'Professional'
+  | 'Minimalist'
+  | 'Creative'
+  | 'Events'
+  | 'Portraits'
+  | 'Product'
+  | 'Social'
+  | 'Print'
+  | 'Custom';
 
 export interface PhotoBatchPresetRecord {
   id: string;
