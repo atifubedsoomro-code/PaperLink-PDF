@@ -161,6 +161,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenImageTool,
   onOpenLegal,
   neonGlowMode = 'full',
+  user,
   accessToken,
   feedbackSheetUrl,
   feedbackWebhookUrl,
@@ -840,6 +841,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* 5. USER FEEDBACK SECTION (Normal Ambient Glow) */}
         <FeedbackSection
           variant="landing"
+          userEmail={user?.email || ''}
           accessToken={accessToken}
           sheetUrl={feedbackSheetUrl}
           webhookUrl={feedbackWebhookUrl}

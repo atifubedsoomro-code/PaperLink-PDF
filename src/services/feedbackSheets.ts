@@ -30,7 +30,9 @@ export interface FeedbackEntry {
   status: FeedbackStatus;
   resolutionNotes: string;
   syncedToGoogleSheet?: boolean;
+  syncedToFirestore?: boolean;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface FeedbackTrackerStats {
@@ -211,12 +213,18 @@ export function mergeFeedbackEntries(
   }
   for (const rem of remoteEntries) {
     const existing = map.get(rem.feedbackId);
+    const remStatus = rem.status === 'Saved Locally' ? 'New' : rem.status;
+    const remNewer = (rem.updatedAt || 0) >= (existing?.updatedAt || 0);
     map.set(rem.feedbackId, {
       ...existing,
       ...rem,
-      status: rem.status === 'Saved Locally' ? 'New' : rem.status || existing?.status || 'New',
-      resolutionNotes: rem.resolutionNotes || existing?.resolutionNotes || '',
-      syncedToGoogleSheet: true,
+      status: (remStatus || existing?.status || 'New') as FeedbackStatus,
+      resolutionNotes: remNewer
+        ? rem.resolutionNotes ?? existing?.resolutionNotes ?? ''
+        : existing?.resolutionNotes || rem.resolutionNotes || '',
+      syncedToGoogleSheet: Boolean(rem.syncedToGoogleSheet || existing?.syncedToGoogleSheet),
+      syncedToFirestore: Boolean(rem.syncedToFirestore || existing?.syncedToFirestore),
+      createdAt: existing?.createdAt || rem.createdAt || Date.now(),
     });
   }
   return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -386,9 +394,15 @@ export async function inspectFeedbackSpreadsheet(
     const detailsVal = String(row[colOffset + 7] || '').trim();
     if (!idVal && !userVal && !detailsVal) continue;
 
+    const rawDateStr = String(row[colOffset + 1] || '').trim();
+    const parsedDateMs = rawDateStr ? Date.parse(rawDateStr) : NaN;
+    const stableCreatedAt = Number.isFinite(parsedDateMs)
+      ? parsedDateMs + r
+      : Date.now() - (rows.length - r) * 1000;
+
     parsedEntries.push({
       feedbackId: idVal || `ROW-${r + 1}`,
-      date: String(row[colOffset + 1] || ''),
+      date: rawDateStr || new Date(stableCreatedAt).toISOString().slice(0, 10),
       userName: userVal || 'Anonymous',
       toolCategory: (String(row[colOffset + 3] || 'General Experience') as any),
       specificTool: String(row[colOffset + 4] || ''),
@@ -399,7 +413,7 @@ export async function inspectFeedbackSpreadsheet(
       status: (String(row[colOffset + 9] || 'New') as any),
       resolutionNotes: String(row[colOffset + 10] || ''),
       syncedToGoogleSheet: true,
-      createdAt: Date.now() - parsedEntries.length * 1000,
+      createdAt: stableCreatedAt,
     });
   }
 
@@ -431,7 +445,7 @@ export async function inspectFeedbackSpreadsheet(
       source: 'google-sheet',
       spreadsheetTitle,
       activeTabName: sheetTabName,
-      recentRows: parsedEntries.slice(-6).reverse(),
+      recentRows: parsedEntries.slice(-60).reverse(),
     },
   };
 }

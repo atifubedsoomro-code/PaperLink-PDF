@@ -14,6 +14,7 @@ import {
   getBrandKits,
   deleteBrandKit,
   isEmbeddedIframe,
+  getSharedFeedbackSheetUrl,
 } from './firebase';
 import { Navbar, AppView } from './components/Navbar';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -702,6 +703,20 @@ export default function App() {
     feedbackSheetUrl,
     feedbackWebhookUrl,
   ]);
+
+  // Hydrate shared Feedback Google Sheet URL from Firestore when not set locally
+  useEffect(() => {
+    if (feedbackSheetUrl.trim()) return;
+    let active = true;
+    getSharedFeedbackSheetUrl().then((sharedUrl) => {
+      if (active && sharedUrl.trim()) {
+        setFeedbackSheetUrl((prev) => prev.trim() || sharedUrl.trim());
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleChangeDefaultPaperSize = (size: DefaultPaperSize) => {
     setDefaultPaperSize(size);

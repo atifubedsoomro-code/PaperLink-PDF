@@ -51,6 +51,51 @@
         "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
       },
       "required": ["id", "name", "category", "setup", "createdAt", "userEmail"]
+    },
+    "PublicReview": {
+      "title": "PublicReview",
+      "description": "Public anonymous or named product review and admin resolution note displayed in Live Reviews & Solutions.",
+      "type": "object",
+      "properties": {
+        "feedbackId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 24 },
+        "userName": { "type": "string", "maxLength": 80 },
+        "toolCategory": { "type": "string", "maxLength": 64 },
+        "specificTool": { "type": "string", "maxLength": 100 },
+        "feedbackType": { "type": "string", "maxLength": 48 },
+        "rating": { "type": "number" },
+        "details": { "type": "string", "maxLength": 650 },
+        "priority": { "type": "string", "maxLength": 24 },
+        "status": { "type": "string", "maxLength": 32 },
+        "resolutionNotes": { "type": "string", "maxLength": 800 },
+        "syncedToGoogleSheet": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": [
+        "feedbackId",
+        "date",
+        "userName",
+        "toolCategory",
+        "specificTool",
+        "feedbackType",
+        "rating",
+        "details",
+        "priority",
+        "status",
+        "resolutionNotes",
+        "createdAt"
+      ]
+    },
+    "FeedbackSyncConfig": {
+      "title": "FeedbackSyncConfig",
+      "description": "Public read-only Google Sheet URL reference used to sync reviews and resolutions.",
+      "type": "object",
+      "properties": {
+        "sheetUrl": { "type": "string", "maxLength": 400 },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["sheetUrl", "updatedAt"]
     }
   },
   "firestore": {
@@ -65,6 +110,14 @@
     "/photoBatchPresets/{presetId}": {
       "schema": { "$ref": "#/entities/PhotoBatchPreset" },
       "description": "User-owned reusable Photo Batch Studio presets."
+    },
+    "/publicReviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/PublicReview" },
+      "description": "Shared global Live Reviews & Solutions feed visible across all visitors."
+    },
+    "/appConfig/{configId}": {
+      "schema": { "$ref": "#/entities/FeedbackSyncConfig" },
+      "description": "Shared public configuration for Google Sheet review synchronization."
     }
   }
 }

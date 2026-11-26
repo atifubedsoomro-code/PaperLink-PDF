@@ -133,9 +133,14 @@ function normalizeSheetRowsToEntries(rows: any[][]): ServerFeedbackEntry[] {
     if (!detailsVal && !idVal) continue;
     if (idVal.toLowerCase() === 'feedback id') continue;
 
+    const parsedDateMs = dateVal ? Date.parse(dateVal) : NaN;
+    const stableCreatedAt = Number.isFinite(parsedDateMs)
+      ? parsedDateMs + r
+      : Date.now() - (rows.length - r) * 1000;
+
     entries.push({
       feedbackId: idVal || `ROW-${r + 1}`,
-      date: dateVal || new Date().toISOString().slice(0, 10),
+      date: dateVal || new Date(stableCreatedAt).toISOString().slice(0, 10),
       userName: userVal || 'Anonymous',
       toolCategory: catVal || 'General Experience',
       specificTool: toolVal || '',
@@ -147,7 +152,7 @@ function normalizeSheetRowsToEntries(rows: any[][]): ServerFeedbackEntry[] {
       resolutionNotes: notesVal,
       syncedToGoogleSheet: true,
       source: 'google-sheet',
-      createdAt: Date.now() - entries.length * 1000,
+      createdAt: stableCreatedAt,
     });
   }
 

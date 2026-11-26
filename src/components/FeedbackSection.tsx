@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   RefreshCw,
+  Reply,
   Send,
   ShieldCheck,
   Sparkles,
@@ -21,11 +22,21 @@ import {
 } from 'lucide-react';
 import { NeonGlowMode } from './SettingsModal';
 import {
+  backfillMissingReviewsToFirestore,
+  FEEDBACK_ADMIN_EMAIL,
+  getPublicReviewsFromFirestore,
+  submitPublicReviewToFirestore,
+  subscribeToPublicReviews,
+  syncSheetReviewsToFirestore,
+  updatePublicReviewSolutionInFirestore,
+} from '../firebase';
+import {
   appendFeedbackToGoogleSheet,
   computeLocalStats,
   extractSpreadsheetId,
   FeedbackEntry,
   FeedbackPriority,
+  FeedbackStatus,
   FeedbackTrackerStats,
   FeedbackType,
   fetchLiveFeedbackEntries,
@@ -41,6 +52,7 @@ import {
 
 interface FeedbackSectionProps {
   variant?: 'landing' | 'settings';
+  userEmail?: string;
   accessToken?: string | null;
   sheetUrl: string;
   webhookUrl: string;
@@ -101,6 +113,7 @@ function getStatusBadgeStyle(status: string, hasSolution: boolean): { label: str
 
 export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
   variant = 'landing',
+  userEmail = '',
   accessToken = null,
   sheetUrl,
   webhookUrl,
@@ -108,6 +121,9 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
   onTaskComplete,
 }) => {
   const isLanding = variant === 'landing';
+  const isAdmin =
+    Boolean(userEmail) &&
+    userEmail.trim().toLowerCase() === FEEDBACK_ADMIN_EMAIL.toLowerCase();
 
   const [alias, setAlias] = useState('');
   const [toolCategory, setToolCategory] = useState<ToolCategory>('Cover Studio');
@@ -118,8 +134,10 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
   const [priority, setPriority] = useState<FeedbackPriority>('Medium');
   const [details, setDetails] = useState('');
 
-  const [entries, setEntries] = useState<FeedbackEntry[]>(() => getLocalFeedbackEntries());
-  const [feedSource, setFeedSource] = useState<'google-sheet' | 'server-store' | 'local'>('server-store');
+  const [cloudEntries, setCloudEntries] = useState<FeedbackEntry[]>([]);
+  const [sheetApiEntries, setSheetApiEntries] = useState<FeedbackEntry[]>([]);
+  const [localEntries, setLocalEntries] = useState<FeedbackEntry[]>(() => getLocalFeedbackEntries());
+  const [feedSource, setFeedSource] = useState<'firestore' | 'google-sheet' | 'server-store' | 'local'>('firestore');
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<'all' | 'solutions' | 'open'>('all');
 
@@ -127,6 +145,24 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitBanner, setSubmitBanner] = useState<string | null>(null);
   const [formValidationErr, setFormValidationErr] = useState<string | null>(null);
+
+  // Admin inline Team Solution editor state
+  const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'In Review' | 'Resolved'>('Resolved');
+  const [draftSolution, setDraftSolution] = useState('');
+  const [savingSolutionId, setSavingSolutionId] = useState<string | null>(null);
+  const [solutionErr, setSolutionErr] = useState<string | null>(null);
+
+  const backfilledRef = useRef(false);
+
+  const entries = useMemo(
+    () =>
+      mergeFeedbackEntries(
+        cloudEntries,
+        mergeFeedbackEntries(sheetApiEntries, localEntries)
+      ),
+    [cloudEntries, sheetApiEntries, localEntries]
+  );
 
   const parsedSheetId = useMemo(() => extractSpreadsheetId(sheetUrl), [sheetUrl]);
   const hasValidWebhook = useMemo(
@@ -141,49 +177,119 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
     }
   }, [toolCategory, specificTool]);
 
+  // Real-time shared Firestore subscription so every visitor sees live reviews & team solutions
+  useEffect(() => {
+    const unsubscribe = subscribeToPublicReviews(
+      (list) => {
+        setCloudEntries(list.map((item) => ({ ...item, syncedToFirestore: true })));
+        setFeedSource((prev) => (prev === 'google-sheet' ? 'google-sheet' : 'firestore'));
+      },
+      () => {
+        // Keep server/local fallback entries if offline
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // One-time backfill of any older local-only reviews into shared Cloud Firestore
+  useEffect(() => {
+    let cancelled = false;
+    const backfillLocalReviews = async () => {
+      if (backfilledRef.current) return;
+      backfilledRef.current = true;
+      const stored = getLocalFeedbackEntries();
+      const candidates = stored.filter(
+        (item) => !item.syncedToFirestore && (item.details || '').trim().length >= 3
+      );
+      if (candidates.length === 0) return;
+
+      const existingCloud = await getPublicReviewsFromFirestore();
+      if (cancelled) return;
+      const existingIds = new Set(existingCloud.map((c) => c.feedbackId));
+
+      let updatedAny = false;
+      for (const item of candidates) {
+        if (existingIds.has(item.feedbackId)) {
+          saveLocalFeedbackEntry({ ...item, syncedToFirestore: true });
+          updatedAny = true;
+          continue;
+        }
+        const ok = await submitPublicReviewToFirestore(item);
+        if (ok && !cancelled) {
+          saveLocalFeedbackEntry({ ...item, syncedToFirestore: true });
+          updatedAny = true;
+        }
+      }
+      if (updatedAny && !cancelled) {
+        setLocalEntries(getLocalFeedbackEntries());
+      }
+    };
+    void backfillLocalReviews();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const refreshLiveReviews = useCallback(async () => {
     setIsRefreshingFeed(true);
     try {
-      let currentMerged = (
-        await fetchLiveFeedbackEntries({
+      const [cloudRows, apiResult] = await Promise.all([
+        getPublicReviewsFromFirestore(),
+        fetchLiveFeedbackEntries({
           sheetUrl,
           webhookUrl,
-        })
-      ).entries;
+        }),
+      ]);
 
-      // If user is authenticated and configured a private Sheet URL, pull live rows + Resolution Notes via Sheets API
+      if (cloudRows.length > 0) {
+        setCloudEntries(cloudRows.map((r) => ({ ...r, syncedToFirestore: true })));
+      }
+
+      let nextSheetRows = apiResult.entries;
+
+      // If admin/user is authenticated with Sheets access, pull live rows + Team Solutions
       if (parsedSheetId && accessToken) {
         try {
           const info = await inspectFeedbackSpreadsheet(parsedSheetId, accessToken);
           const apiRows = info?.stats?.recentRows || [];
           if (apiRows.length > 0) {
-            currentMerged = mergeFeedbackEntries(apiRows, currentMerged);
+            nextSheetRows = mergeFeedbackEntries(apiRows, nextSheetRows);
             setFeedSource('google-sheet');
+            if (isAdmin) {
+              void syncSheetReviewsToFirestore(apiRows);
+            }
           }
         } catch {
-          // Keep server / public feed if private sheet token isn't authorized for spreadsheets
+          // Keep cloud / server feed if private sheet token isn't authorized for spreadsheets
         }
       } else if (parsedSheetId || hasValidWebhook) {
         setFeedSource('google-sheet');
+      } else if (cloudRows.length > 0) {
+        setFeedSource('firestore');
+      } else if (apiResult.source) {
+        setFeedSource(apiResult.source);
       }
 
-      setEntries(currentMerged);
+      setSheetApiEntries(nextSheetRows);
+      if (isAdmin && apiResult.entries.length > 0) {
+        void backfillMissingReviewsToFirestore(apiResult.entries);
+      }
     } finally {
       setIsRefreshingFeed(false);
     }
-  }, [sheetUrl, webhookUrl, parsedSheetId, accessToken, hasValidWebhook]);
+  }, [sheetUrl, webhookUrl, parsedSheetId, accessToken, hasValidWebhook, isAdmin]);
 
   useEffect(() => {
     void refreshLiveReviews();
   }, [refreshLiveReviews]);
 
   useEffect(() => {
-    const syncEntries = () => setEntries(getLocalFeedbackEntries());
-    window.addEventListener('paperlink-feedback-updated', syncEntries);
-    window.addEventListener('storage', syncEntries);
+    const syncLocalOnly = () => setLocalEntries(getLocalFeedbackEntries());
+    window.addEventListener('paperlink-feedback-updated', syncLocalOnly);
+    window.addEventListener('storage', syncLocalOnly);
     return () => {
-      window.removeEventListener('paperlink-feedback-updated', syncEntries);
-      window.removeEventListener('storage', syncEntries);
+      window.removeEventListener('paperlink-feedback-updated', syncLocalOnly);
+      window.removeEventListener('storage', syncLocalOnly);
     };
   }, []);
 
@@ -200,8 +306,8 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
       if (reviewFilter === 'open') return !resolved;
       return true;
     });
-    return base.slice(0, isLanding ? 5 : 8);
-  }, [entries, reviewFilter, isLanding]);
+    return base.slice(0, 50);
+  }, [entries, reviewFilter]);
 
   const solutionsCount = useMemo(
     () =>
@@ -243,6 +349,51 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
     setPendingEntry(entry);
   };
 
+  const handleStartSolutionEdit = (item: FeedbackEntry) => {
+    setEditingReviewId(item.feedbackId);
+    const lowStatus = (item.status || '').toLowerCase();
+    setDraftStatus(lowStatus.includes('review') ? 'In Review' : 'Resolved');
+    setDraftSolution(item.resolutionNotes || '');
+    setSolutionErr(null);
+  };
+
+  const handleSaveSolution = async (item: FeedbackEntry) => {
+    if (!isAdmin) return;
+    setSavingSolutionId(item.feedbackId);
+    setSolutionErr(null);
+    const cleanedNotes = draftSolution.trim();
+    try {
+      await updatePublicReviewSolutionInFirestore(item, {
+        status: draftStatus,
+        resolutionNotes: cleanedNotes,
+        syncedToGoogleSheet: item.syncedToGoogleSheet,
+      });
+      const updatedEntry: FeedbackEntry = {
+        ...item,
+        status: draftStatus as FeedbackStatus,
+        resolutionNotes: cleanedNotes,
+        syncedToFirestore: true,
+        updatedAt: Date.now(),
+      };
+      setLocalEntries(saveLocalFeedbackEntry(updatedEntry));
+      window.dispatchEvent(new Event('paperlink-feedback-updated'));
+      setEditingReviewId(null);
+      onTaskComplete?.({
+        headline: 'Solution Published',
+        subtext: `Team solution for ${item.feedbackId} is now live for all reviewers.`,
+        statusLabel: 'Review Updated',
+      });
+    } catch (err) {
+      const detail =
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not save solution to cloud. Ensure you are signed in as admin.';
+      setSolutionErr(detail);
+    } finally {
+      setSavingSolutionId(null);
+    }
+  };
+
   const handleConfirmSubmit = async () => {
     if (!pendingEntry) return;
     setIsSubmitting(true);
@@ -250,8 +401,12 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
     try {
       let syncedToSheet = false;
       let savedOnServer = false;
+      let savedInFirestore = false;
 
-      // 1. Always post to PaperLink server (/api/feedback) which persists + forwards to Google Sheet webhook
+      // 1. Write to global Cloud Firestore /publicReviews so every visitor sees it immediately
+      savedInFirestore = await submitPublicReviewToFirestore(pendingEntry);
+
+      // 2. Post to PaperLink server (/api/feedback) which persists + forwards to Google Sheet webhook
       try {
         const apiRes = await fetch('/api/feedback', {
           method: 'POST',
@@ -270,7 +425,7 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
         // Fallback below if /api/feedback is unreachable
       }
 
-      // 2. Direct browser fallback if configured
+      // 3. Direct browser fallback if configured
       if (!syncedToSheet && hasValidWebhook) {
         try {
           await postFeedbackToWebhook(webhookUrl.trim(), pendingEntry);
@@ -291,26 +446,27 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
         }
       }
 
-      const persistedOnline = syncedToSheet || savedOnServer;
+      const persistedOnline = syncedToSheet || savedOnServer || savedInFirestore;
       const savedList = saveLocalFeedbackEntry({
         ...pendingEntry,
-        status: persistedOnline ? 'New' : 'New',
-        syncedToGoogleSheet: persistedOnline,
+        status: 'New',
+        syncedToGoogleSheet: syncedToSheet,
+        syncedToFirestore: savedInFirestore,
       });
-      setEntries(savedList);
+      setLocalEntries(savedList);
       window.dispatchEvent(new Event('paperlink-feedback-updated'));
 
       setSubmitBanner(
         syncedToSheet
           ? `Thank you! Feedback ${pendingEntry.feedbackId} is live in Google Sheets & Reviews.`
-          : savedOnServer
-          ? `Thank you! Feedback ${pendingEntry.feedbackId} has been published to PaperLink Reviews.`
-          : `Thank you! Feedback ${pendingEntry.feedbackId} has been recorded.`
+          : persistedOnline
+          ? `Thank you! Feedback ${pendingEntry.feedbackId} is now live in Reviews.`
+          : `Thank you! Feedback ${pendingEntry.feedbackId} has been saved locally.`
       );
       onTaskComplete?.({
         headline: syncedToSheet ? 'Synced to Google Sheet' : 'Feedback Published',
         subtext: `Thank you! ${pendingEntry.feedbackId} (${pendingEntry.rating}/5★) is now visible in Reviews.`,
-        statusLabel: syncedToSheet ? 'Google Sheet Synced' : 'Feedback Submitted',
+        statusLabel: syncedToSheet ? 'Google Sheet Synced' : 'Live Review Published',
       });
 
       setDetails('');
@@ -321,8 +477,9 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
         ...pendingEntry,
         status: 'New',
         syncedToGoogleSheet: false,
+        syncedToFirestore: false,
       });
-      setEntries(savedList);
+      setLocalEntries(savedList);
       window.dispatchEvent(new Event('paperlink-feedback-updated'));
       setSubmitBanner(`Thank you! Feedback ${pendingEntry.feedbackId} has been recorded.`);
       setDetails('');
@@ -630,25 +787,32 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
           type="button"
           onClick={() => void refreshLiveReviews()}
           disabled={isRefreshingFeed}
-          title="Refresh reviews and Google Sheet solutions"
+          title="Refresh live reviews and team solutions"
           className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 hover:underline cursor-pointer disabled:opacity-50"
         >
           <RefreshCw className={`w-3 h-3 ${isRefreshingFeed ? 'animate-spin' : ''}`} />
-          <span>{feedSource === 'google-sheet' ? 'Sheet Sync' : 'Refresh'}</span>
+          <span>
+            {feedSource === 'google-sheet'
+              ? 'Sheet Sync'
+              : feedSource === 'firestore'
+              ? 'Live Sync'
+              : 'Refresh'}
+          </span>
         </button>
       </div>
 
       {filteredReviews.length === 0 ? (
         <div className="p-3 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
           {reviewFilter === 'solutions'
-            ? 'No posted solutions yet — team replies in Google Sheets appear here.'
+            ? 'No posted solutions yet — team replies appear here live.'
             : 'No entries yet — be the first to share feedback!'}
         </div>
       ) : (
-        <div className="space-y-2 max-h-[260px] overflow-y-auto pr-0.5">
+        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-0.5">
           {filteredReviews.map((item) => {
             const solutionText = (item.resolutionNotes || '').trim();
             const badge = getStatusBadgeStyle(item.status, Boolean(solutionText));
+            const isEditingThis = editingReviewId === item.feedbackId;
             return (
               <div
                 key={item.feedbackId}
@@ -672,7 +836,7 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
                   {item.details}
                 </p>
 
-                {solutionText && (
+                {solutionText && !isEditingThis && (
                   <div className="p-2 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/50 border border-emerald-500/30 flex items-start gap-1.5">
                     <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                     <div className="min-w-0 text-[10px] leading-snug">
@@ -684,14 +848,89 @@ export const FeedbackSection: React.FC<FeedbackSectionProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                {isAdmin && isEditingThis && (
+                  <div className="p-2 rounded-lg border border-[var(--pl-accent)]/40 bg-white dark:bg-zinc-900 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold text-zinc-700 dark:text-zinc-200">
+                        Post Team Solution
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {(['In Review', 'Resolved'] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setDraftStatus(st)}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${
+                              draftStatus === st
+                                ? 'bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)]'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      rows={2}
+                      maxLength={800}
+                      value={draftSolution}
+                      onChange={(e) => setDraftSolution(e.target.value)}
+                      placeholder="Write a public Team Solution or status update..."
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-[11px] text-zinc-900 dark:text-white focus:outline-none focus:border-[var(--pl-accent)] resize-none"
+                    />
+                    {solutionErr && (
+                      <p className="text-[10px] text-rose-600 dark:text-rose-400">{solutionErr}</p>
+                    )}
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        disabled={savingSolutionId === item.feedbackId}
+                        onClick={() => {
+                          setEditingReviewId(null);
+                          setSolutionErr(null);
+                        }}
+                        className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 text-[10px] font-semibold text-zinc-600 dark:text-zinc-300 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingSolutionId === item.feedbackId}
+                        onClick={() => void handleSaveSolution(item)}
+                        className="px-2.5 py-1 rounded-md bg-[var(--pl-cta-via)] text-[var(--pl-cta-text)] text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        {savingSolutionId === item.feedbackId ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Check className="w-3 h-3" />
+                        )}
+                        <span>Save Live</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 text-[10px] text-zinc-400">
                   <span>
                     {item.userName} · <span className="font-mono">{item.feedbackId}</span>
                   </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="w-2.5 h-2.5" />
-                    {item.date}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isAdmin && !isEditingThis && (
+                      <button
+                        type="button"
+                        onClick={() => handleStartSolutionEdit(item)}
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 dark:text-yellow-400 hover:underline cursor-pointer"
+                      >
+                        <Reply className="w-2.5 h-2.5" />
+                        <span>{solutionText ? 'Edit Solution' : 'Reply / Solution'}</span>
+                      </button>
+                    )}
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      {item.date}
+                    </span>
+                  </div>
                 </div>
               </div>
             );

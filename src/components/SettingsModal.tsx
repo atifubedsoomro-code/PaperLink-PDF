@@ -29,6 +29,7 @@ import {
 import { FeedbackSection } from './FeedbackSection';
 import { MiniAiRobot } from './MiniAiRobot';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../services/feedbackSheets';
+import { FEEDBACK_ADMIN_EMAIL, saveSharedFeedbackSheetUrl } from '../firebase';
 
 export type ThemeMode = 'studio' | 'green' | 'light' | 'dark';
 export type TextSizePreset = 'small' | 'medium' | 'large';
@@ -340,7 +341,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <input
                         type="text"
                         value={feedbackSheetUrl}
-                        onChange={(e) => onChangeFeedbackSheetUrl(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          onChangeFeedbackSheetUrl(val);
+                          if (user?.email === FEEDBACK_ADMIN_EMAIL) {
+                            void saveSharedFeedbackSheetUrl(val);
+                          }
+                        }}
                         placeholder="https://docs.google.com/spreadsheets/d/..."
                         className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-white focus:outline-none focus:border-[var(--pl-accent)]"
                       />
@@ -376,6 +383,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <FeedbackSection
                 variant="settings"
+                userEmail={user?.email || ''}
                 accessToken={accessToken}
                 sheetUrl={feedbackSheetUrl}
                 webhookUrl={feedbackWebhookUrl}

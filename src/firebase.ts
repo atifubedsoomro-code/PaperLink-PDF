@@ -12,12 +12,19 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
+  getDocFromServer,
   setDoc,
+  updateDoc,
   getDocs,
   query,
   where,
+  orderBy,
+  limit,
+  onSnapshot,
   deleteDoc,
 } from 'firebase/firestore';
+import type { FeedbackEntry } from './services/feedbackSheets';
 import { SavedDocRecord, BrandKitPreset, PhotoBatchPresetRecord } from './types';
 import appletConfig from '../firebase-applet-config.json';
 
@@ -41,6 +48,18 @@ const databaseId =
   undefined;
 export const auth = getAuth(app);
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+
+async function testConnection() {
+  if (typeof window === 'undefined') return;
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+void testConnection();
 
 const buildGoogleProvider = (forceConsent = false) => {
   const p = new GoogleAuthProvider();
@@ -596,6 +615,252 @@ export const deletePhotoBatchPreset = async (presetId: string): Promise<void> =>
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `photoBatchPresets/${presetId}`);
     }
+  }
+};
+
+// ==========================================
+// Public Live Reviews & Solutions (Shared Global Feed)
+// ==========================================
+export const FEEDBACK_ADMIN_EMAIL = 'atifubedsoomro@gmail.com';
+
+function sanitizeReviewId(rawId: string): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 64);
+  return cleaned || `FB_${Date.now()}`;
+}
+
+function buildValidatedPublicReviewPayload(entry: FeedbackEntry, isAdminWrite = false) {
+  const safeId = sanitizeReviewId(entry.feedbackId);
+  const rawDetails = String(entry.details || '').trim();
+  const details = (rawDetails.length >= 3 ? rawDetails : `${rawDetails} review`.trim()).slice(0, 650);
+  const createdAt =
+    typeof entry.createdAt === 'number' && entry.createdAt > 0 ? entry.createdAt : Date.now();
+
+  return {
+    feedbackId: safeId,
+    date: (String(entry.date || '').trim() || new Date(createdAt).toISOString().slice(0, 10)).slice(
+      0,
+      24
+    ),
+    userName: (String(entry.userName || '').trim() || 'Anonymous').slice(0, 80),
+    toolCategory: (String(entry.toolCategory || '').trim() || 'General Experience').slice(0, 64),
+    specificTool: String(entry.specificTool || '').trim().slice(0, 100),
+    feedbackType: (String(entry.feedbackType || '').trim() || 'Feature Request').slice(0, 48),
+    rating: Math.min(5, Math.max(1, Math.round(Number(entry.rating) || 5))),
+    details,
+    priority: (String(entry.priority || '').trim() || 'Medium').slice(0, 24),
+    status: isAdminWrite
+      ? ((String(entry.status || '').trim() || 'New') === 'Saved Locally'
+          ? 'New'
+          : String(entry.status || 'New').trim().slice(0, 32))
+      : 'New',
+    resolutionNotes: isAdminWrite
+      ? String(entry.resolutionNotes || '').trim().slice(0, 800)
+      : '',
+    syncedToGoogleSheet: Boolean(entry.syncedToGoogleSheet),
+    createdAt,
+    updatedAt: Date.now(),
+  };
+}
+
+export const isCurrentUserFeedbackAdmin = (): boolean =>
+  Boolean(
+    auth.currentUser &&
+      auth.currentUser.emailVerified &&
+      auth.currentUser.email === FEEDBACK_ADMIN_EMAIL
+  );
+
+export const submitPublicReviewToFirestore = async (entry: FeedbackEntry): Promise<boolean> => {
+  const isAdmin = isCurrentUserFeedbackAdmin();
+  const payload = buildValidatedPublicReviewPayload(entry, isAdmin);
+  try {
+    await setDoc(doc(db, 'publicReviews', payload.feedbackId), sanitizeForFirestore(payload));
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `publicReviews/${payload.feedbackId}`);
+    return false;
+  }
+};
+
+export const updatePublicReviewSolutionInFirestore = async (
+  reviewOrId: FeedbackEntry | string,
+  updates: {
+    status: string;
+    resolutionNotes: string;
+    syncedToGoogleSheet?: boolean;
+  }
+): Promise<void> => {
+  const feedbackId = typeof reviewOrId === 'string' ? reviewOrId : reviewOrId.feedbackId;
+  const safeId = sanitizeReviewId(feedbackId);
+  const path = `publicReviews/${safeId}`;
+
+  if (!auth.currentUser) {
+    throw new Error('Firebase session is not active. Click Sign out and Sign in with Google again.');
+  }
+  const signedEmail = (auth.currentUser.email || '').trim().toLowerCase();
+  if (signedEmail !== FEEDBACK_ADMIN_EMAIL.toLowerCase()) {
+    throw new Error(
+      `Signed in as ${auth.currentUser.email || 'unknown'}. Sign in with ${FEEDBACK_ADMIN_EMAIL} to post solutions.`
+    );
+  }
+
+  const cleanStatus = ((updates.status || 'Resolved').trim() || 'Resolved').slice(0, 32);
+  const cleanNotes = String(updates.resolutionNotes || '').trim().slice(0, 800);
+  const reviewRef = doc(db, 'publicReviews', safeId);
+
+  try {
+    const existingSnap = await getDoc(reviewRef);
+    if (!existingSnap.exists()) {
+      if (typeof reviewOrId === 'string') {
+        throw new Error('Review document does not exist in Firestore yet.');
+      }
+      const payload = buildValidatedPublicReviewPayload(
+        {
+          ...reviewOrId,
+          feedbackId: safeId,
+          status: cleanStatus as FeedbackEntry['status'],
+          resolutionNotes: cleanNotes,
+          syncedToGoogleSheet:
+            typeof updates.syncedToGoogleSheet === 'boolean'
+              ? updates.syncedToGoogleSheet
+              : reviewOrId.syncedToGoogleSheet,
+        },
+        true
+      );
+      await setDoc(reviewRef, sanitizeForFirestore(payload));
+      return;
+    }
+
+    await updateDoc(reviewRef, {
+      status: cleanStatus,
+      resolutionNotes: cleanNotes,
+      ...(typeof updates.syncedToGoogleSheet === 'boolean'
+        ? { syncedToGoogleSheet: updates.syncedToGoogleSheet }
+        : {}),
+      updatedAt: Date.now(),
+    });
+  } catch (err: any) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+    const code = err?.code ? ` (${err.code})` : '';
+    const msg = err?.message || 'Could not save solution to Firestore.';
+    throw new Error(`${msg}${code}`);
+  }
+};
+
+export const backfillMissingReviewsToFirestore = async (entries: FeedbackEntry[]): Promise<void> => {
+  if (!isCurrentUserFeedbackAdmin() || entries.length === 0) return;
+
+  for (const rawEntry of entries.slice(0, 50)) {
+    const payload = buildValidatedPublicReviewPayload(rawEntry, true);
+    const reviewRef = doc(db, 'publicReviews', payload.feedbackId);
+    try {
+      const existingSnap = await getDoc(reviewRef);
+      if (!existingSnap.exists()) {
+        await setDoc(reviewRef, sanitizeForFirestore(payload));
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `publicReviews/${payload.feedbackId}`);
+    }
+  }
+};
+
+export const syncSheetReviewsToFirestore = async (entries: FeedbackEntry[]): Promise<void> => {
+  if (!isCurrentUserFeedbackAdmin() || entries.length === 0) return;
+
+  for (const rawEntry of entries.slice(0, 50)) {
+    const payload = buildValidatedPublicReviewPayload(
+      { ...rawEntry, syncedToGoogleSheet: true },
+      true
+    );
+    const reviewRef = doc(db, 'publicReviews', payload.feedbackId);
+    try {
+      const existingSnap = await getDoc(reviewRef);
+      if (!existingSnap.exists()) {
+        await setDoc(reviewRef, sanitizeForFirestore(payload));
+      } else {
+        const cur = existingSnap.data() as FeedbackEntry;
+        const nextStatus = payload.status;
+        const nextNotes = payload.resolutionNotes;
+        if (
+          cur.status !== nextStatus ||
+          (cur.resolutionNotes || '') !== nextNotes ||
+          !cur.syncedToGoogleSheet
+        ) {
+          await updateDoc(reviewRef, {
+            status: nextStatus,
+            resolutionNotes: nextNotes,
+            syncedToGoogleSheet: true,
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `publicReviews/${payload.feedbackId}`);
+    }
+  }
+};
+
+export const getPublicReviewsFromFirestore = async (): Promise<FeedbackEntry[]> => {
+  try {
+    const q = query(
+      collection(db, 'publicReviews'),
+      orderBy('createdAt', 'desc'),
+      limit(100)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => d.data() as FeedbackEntry);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'publicReviews');
+    return [];
+  }
+};
+
+export const subscribeToPublicReviews = (
+  onEntries: (entries: FeedbackEntry[]) => void,
+  onError?: (err: unknown) => void
+): (() => void) => {
+  const q = query(
+    collection(db, 'publicReviews'),
+    orderBy('createdAt', 'desc'),
+    limit(100)
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => d.data() as FeedbackEntry);
+      onEntries(list);
+    },
+    (err) => {
+      handleFirestoreError(err, OperationType.LIST, 'publicReviews');
+      onError?.(err);
+    }
+  );
+};
+
+export const saveSharedFeedbackSheetUrl = async (sheetUrl: string): Promise<void> => {
+  if (!isCurrentUserFeedbackAdmin()) return;
+  try {
+    await setDoc(doc(db, 'appConfig', 'feedback_sync'), {
+      sheetUrl: String(sheetUrl || '').trim().slice(0, 400),
+      updatedAt: Date.now(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, 'appConfig/feedback_sync');
+  }
+};
+
+export const getSharedFeedbackSheetUrl = async (): Promise<string> => {
+  try {
+    const snap = await getDoc(doc(db, 'appConfig', 'feedback_sync'));
+    if (snap.exists()) {
+      return String(snap.data()?.sheetUrl || '');
+    }
+    return '';
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, 'appConfig/feedback_sync');
+    return '';
   }
 };
 

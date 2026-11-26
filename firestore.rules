@@ -102,6 +102,44 @@ service cloud.firestore {
         && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
     }
 
+    function isFeedbackAdmin() {
+      return isSignedInVerified() && request.auth.token.email.lower() == 'atifubedsoomro@gmail.com';
+    }
+
+    function isValidPublicReview(data) {
+      return data.keys().hasAll([
+          'feedbackId', 'date', 'userName', 'toolCategory', 'specificTool',
+          'feedbackType', 'rating', 'details', 'priority', 'status',
+          'resolutionNotes', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'feedbackId', 'date', 'userName', 'toolCategory', 'specificTool',
+          'feedbackType', 'rating', 'details', 'priority', 'status',
+          'resolutionNotes', 'syncedToGoogleSheet', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.feedbackId) && data.feedbackId.size() <= 64
+        && data.date is string && data.date.size() > 0 && data.date.size() <= 24
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 80
+        && data.toolCategory is string && data.toolCategory.size() > 0 && data.toolCategory.size() <= 64
+        && data.specificTool is string && data.specificTool.size() <= 100
+        && data.feedbackType is string && data.feedbackType.size() > 0 && data.feedbackType.size() <= 48
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.details is string && data.details.size() >= 3 && data.details.size() <= 650
+        && data.priority is string && data.priority.size() > 0 && data.priority.size() <= 24
+        && data.status is string && data.status.size() > 0 && data.status.size() <= 32
+        && data.resolutionNotes is string && data.resolutionNotes.size() <= 800
+        && data.createdAt is number && data.createdAt > 0
+        && (!('syncedToGoogleSheet' in data) || (data.syncedToGoogleSheet is bool))
+        && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
+    }
+
+    function isValidFeedbackSyncConfig(data) {
+      return data.keys().hasAll(['sheetUrl', 'updatedAt'])
+        && data.keys().hasOnly(['sheetUrl', 'updatedAt'])
+        && data.sheetUrl is string && data.sheetUrl.size() <= 400
+        && data.updatedAt is number && data.updatedAt > 0;
+    }
+
     match /documents/{docId} {
       allow get: if isValidId(docId) && isOwnerEmail(existing().userEmail);
       allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
@@ -136,6 +174,33 @@ service cloud.firestore {
         && incoming().userEmail == existing().userEmail
         && incoming().createdAt == existing().createdAt;
       allow delete: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
+    }
+
+    match /publicReviews/{reviewId} {
+      allow get, list: if true;
+      allow create: if isValidId(reviewId)
+        && isValidPublicReview(incoming())
+        && incoming().feedbackId == reviewId
+        && (
+          isFeedbackAdmin()
+          || (incoming().status == 'New' && incoming().resolutionNotes == '')
+        );
+      allow update: if isValidId(reviewId)
+        && isFeedbackAdmin()
+        && isValidPublicReview(incoming())
+        && incoming().feedbackId == existing().feedbackId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolutionNotes', 'syncedToGoogleSheet', 'updatedAt']);
+      allow delete: if isValidId(reviewId) && isFeedbackAdmin();
+    }
+
+    match /appConfig/{configId} {
+      allow get: if configId == 'feedback_sync';
+      allow list: if false;
+      allow create, update: if configId == 'feedback_sync'
+        && isFeedbackAdmin()
+        && isValidFeedbackSyncConfig(incoming());
+      allow delete: if configId == 'feedback_sync' && isFeedbackAdmin();
     }
   }
 }
