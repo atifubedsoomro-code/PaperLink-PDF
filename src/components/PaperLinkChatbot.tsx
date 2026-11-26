@@ -2471,9 +2471,9 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
                       { label: 'Open AI', onClick: () => setIsOpen(true) },
                       ...(onOpenFeedback ? [{ label: 'Feedback', onClick: onOpenFeedback }] : []),
                     ]}
-                    onClick={() => setIsOpen(true)}
+                    onPopupClick={() => setIsOpen(true)}
                     onFeedbackClick={onOpenFeedback}
-                    title="Expand PaperLink AI"
+                    title="Click to say hi (or poke 3x!)"
                   />
                 </div>
               )}

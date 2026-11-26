@@ -52,48 +52,49 @@ const ROAM_STAGES: RobotStage[] = [
     duckBehind: false,
     expression: 'wave',
     popupPlacement: 'below-left',
-    durationMs: 2600,
+    durationMs: 4200,
   },
   // 1: Smooth walk gliding cleanly behind the bounded navigation rail
   {
     anchor: 'studio',
-    offsetX: -18,
-    y: 4,
+    offsetX: -20,
+    y: 5,
     zIndex: 5,
     duckBehind: true,
     expression: 'funny-walk',
-    durationMs: 2200,
+    durationMs: 3600,
   },
-  // 2: Peek slyly over the bounded Cover Studio button edge
+  // 2: Hide behind Cover Studio button like a curious child peeking out and waving
   {
     anchor: 'studio',
-    offsetX: 16,
-    y: -4,
+    offsetX: 8,
+    y: -5,
     zIndex: 5,
     duckBehind: true,
-    expression: 'peek-hide',
-    durationMs: 1900,
+    expression: 'child-peek',
+    popupPlacement: 'below-center',
+    durationMs: 4200,
   },
-  // 3: Pop up beside PDF & Office / Image Tools with a friendly salute & context tip
+  // 3: Dance playfully beside Image Tools with a contextual tip
   {
     anchor: 'image-tools',
-    offsetX: -8,
-    y: 54,
+    offsetX: 6,
+    y: 10,
     zIndex: 30,
     duckBehind: false,
-    expression: 'salute',
+    expression: 'dance',
     popupPlacement: 'below-center',
-    durationMs: 3600,
+    durationMs: 4600,
   },
   // 4: Glide behind the right side of the nav bar toward Google "G"
   {
     anchor: 'google',
     offsetX: -48,
-    y: 12,
+    y: 8,
     zIndex: 5,
     duckBehind: true,
     expression: 'funny-walk',
-    durationMs: 2200,
+    durationMs: 3400,
   },
   // 5: Point right at the circular Google "G" button!
   {
@@ -104,17 +105,18 @@ const ROAM_STAGES: RobotStage[] = [
     duckBehind: false,
     expression: 'point-right',
     popupPlacement: 'below-right',
-    durationMs: 4400,
+    durationMs: 5600,
   },
-  // 6: Walk smoothly behind the bounded nav dock back to PDF & Office
+  // 6: Peek like a playful child behind the PDF & Office button edge
   {
     anchor: 'tools',
-    offsetX: 0,
-    y: 6,
+    offsetX: 4,
+    y: -5,
     zIndex: 5,
     duckBehind: true,
-    expression: 'funny-walk',
-    durationMs: 2200,
+    expression: 'child-peek',
+    popupPlacement: 'below-center',
+    durationMs: 4000,
   },
   // 7: Descend on Spider-Man web anchored directly to the bounded PDF & Office button edge
   {
@@ -126,18 +128,18 @@ const ROAM_STAGES: RobotStage[] = [
     expression: 'spiderman-hang',
     ropeLength: 38,
     popupPlacement: 'below-center',
-    durationMs: 5600,
+    durationMs: 6200,
   },
-  // 8: Cheerful celebrate jump beside Home/Brand before returning
+  // 8: Cheerful playful hop beside Home/Brand before looping
   {
     anchor: 'home',
-    offsetX: -12,
+    offsetX: -22,
     y: 10,
     zIndex: 28,
     duckBehind: false,
-    expression: 'celebrate',
+    expression: 'hop',
     popupPlacement: 'below-left',
-    durationMs: 2400,
+    durationMs: 3800,
   },
 ];
 
@@ -288,26 +290,27 @@ export const Navbar: React.FC<NavbarProps> = ({
       : { text: 'Create QR covers in seconds!', actionLabel: 'Cover Studio' };
 
   const roamingPopup: RobotPromptItem | null = (() => {
-    if (stageIdx === 0) {
-      return { text: 'Hi! Need help from PaperLink AI?', actionLabel: 'Chat' };
+    if (stageIdx === 5 && !isConnected) {
+      return { text: 'Sign in with Google to Explore Cover Studio!', actionLabel: 'Sign in' };
     }
-    if (stageIdx === 3) {
-      return contextTip;
-    }
-    if (stageIdx === 5) {
-      return isConnected
-        ? { text: 'Drive Ready! Explore Cover Studio!', actionLabel: 'Open Studio' }
-        : { text: 'Sign in with Google to Explore Cover Studio!', actionLabel: 'Sign in' };
-    }
-    if (stageIdx === 7) {
+    if (stageIdx === 7 && (engageToggle || roamingHovered)) {
       return engageToggle && onOpenFeedback
         ? { text: 'Are you loving PaperLink? Tell us!', isFeedback: true, actionLabel: 'Feedback' }
         : { text: 'Try 21+ PDF & Office Tools!', actionLabel: 'Explore' };
     }
-    if (stageIdx === 8) {
-      return { text: 'All tools run fast & private!', actionLabel: 'Studio' };
+    if (!roamingHovered) {
+      return null;
     }
-    return null;
+    if (stageIdx === 0) {
+      return { text: 'Hi! Need help from PaperLink AI?', actionLabel: 'Chat' };
+    }
+    if (stageIdx === 5 && isConnected) {
+      return { text: 'Drive Ready! Explore Cover Studio!', actionLabel: 'Open Studio' };
+    }
+    if (stageIdx === 3 || stageIdx === 2 || stageIdx === 6) {
+      return contextTip;
+    }
+    return { text: 'All tools run fast & private!', actionLabel: 'Studio' };
   })();
 
   const handleRoamingPopupClick = () => {
@@ -349,7 +352,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Choreographed Desktop Roaming Mini Robot */}
         {showMiniRobot && !prefersReducedMotion && robotCoords && (
           <motion.div
-            aria-hidden={currentStage.duckBehind}
             onMouseEnter={() => setRoamingHovered(true)}
             onMouseLeave={() => setRoamingHovered(false)}
             initial={false}
@@ -358,8 +360,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               y: robotCoords.y,
             }}
             transition={{
-              x: { type: 'spring', stiffness: 105, damping: 18, mass: 0.85 },
-              y: { type: 'spring', stiffness: 175, damping: 16 },
+              x: { type: 'spring', stiffness: 74, damping: 17, mass: 1.0 },
+              y: { type: 'spring', stiffness: 145, damping: 16 },
             }}
             style={{ zIndex: roamingHovered ? 35 : currentStage.zIndex }}
             className="hidden md:flex items-center absolute left-0 top-0 pointer-events-auto"
@@ -374,23 +376,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               quickActions={robotQuickActions}
               popupPlacement={currentStage.popupPlacement ?? 'below-center'}
               onPopupClick={handleRoamingPopupClick}
-              onClick={
-                stageIdx === 5 && !isConnected
-                  ? () => {
-                      if (!isLoggingIn) onLogin();
-                    }
-                  : stageIdx === 7
-                  ? () => onNavigate('tools')
-                  : onRestoreChatbot
-              }
               onFeedbackClick={onOpenFeedback}
-              title={
-                stageIdx === 5 && !isConnected
-                  ? 'Sign in with Google to Explore Cover Studio'
-                  : stageIdx === 7
-                  ? 'Explore PDF & Office Tools'
-                  : 'PaperLink AI Companion'
-              }
+              title="Click to say hi (or poke 3x if you dare!)"
             />
           </motion.div>
         )}
@@ -447,9 +434,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <MiniAiRobot
                       variant="topbar"
                       isHovered={aiPillHovered}
-                      onClick={onRestoreChatbot}
+                      onPopupClick={onRestoreChatbot}
                       onFeedbackClick={onOpenFeedback}
-                      title="Open PaperLink AI"
+                      title="Say hi to PaperLink Bot"
                       sizeClassName="w-8 h-8 overflow-visible drop-shadow-[0_3px_6px_rgba(0,0,0,0.24)]"
                     />
                   </div>

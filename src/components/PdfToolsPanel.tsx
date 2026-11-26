@@ -39,6 +39,7 @@ import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import { RobotProgressBar } from './RobotProgressBar';
+import { MiniAiRobot } from './MiniAiRobot';
 import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   PdfToWordMode,
@@ -750,13 +751,27 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* Desktop Left Compact Sidebar Navigation (Fits cleanly in 100% zoom without vertical scrolling) */}
       <aside className="hidden lg:flex lg:w-60 shrink-0 lg:h-full flex-col">
         <LiquidCrystalCard accentGlow="yellow" className="h-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden">
-          <div className="px-1">
-            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
-              PDF &amp; Office Studio
-            </p>
-            <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
-              Local Document Tools
-            </h1>
+          <div className="px-1 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+                PDF &amp; Office Studio
+              </p>
+              <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
+                Local Document Tools
+              </h1>
+            </div>
+            <MiniAiRobot
+              variant="topbar"
+              popupPlacement="below-right"
+              externalPopup={null}
+              quickActions={[
+                { label: 'Edit PDF', onClick: () => { resetFeedback(); onToolChange('pdf-edit'); } },
+                { label: 'Compress', onClick: () => { resetFeedback(); onToolChange('pdf-compress'); } },
+                { label: 'Merge', onClick: () => { resetFeedback(); onToolChange('pdf-merge'); } },
+              ]}
+              title="Click to say hi or hover for quick PDF tools!"
+              sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+            />
           </div>
 
           <LiquidCrystalButton
@@ -856,13 +871,22 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* Mobile & Tablet Compact Horizontal Switcher (< lg) */}
       <LiquidCrystalCard accentGlow="yellow" className="lg:hidden rounded-2xl p-3 space-y-2.5 shrink-0">
         <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
-              PDF &amp; Office Studio
-            </p>
-            <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight">
-              Local Document Tools
-            </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <MiniAiRobot
+              variant="topbar"
+              popupPlacement="below-left"
+              externalPopup={null}
+              title="Click to say hi!"
+              sizeClassName="w-8 h-8 overflow-visible drop-shadow-[0_3px_6px_rgba(0,0,0,0.2)]"
+            />
+            <div className="min-w-0">
+              <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+                PDF &amp; Office Studio
+              </p>
+              <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight truncate">
+                Local Document Tools
+              </h1>
+            </div>
           </div>
           <LiquidCrystalButton
             variant="yellow-parent"

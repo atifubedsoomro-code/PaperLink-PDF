@@ -29,6 +29,7 @@ import {
 } from '../services/pdfToolkit';
 import { renderPdfPages } from '../services/documentParser';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { MiniAiRobot } from './MiniAiRobot';
 import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import { ClipingPapersLogo } from './ClipingPapersLogo';
@@ -462,19 +463,32 @@ export const StudioScanCropPanel: React.FC<StudioScanCropPanelProps> = ({
     <div className="space-y-4">
       <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-yellow-400/20 text-amber-700 dark:text-yellow-400 border border-yellow-400/40">
-                <ScanLine className="w-3 h-3" />
-                <span>Crop / Scan</span>
-              </span>
-              <h2 className="text-base font-bold text-zinc-900 dark:text-white">
-                Physical Document Scanner &amp; Perspective Crop
-              </h2>
+          <div className="flex items-start gap-2.5">
+            <MiniAiRobot
+              variant="topbar"
+              popupPlacement="below-left"
+              externalPopup={null}
+              quickActions={[
+                { label: 'Upload Photos', onClick: () => fileInputRef.current?.click() },
+                ...(onBackToEditor ? [{ label: 'Cover Editor', onClick: onBackToEditor }] : []),
+              ]}
+              title="Click to say hi or hover for scan actions!"
+              sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-yellow-400/20 text-amber-700 dark:text-yellow-400 border border-yellow-400/40">
+                  <ScanLine className="w-3 h-3" />
+                  <span>Crop / Scan</span>
+                </span>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white">
+                  Physical Document Scanner &amp; Perspective Crop
+                </h2>
+              </div>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+                Upload phone photos of angled documents — auto-straightens 4 corners into crisp rectangular PDF pages while stripping desk backgrounds and watermarks.
+              </p>
             </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-              Upload phone photos of angled documents — auto-straightens 4 corners into crisp rectangular PDF pages while stripping desk backgrounds and watermarks.
-            </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

@@ -13,6 +13,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { deleteDocumentRecord } from '../firebase';
+import { MiniAiRobot } from './MiniAiRobot';
 
 interface HistoryDashboardProps {
   documents: SavedDocRecord[];
@@ -63,11 +64,20 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
     <div className="space-y-5">
       {/* Search & Header Bar */}
       <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-bold text-zinc-900 dark:text-white">Document Library</h2>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 tabular-nums">
-            {documents.length} saved {documents.length === 1 ? 'document' : 'documents'} · Synced with your browser & Google account
-          </p>
+        <div className="flex items-center gap-3">
+          <MiniAiRobot
+            variant="topbar"
+            popupPlacement="below-left"
+            externalPopup={null}
+            title="Click to say hi!"
+            sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+          />
+          <div>
+            <h2 className="text-base font-bold text-zinc-900 dark:text-white">Document Library</h2>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 tabular-nums">
+              {documents.length} saved {documents.length === 1 ? 'document' : 'documents'} · Synced with your browser & Google account
+            </p>
+          </div>
         </div>
 
         <div className="relative w-full sm:w-64">
@@ -84,8 +94,15 @@ export const HistoryDashboard: React.FC<HistoryDashboardProps> = ({
 
       {/* Document Grid */}
       {filteredDocs.length === 0 ? (
-        <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-12 text-center">
-          <QrCode className="w-10 h-10 text-zinc-400 dark:text-zinc-600 mx-auto mb-3" />
+        <div className="bg-white dark:bg-[var(--pl-surface)] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-10 sm:p-12 text-center flex flex-col items-center">
+          <MiniAiRobot
+            variant="hero"
+            expressionOverride="child-peek"
+            popupPlacement="below-center"
+            externalPopup={null}
+            title="Click me to say hi!"
+            sizeClassName="w-16 h-16 overflow-visible drop-shadow-[0_10px_18px_rgba(15,23,42,0.24)] mb-2"
+          />
           <h3 className="text-sm font-bold text-zinc-900 dark:text-white">No Saved Documents</h3>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-sm mx-auto mt-1">
             Documents synced via Cover Studio or Batch Processor appear here for quick reloading and sharing.

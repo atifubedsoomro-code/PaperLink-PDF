@@ -373,38 +373,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
                         {currentScene.id === 'qr-sync' && (
                           <div className="relative z-10 w-full grid grid-cols-12 gap-3.5 items-center">
-                            <motion.div
-                              initial={{ rotate: -2, y: 4 }}
-                              animate={{ rotate: [0, -1, 0], y: [0, -4, 0] }}
-                              transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
-                              className="col-span-5 bg-white rounded-xl p-3 shadow-[0_18px_36px_-10px_rgba(0,0,0,0.45)] border border-sky-300/60 space-y-2.5"
-                            >
-                              <div
-                                className="h-2.5 w-full rounded-sm"
-                                style={{ background: 'linear-gradient(90deg, #0f172a, #2563eb, #38bdf8)' }}
-                              />
-                              <div className="space-y-1.5">
-                                <div className="h-2.5 w-5/6 rounded-sm bg-slate-900" />
-                                <div className="h-1.5 w-3/5 rounded-sm bg-blue-600/65" />
+                            <div className="col-span-5 relative">
+                              {/* Curious Child-Like Robot Peeking & Waving Behind the Cover Sheet */}
+                              <div className="absolute -top-6 -left-2 z-0 pointer-events-auto">
+                                <MiniAiRobot
+                                  variant="hero"
+                                  expressionOverride="child-peek"
+                                  popupPlacement="below-left"
+                                  externalPopup={null}
+                                  title="Click to say hi!"
+                                  sizeClassName="w-12 h-12 overflow-visible drop-shadow-[0_6px_12px_rgba(0,0,0,0.4)]"
+                                />
                               </div>
-
-                              <div className="pt-2 flex items-end justify-between gap-2">
-                                <div className="space-y-1">
-                                  <div className="h-1.5 w-10 rounded bg-slate-400/50" />
-                                  <div className="h-1.5 w-8 rounded bg-slate-300/60" />
+                              <motion.div
+                                initial={{ rotate: -2, y: 4 }}
+                                animate={{ rotate: [0, -1, 0], y: [0, -4, 0] }}
+                                transition={{ repeat: Infinity, duration: 4.5, ease: 'easeInOut' }}
+                                className="relative z-10 bg-white rounded-xl p-3 shadow-[0_18px_36px_-10px_rgba(0,0,0,0.45)] border border-sky-300/60 space-y-2.5"
+                              >
+                                <div
+                                  className="h-2.5 w-full rounded-sm"
+                                  style={{ background: 'linear-gradient(90deg, #0f172a, #2563eb, #38bdf8)' }}
+                                />
+                                <div className="space-y-1.5">
+                                  <div className="h-2.5 w-5/6 rounded-sm bg-slate-900" />
+                                  <div className="h-1.5 w-3/5 rounded-sm bg-blue-600/65" />
                                 </div>
 
-                                <div className="relative w-12 h-12 rounded-lg border-2 border-blue-600 bg-white p-1 flex items-center justify-center overflow-hidden shadow-xs">
-                                  <QrCode className="w-8 h-8 text-slate-900" />
-                                  <motion.span
-                                    aria-hidden="true"
-                                    animate={{ y: [-18, 18, -18] }}
-                                    transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
-                                    className="absolute inset-x-0 h-0.5 bg-sky-400 shadow-[0_0_8px_#38bdf8]"
-                                  />
+                                <div className="pt-2 flex items-end justify-between gap-2">
+                                  <div className="space-y-1">
+                                    <div className="h-1.5 w-10 rounded bg-slate-400/50" />
+                                    <div className="h-1.5 w-8 rounded bg-slate-300/60" />
+                                  </div>
+
+                                  <div className="relative w-12 h-12 rounded-lg border-2 border-blue-600 bg-white p-1 flex items-center justify-center overflow-hidden shadow-xs">
+                                    <QrCode className="w-8 h-8 text-slate-900" />
+                                    <motion.span
+                                      aria-hidden="true"
+                                      animate={{ y: [-18, 18, -18] }}
+                                      transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
+                                      className="absolute inset-x-0 h-0.5 bg-sky-400 shadow-[0_0_8px_#38bdf8]"
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            </motion.div>
+                              </motion.div>
+                            </div>
 
                             <div className="col-span-7 space-y-2.5 text-slate-50">
                               <motion.div
@@ -619,35 +632,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </h2>
               </div>
 
-              {/* Animated Category Switcher */}
-              <div className="inline-grid grid-cols-2 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-[var(--pl-surface-soft)] dark:bg-zinc-950 shrink-0 self-start md:self-auto">
-                {[
-                  { id: 'pdf' as const, label: `PDF & Office (${PDF_OFFICE_TOOLS.length})` },
-                  { id: 'image' as const, label: `Image Studio (${DESIGNER_IMAGE_TOOLS.length})` },
-                ].map((tab) => {
-                  const isActive = activeSuiteTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setActiveSuiteTab(tab.id)}
-                      className={`relative px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                        isActive
-                          ? 'text-[var(--pl-cta-text)]'
-                          : 'text-zinc-700 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-                      }`}
-                    >
-                      {isActive && (
-                        <motion.span
-                          layoutId="landingToolkitTab"
-                          transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                          className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
-                        />
-                      )}
-                      <span className="relative z-10">{tab.label}</span>
-                    </button>
-                  );
-                })}
+              {/* Animated Category Switcher + Peeking Companion Robot */}
+              <div className="relative inline-flex items-center gap-2 shrink-0 self-start md:self-auto">
+                <div className="hidden sm:block relative -mr-3 -mt-2 z-0 pointer-events-auto">
+                  <MiniAiRobot
+                    variant="topbar"
+                    expressionOverride={activeSuiteTab === 'pdf' ? 'child-peek' : 'dance'}
+                    popupPlacement="below-left"
+                    externalPopup={null}
+                    title="Click to say hi!"
+                    sizeClassName="w-10 h-10 overflow-visible drop-shadow-[0_4px_10px_rgba(0,0,0,0.22)]"
+                  />
+                </div>
+                <div className="relative z-10 inline-grid grid-cols-2 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-[var(--pl-surface-soft)] dark:bg-zinc-950">
+                  {[
+                    { id: 'pdf' as const, label: `PDF & Office (${PDF_OFFICE_TOOLS.length})` },
+                    { id: 'image' as const, label: `Image Studio (${DESIGNER_IMAGE_TOOLS.length})` },
+                  ].map((tab) => {
+                    const isActive = activeSuiteTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveSuiteTab(tab.id)}
+                        className={`relative px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                          isActive
+                            ? 'text-[var(--pl-cta-text)]'
+                            : 'text-zinc-700 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                        }`}
+                      >
+                        {isActive && (
+                          <motion.span
+                            layoutId="landingToolkitTab"
+                            transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                            className="absolute inset-0 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] shadow-xs"
+                          />
+                        )}
+                        <span className="relative z-10">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </motion.div>
 

@@ -18,8 +18,8 @@ export default defineConfig(() => {
           short_name: 'PaperLink',
           description:
             'Design print-ready cover pages linked to Google Drive QR codes, auto-convert Word files, merge, split, compress, rotate, and sign PDFs locally.',
-          theme_color: '#09090b',
-          background_color: '#09090b',
+          theme_color: '#1e3a8a',
+          background_color: '#0f172a',
           display: 'standalone',
           start_url: '/',
           scope: '/',

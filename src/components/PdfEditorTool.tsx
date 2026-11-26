@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
+import { MiniAiRobot } from './MiniAiRobot';
 import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
 import {
@@ -627,27 +628,40 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
       {/* Parent Workspace Master Header */}
       <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl p-4 sm:p-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-              <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-yellow-400 flex items-center gap-1.5">
-                <PanelLeft className="w-3.5 h-3.5" />
-                <span>Parent PDF Studio</span>
-              </span>
-              {sourceFile && (
-                <>
-                  <span className="text-zinc-400" aria-hidden="true">·</span>
-                  <span className="text-zinc-600 dark:text-zinc-400 truncate max-w-xs sm:max-w-md tabular-nums">
-                    {sourceFile.name} · {pagePreviews.length}p · {formatBytes(sourceFile.size)}
-                  </span>
-                </>
-              )}
+          <div className="flex items-start gap-2.5">
+            <MiniAiRobot
+              variant="topbar"
+              popupPlacement="below-left"
+              externalPopup={null}
+              quickActions={[
+                { label: sourceFile ? 'Switch PDF' : 'Open PDF', onClick: () => pdfInputRef.current?.click() },
+                ...(sourceFile ? [{ label: 'Download', onClick: () => void handleExportOrSavePdf('download') }] : []),
+              ]}
+              title="Click to say hi or hover for quick PDF actions!"
+              sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+            />
+            <div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                <span className="font-bold uppercase tracking-wider text-amber-700 dark:text-yellow-400 flex items-center gap-1.5">
+                  <PanelLeft className="w-3.5 h-3.5" />
+                  <span>Parent PDF Studio</span>
+                </span>
+                {sourceFile && (
+                  <>
+                    <span className="text-zinc-400" aria-hidden="true">·</span>
+                    <span className="text-zinc-600 dark:text-zinc-400 truncate max-w-xs sm:max-w-md tabular-nums">
+                      {sourceFile.name} · {pagePreviews.length}p · {formatBytes(sourceFile.size)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <h2 className="text-base font-bold text-zinc-950 dark:text-white mt-1">
+                All-in-One Edit PDF Workspace — Apply Every Change on One Single PDF
+              </h2>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
+                Use the sidebar tools to edit text, pictures, signatures, clean watermarks, scan &amp; crop, rotate/merge/split pages, compress, protect, or export without re-uploading.
+              </p>
             </div>
-            <h2 className="text-base font-bold text-zinc-950 dark:text-white mt-1">
-              All-in-One Edit PDF Workspace — Apply Every Change on One Single PDF
-            </h2>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-              Use the sidebar tools to edit text, pictures, signatures, clean watermarks, scan &amp; crop, rotate/merge/split pages, compress, protect, or export without re-uploading.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">

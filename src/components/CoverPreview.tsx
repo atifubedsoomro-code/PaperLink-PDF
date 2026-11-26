@@ -16,6 +16,7 @@ import {
   Eye,
   Loader2,
 } from 'lucide-react';
+import { EdgeGrabRobot } from './EdgeGrabRobot';
 
 interface CoverPreviewProps {
   coverData: CoverData;
@@ -91,6 +92,8 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const stageScrollRef = useRef<HTMLDivElement>(null);
 
   const theme = COVER_THEMES.find((t) => t.id === coverData.themeId) || COVER_THEMES[0];
   const paperH = paperHeightFor(coverData.paperSize);
@@ -558,12 +561,33 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
   return (
     <div
+      ref={previewContainerRef}
       className={
         isFullscreen
           ? 'fixed inset-0 z-50 bg-zinc-950/95 p-4 sm:p-8 backdrop-blur-md flex flex-col'
           : 'relative flex flex-col h-full min-h-0'
       }
     >
+      <EdgeGrabRobot
+        containerRef={previewContainerRef}
+        scrollRef={stageScrollRef}
+        edge={isFullscreen ? 'top' : 'right'}
+        idleTip={
+          viewMode === 'grid'
+            ? 'Holding on while you browse pages!'
+            : 'Holding onto Document Preview!'
+        }
+        quickActions={[
+          {
+            label: viewMode === 'grid' ? 'Single Page' : `All ${totalPreviewPages}`,
+            onClick: () => setViewMode(viewMode === 'single' ? 'grid' : 'single'),
+          },
+          ...(onFullPreview ? [{ label: 'Full Preview', onClick: onFullPreview }] : []),
+          ...(onPrint ? [{ label: 'Print', onClick: onPrint }] : []),
+        ]}
+        onAction={onFullPreview}
+        className={isFullscreen ? 'top-2' : 'hidden md:block'}
+      />
       {/* Top Controls Bar */}
       <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between pb-3 px-1 gap-2">
         <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -669,6 +693,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
       {/* Stage */}
       <div
+        ref={stageScrollRef}
         className={`min-h-0 ${viewMode === 'grid' ? 'overflow-y-auto pr-1' : ''} ${
           isFullscreen ? 'flex-1' : 'h-[56vh] md:h-auto md:flex-1'
         }`}

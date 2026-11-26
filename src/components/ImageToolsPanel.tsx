@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { LiquidCrystalCard } from './LiquidCrystal';
 import { RobotProgressBar } from './RobotProgressBar';
+import { MiniAiRobot } from './MiniAiRobot';
 import { ReadyDownloadPayload } from './RobotDownloadPopup';
 import {
   Eraser,
@@ -859,13 +860,27 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       {/* Desktop Left Compact 11-Tool Sidebar (Fits 100% zoom cleanly without scrolling past header) */}
       <aside className="hidden lg:flex lg:w-56 shrink-0 lg:h-full flex-col">
         <LiquidCrystalCard className="h-full rounded-2xl p-3 flex flex-col gap-3 overflow-hidden">
-          <div className="px-1">
-            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
-              Image Studio
-            </p>
-            <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
-              Graphic Design Suite
-            </h1>
+          <div className="px-1 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+                Image Studio
+              </p>
+              <h1 className="text-sm font-extrabold text-zinc-900 dark:text-white tracking-tight mt-0.5">
+                Graphic Design Suite
+              </h1>
+            </div>
+            <MiniAiRobot
+              variant="topbar"
+              popupPlacement="below-right"
+              externalPopup={null}
+              quickActions={[
+                { label: 'BG Remover', onClick: () => { resetFeedback(); onToolChange('bg-remove'); } },
+                { label: 'Compress', onClick: () => { resetFeedback(); onToolChange('compress'); } },
+                { label: 'Resize', onClick: () => { resetFeedback(); onToolChange('resize'); } },
+              ]}
+              title="Click to say hi or hover for quick Image tools!"
+              sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+            />
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-1">
@@ -904,13 +919,22 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
 
       {/* Mobile & Tablet Horizontal Strip (< lg) */}
       <LiquidCrystalCard className="lg:hidden rounded-2xl p-3 space-y-2.5 shrink-0">
-        <div>
-          <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
-            Image Studio · Client-Side Processing
-          </p>
-          <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight mt-0.5">
-            Graphic Design Toolkit
-          </h1>
+        <div className="flex items-center gap-2.5">
+          <MiniAiRobot
+            variant="topbar"
+            popupPlacement="below-left"
+            externalPopup={null}
+            title="Click to say hi!"
+            sizeClassName="w-8 h-8 overflow-visible drop-shadow-[0_3px_6px_rgba(0,0,0,0.2)]"
+          />
+          <div className="min-w-0">
+            <p className="text-[10px] font-mono font-bold text-blue-700 dark:text-yellow-400 uppercase tracking-wider">
+              Image Studio · Client-Side Processing
+            </p>
+            <h1 className="text-base font-bold text-zinc-900 dark:text-white tracking-tight mt-0.5 truncate">
+              Graphic Design Toolkit
+            </h1>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">

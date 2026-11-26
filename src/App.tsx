@@ -34,6 +34,8 @@ import { ImageToolsPanel, ImageToolTab } from './components/ImageToolsPanel';
 import { TypewriterWelcome } from './components/TypewriterWelcome';
 import { TypewriterButton } from './components/TypewriterButton';
 import { RobotDownloadPopup, ReadyDownloadPayload } from './components/RobotDownloadPopup';
+import { RobotToastHost } from './components/RobotToastHost';
+import { MiniAiRobot } from './components/MiniAiRobot';
 import { AuthGateModal } from './components/AuthGateModal';
 import { LiquidCrystalButton, LiquidCrystalCard } from './components/LiquidCrystal';
 import {
@@ -1479,10 +1481,9 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={animationPace === 'off' ? 'always' : 'user'}>
       <div className="min-h-screen overflow-x-clip bg-zinc-50 text-zinc-900 dark:bg-[var(--pl-bg)] dark:text-white flex flex-col font-sans antialiased selection:bg-yellow-400 selection:text-black transition-colors duration-200">
-        <DocumentPreviewModal target={previewTarget} onClose={() => setPreviewTarget(null)} />
-
         <RobotDownloadPopup
           payload={downloadPopupPayload}
+          isPreviewOpen={Boolean(previewTarget)}
           onClose={() => setDownloadPopupPayload(null)}
           onPreview={(p) =>
             setPreviewTarget({
@@ -1498,6 +1499,10 @@ export default function App() {
             );
           }}
         />
+
+        <DocumentPreviewModal target={previewTarget} onClose={() => setPreviewTarget(null)} />
+
+        <RobotToastHost />
 
         {typewriterConfig.isOpen && (
           <TypewriterWelcome
@@ -1728,8 +1733,21 @@ export default function App() {
               {/* Unified Studio Control Bar (Single Navigation Row for Editor / Crop / Batch / Library + Mode Switch) */}
               <LiquidCrystalCard accentGlow="yellow" className="rounded-2xl px-3 py-2 sm:px-4">
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  {/* Left: Brand Title + Step Readout */}
+                  {/* Left: Brand Title + Step Readout + Studio Companion Robot */}
                   <div className="flex items-center gap-2 min-w-0">
+                    {showMiniRobot && (
+                      <MiniAiRobot
+                        variant="topbar"
+                        popupPlacement="below-left"
+                        externalPopup={null}
+                        onFeedbackClick={() => {
+                          setSettingsInitialTab('feedback');
+                          setIsSettingsOpen(true);
+                        }}
+                        title="Click to say hi to PaperLink Bot!"
+                        sizeClassName="w-8 h-8 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+                      />
+                    )}
                     <span className="text-sm font-extrabold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap">
                       Cover Studio
                     </span>

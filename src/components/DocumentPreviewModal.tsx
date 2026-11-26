@@ -19,6 +19,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { ClipingPapersLogo } from './ClipingPapersLogo';
+import { EdgeGrabRobot } from './EdgeGrabRobot';
 
 export interface PreviewTarget {
   title: string;
@@ -124,6 +125,8 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
   // ZIP state
   const [zipEntries, setZipEntries] = useState<ZipEntryItem[]>([]);
+  const modalCardRef = useRef<HTMLDivElement>(null);
+  const modalBodyRef = useRef<HTMLDivElement>(null);
 
   // Reset nested stack whenever top-level target changes
   useEffect(() => {
@@ -333,7 +336,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-5 bg-black/75 dark:bg-black/85 backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-center justify-center p-2 sm:p-5 bg-black/75 dark:bg-black/85 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="doc-preview-title"
@@ -341,9 +344,31 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-5xl w-full h-[min(90vh,860px)] shadow-2xl flex flex-col overflow-hidden">
+      <div
+        ref={modalCardRef}
+        className="relative bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-5xl w-full h-[min(90vh,860px)] shadow-2xl flex flex-col"
+      >
+        <EdgeGrabRobot
+          containerRef={modalCardRef}
+          scrollRef={modalBodyRef}
+          edge="right"
+          idleTip="Holding onto your document preview!"
+          quickActions={[
+            ...(kind === 'pdf' || kind === 'image'
+              ? [{ label: 'Zoom +', onClick: () => setZoom((z) => Math.min(2.4, Number((z + 0.2).toFixed(2)))) }]
+              : []),
+            ...(kind === 'pdf' && pdfTotalPages > 1
+              ? [{ label: 'Next Page', onClick: () => setPdfPage((p) => Math.min(pdfTotalPages, p + 1)) }]
+              : []),
+            ...(currentTarget.blob
+              ? [{ label: 'Download', onClick: () => triggerDownload(currentTarget.blob!, currentTarget.fileName) }]
+              : []),
+          ]}
+          className="hidden sm:block"
+        />
+
         {/* Modal Top Toolbar */}
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[var(--pl-bg)] flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[var(--pl-bg)] rounded-t-2xl flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             {activeStack.length > 0 && (
               <button
@@ -491,7 +516,10 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         </div>
 
         {/* Modal Body Viewport */}
-        <div className="flex-1 min-h-0 overflow-auto bg-zinc-100 dark:bg-[var(--pl-bg)] p-4 sm:p-6 flex flex-col items-center">
+        <div
+          ref={modalBodyRef}
+          className="flex-1 min-h-0 overflow-auto rounded-b-2xl bg-zinc-100 dark:bg-[var(--pl-bg)] p-4 sm:p-6 flex flex-col items-center"
+        >
           {isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center p-6">
               <ClipingPapersLogo

@@ -27,6 +27,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { FeedbackSection } from './FeedbackSection';
+import { MiniAiRobot } from './MiniAiRobot';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../services/feedbackSheets';
 
 export type ThemeMode = 'studio' | 'green' | 'light' | 'dark';
@@ -240,13 +241,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Compact Header */}
         <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/80 dark:bg-[var(--pl-surface-soft)] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] flex items-center justify-center shrink-0">
-              {activeTab === 'feedback' ? (
-                <MessageSquarePlus className="w-3.5 h-3.5 stroke-[2.5]" />
-              ) : (
-                <SlidersHorizontal className="w-3.5 h-3.5 stroke-[2.5]" />
-              )}
-            </div>
+            {showMiniRobot ? (
+              <MiniAiRobot
+                variant="topbar"
+                expressionOverride={activeTab === 'feedback' ? 'thumbs-up' : 'curious'}
+                popupPlacement="below-left"
+                externalPopup={null}
+                quickActions={[
+                  {
+                    label: activeTab === 'feedback' ? 'General' : 'Feedback',
+                    onClick: () => setActiveTab(activeTab === 'feedback' ? 'preferences' : 'feedback'),
+                  },
+                ]}
+                title="Click to say hi!"
+                sizeClassName="w-8 h-8 overflow-visible drop-shadow-[0_3px_6px_rgba(0,0,0,0.2)]"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-[linear-gradient(180deg,var(--pl-cta-from),var(--pl-cta-to))] text-[var(--pl-cta-text)] flex items-center justify-center shrink-0">
+                {activeTab === 'feedback' ? (
+                  <MessageSquarePlus className="w-3.5 h-3.5 stroke-[2.5]" />
+                ) : (
+                  <SlidersHorizontal className="w-3.5 h-3.5 stroke-[2.5]" />
+                )}
+              </div>
+            )}
             <h3 id="settings-modal-title" className="font-bold text-zinc-900 dark:text-white text-sm truncate">
               {activeTab === 'feedback' ? 'Feedback & Google Sheet Sync' : 'Settings'}
             </h3>

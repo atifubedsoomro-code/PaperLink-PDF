@@ -106,7 +106,7 @@ export const PaperLinkLogo: React.FC<PaperLinkLogoProps> = ({
           width="2.8"
           height="2.8"
           rx="0.6"
-          fill="#FACC15"
+          fill="#38BDF8"
           className="dark:fill-zinc-950"
         />
       </svg>

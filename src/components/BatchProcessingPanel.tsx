@@ -18,6 +18,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { RobotProgressBar } from './RobotProgressBar';
+import { MiniAiRobot } from './MiniAiRobot';
 
 interface BatchProcessingPanelProps {
   batchItems: BatchItem[];
@@ -252,18 +253,31 @@ export const BatchProcessingPanel: React.FC<BatchProcessingPanelProps> = ({
     <div className="space-y-5">
       {/* Batch Header */}
       <div className="bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 text-xs text-zinc-600 dark:text-zinc-400 mb-1">
-            <span className="font-mono text-amber-700 dark:text-yellow-400 font-semibold">Batch Processor</span>
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">{batchItems.length} files queued</span>
+        <div className="flex items-start gap-3">
+          <MiniAiRobot
+            variant="topbar"
+            popupPlacement="below-left"
+            externalPopup={null}
+            quickActions={[
+              { label: 'Add Files', onClick: () => fileInputRef.current?.click() },
+              ...(batchItems.length > 0 ? [{ label: 'Apply Theme', onClick: handleApplyThemeToAll }] : []),
+            ]}
+            title="Click to say hi or hover for batch shortcuts!"
+            sizeClassName="w-9 h-9 overflow-visible drop-shadow-[0_4px_8px_rgba(0,0,0,0.2)]"
+          />
+          <div>
+            <div className="flex items-center gap-2.5 text-xs text-zinc-600 dark:text-zinc-400 mb-1">
+              <span className="font-mono text-amber-700 dark:text-yellow-400 font-semibold">Batch Processor</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{batchItems.length} files queued</span>
+            </div>
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white tracking-tight">
+              Simultaneous Multi-File Cover & Drive QR Queue
+            </h2>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+              Queue PDF and Word files, apply your studio theme, upload to Google Drive, and export merged PDFs.
+            </p>
           </div>
-          <h2 className="text-lg font-bold text-zinc-900 dark:text-white tracking-tight">
-            Simultaneous Multi-File Cover & Drive QR Queue
-          </h2>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            Queue PDF and Word files, apply your studio theme, upload to Google Drive, and export merged PDFs.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">

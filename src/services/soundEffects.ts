@@ -331,6 +331,140 @@ class TypewriterAudio {
       // ignore
     }
   }
+
+  private isSoundMuted(): boolean {
+    try {
+      return typeof window !== 'undefined' && localStorage.getItem('paperlink_chat_sound') === 'muted';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Exciting playful "Heloooooooooow!" vocalization + bright melodic chime on clicking the robot.
+   */
+  public playRobotExcitedHello() {
+    if (this.isSoundMuted()) return;
+    try {
+      const ctx = this.ensureAudioGraph();
+      if (ctx && this.masterGain) {
+        const now = ctx.currentTime;
+        // Playful ascending "He-loooooow!" formant glide + sparkle chord
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const start = now + idx * 0.055;
+          const dur = idx === notes.length - 1 ? 0.38 : 0.14;
+          osc.type = idx === notes.length - 1 ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(freq, start);
+          if (idx === notes.length - 1) {
+            osc.frequency.exponentialRampToValueAtTime(freq * 1.12, start + 0.24);
+          }
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(idx === notes.length - 1 ? 0.16 : 0.11, start + 0.018);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+          osc.connect(gain);
+          gain.connect(this.masterGain!);
+          osc.start(start);
+          osc.stop(start + dur + 0.02);
+        });
+      }
+
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance('Helloooooooooow!');
+          utter.pitch = 1.55;
+          utter.rate = 1.08;
+          utter.volume = 0.85;
+          window.speechSynthesis.speak(utter);
+        } catch {
+          // Speech synthesis optional
+        }
+      }
+    } catch {
+      // ignore audio restrictions
+    }
+  }
+
+  /**
+   * Exhausting "Ahhhhh!" sigh + annoyed robot voice after 3-4 rapid clicks.
+   */
+  public playRobotAngrySigh() {
+    if (this.isSoundMuted()) return;
+    try {
+      const ctx = this.ensureAudioGraph();
+      if (ctx && this.masterGain) {
+        const now = ctx.currentTime;
+
+        // 1. Breathy "Ahhhhh!" exhale noise sweep
+        const sighLen = Math.floor(ctx.sampleRate * 0.85);
+        const sighBuf = ctx.createBuffer(1, sighLen, ctx.sampleRate);
+        const ch = sighBuf.getChannelData(0);
+        for (let i = 0; i < sighLen; i++) {
+          const t = i / sighLen;
+          const env = Math.sin(Math.min(1, t * 4) * Math.PI * 0.5) * Math.pow(1 - t, 1.35);
+          ch[i] = (Math.random() * 2 - 1) * env;
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = sighBuf;
+
+        const formant = ctx.createBiquadFilter();
+        formant.type = 'bandpass';
+        formant.frequency.setValueAtTime(980, now);
+        formant.frequency.exponentialRampToValueAtTime(340, now + 0.82);
+        formant.Q.setValueAtTime(2.4, now);
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.28, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.84);
+
+        noise.connect(formant);
+        formant.connect(noiseGain);
+        noiseGain.connect(this.masterGain);
+        noise.start(now);
+        noise.stop(now + 0.86);
+
+        // 2. Descending exasperated vocal tone ("Ahhhhh!")
+        const osc = ctx.createOscillator();
+        const lpf = ctx.createBiquadFilter();
+        const oscGain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(275, now);
+        osc.frequency.exponentialRampToValueAtTime(128, now + 0.78);
+
+        lpf.type = 'lowpass';
+        lpf.frequency.setValueAtTime(820, now);
+        lpf.frequency.exponentialRampToValueAtTime(360, now + 0.78);
+
+        oscGain.gain.setValueAtTime(0.0001, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.14, now + 0.06);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+
+        osc.connect(lpf);
+        lpf.connect(oscGain);
+        oscGain.connect(this.masterGain);
+        osc.start(now);
+        osc.stop(now + 0.82);
+      }
+
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance('Ahhhhh! Why are you disturbing me? Do your work!');
+          utter.pitch = 0.76;
+          utter.rate = 1.04;
+          utter.volume = 0.9;
+          window.speechSynthesis.speak(utter);
+        } catch {
+          // Speech synthesis optional
+        }
+      }
+    } catch {
+      // ignore audio restrictions
+    }
+  }
 }
 
 export const typewriterAudio = new TypewriterAudio();

@@ -31,6 +31,7 @@ interface RobotDownloadPopupProps {
   onClose: () => void;
   onPreview?: (payload: ReadyDownloadPayload) => void;
   onSendToCoverStudio?: (payload: ReadyDownloadPayload) => void;
+  isPreviewOpen?: boolean;
 }
 
 function formatFileSize(bytes?: number): string {
@@ -67,6 +68,7 @@ export const RobotDownloadPopup: React.FC<RobotDownloadPopupProps> = ({
   onClose,
   onPreview,
   onSendToCoverStudio,
+  isPreviewOpen = false,
 }) => {
   const prefersReduced = useReducedMotion();
   const [hasDownloaded, setHasDownloaded] = useState(false);
@@ -76,13 +78,13 @@ export const RobotDownloadPopup: React.FC<RobotDownloadPopupProps> = ({
   }, [payload?.fileName, payload?.fileSizeBytes]);
 
   useEffect(() => {
-    if (!payload) return;
+    if (!payload || isPreviewOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [payload, onClose]);
+  }, [payload, isPreviewOpen, onClose]);
 
   const handleDownloadNow = () => {
     if (!payload) return;
@@ -111,11 +113,14 @@ export const RobotDownloadPopup: React.FC<RobotDownloadPopupProps> = ({
       {payload && (
         <div
           role="dialog"
-          aria-modal="true"
+          aria-modal={!isPreviewOpen}
+          aria-hidden={isPreviewOpen}
           aria-labelledby="robot-download-popup-title"
-          className="no-print fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/60 dark:bg-black/75 backdrop-blur-md"
+          className={`no-print fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/60 dark:bg-black/75 backdrop-blur-md transition-opacity duration-150 ${
+            isPreviewOpen ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
+          }`}
           onClick={(e) => {
-            if (e.target === e.currentTarget) onClose();
+            if (!isPreviewOpen && e.target === e.currentTarget) onClose();
           }}
         >
           <motion.div

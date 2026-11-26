@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   HardDrive,
   CheckCircle2,
@@ -20,6 +20,7 @@ import { DriveUploadMode, DriveUploadResult } from '../types';
 import { TokenExpiryInfo } from '../firebase';
 import { TypewriterButton } from './TypewriterButton';
 import { RobotProgressBar } from './RobotProgressBar';
+import { triggerRobotToast } from '../services/robotToast';
 
 interface DriveSyncPanelProps {
   uploadResult: DriveUploadResult | null;
@@ -62,12 +63,61 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
   const [mode, setMode] = useState<'auto' | 'manual'>('auto');
   const [manualUrl, setManualUrl] = useState('');
   const [manualError, setManualError] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
-  const handleCopyLink = () => {
-    if (uploadResult?.webViewLink) {
-      navigator.clipboard.writeText(uploadResult.webViewLink);
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const handleCopyLink = async () => {
+    const linkToCopy = uploadResult?.webViewLink;
+    if (!linkToCopy) return;
+
+    let didCopy = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(linkToCopy);
+        didCopy = true;
+      }
+    } catch {
+      didCopy = false;
+    }
+
+    if (!didCopy) {
+      try {
+        const tempInput = document.createElement('textarea');
+        tempInput.value = linkToCopy;
+        tempInput.setAttribute('readonly', '');
+        tempInput.style.position = 'fixed';
+        tempInput.style.opacity = '0';
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        didCopy = document.execCommand('copy');
+        document.body.removeChild(tempInput);
+      } catch {
+        didCopy = false;
+      }
+    }
+
+    if (didCopy) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 2200);
+      triggerRobotToast({
+        message: 'Google Drive link copied!',
+        subText: 'Ready to paste or share anywhere.',
+        expression: 'thumbs-up',
+        durationMs: 2800,
+      });
+    } else {
+      triggerRobotToast({
+        message: 'Could not copy automatically',
+        subText: 'Select the link box and press Ctrl+C / Cmd+C.',
+        expression: 'curious',
+        durationMs: 3200,
+      });
     }
   };
 
@@ -276,12 +326,15 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={handleCopyLink}
-                    className="px-3.5 py-2 bg-yellow-400 hover:bg-yellow-300 text-black rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer flex-shrink-0"
-                    title="Copy shareable link"
+                    onClick={() => {
+                      void handleCopyLink();
+                    }}
+                    aria-label="Copy Google Drive link to clipboard"
+                    className="px-3.5 py-2 bg-yellow-400 hover:bg-yellow-300 text-black rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                    title="Copy Google Drive link"
                   >
                     {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                    <span>{copied ? 'Copied!' : 'Copy Link'}</span>
                   </button>
                 </div>
 
@@ -305,7 +358,9 @@ export const DriveSyncPanel: React.FC<DriveSyncPanelProps> = ({
                       <div className="flex flex-wrap items-center gap-3 pt-0.5 text-[11px]">
                         <button
                           type="button"
-                          onClick={handleCopyLink}
+                          onClick={() => {
+                            void handleCopyLink();
+                          }}
                           className="text-amber-700 dark:text-yellow-400 hover:underline font-semibold cursor-pointer"
                         >
                           {copied ? 'Public Link Copied' : 'Copy Public Link'}
