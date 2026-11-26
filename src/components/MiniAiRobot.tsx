@@ -389,6 +389,7 @@ export const MiniAiRobot: React.FC<MiniAiRobotProps> = ({
   } p-0.5`;
 
   const handleRobotClick = () => {
+    typewriterAudio.unlock();
     const now = Date.now();
     // Retain clicks within the last 4.5 seconds to detect 3-4 rapid disturbing pokes
     clickTimesRef.current = [...clickTimesRef.current.filter((t) => now - t < 4500), now];
@@ -399,7 +400,7 @@ export const MiniAiRobot: React.FC<MiniAiRobotProps> = ({
       setPetBurstActive(false);
       setAngryActive(true);
       setClickSpeechOverride({
-        text: 'Why are you disturbing me? Do your work!',
+        text: 'BZZZT! Why are you disturbing me? Do your work!',
         isAngry: true,
       });
       typewriterAudio.playRobotAngrySigh();
@@ -415,9 +416,9 @@ export const MiniAiRobot: React.FC<MiniAiRobotProps> = ({
       return;
     }
 
-    // 1st-2nd click: Exciting "Heloooooooooow!" sound + joyful celebrate bounce
+    // 1st-2nd click: Exciting robotic droid chirp + joyful celebrate bounce
     typewriterAudio.playRobotExcitedHello();
-    setClickSpeechOverride({ text: 'Heloooooooooow!' });
+    setClickSpeechOverride({ text: 'BEEP-BOOP! Helooo!' });
     if (speechTimerRef.current) window.clearTimeout(speechTimerRef.current);
     speechTimerRef.current = window.setTimeout(() => {
       setClickSpeechOverride(null);

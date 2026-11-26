@@ -84,6 +84,24 @@ service cloud.firestore {
         && (!('qrPosition' in data) || (data.qrPosition is string && data.qrPosition.size() <= 24));
     }
 
+    function isValidPhotoBatchPreset(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'category', 'setup', 'createdAt', 'userEmail'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'category', 'includeMarks', 'setup', 'updatedAt', 'createdAt', 'userEmail'
+        ])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 40
+        && data.setup is map
+        && data.createdAt is number && data.createdAt > 0
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && (!('includeMarks' in data) || (data.includeMarks is bool))
+        && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
+    }
+
     match /documents/{docId} {
       allow get: if isValidId(docId) && isOwnerEmail(existing().userEmail);
       allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
@@ -106,6 +124,18 @@ service cloud.firestore {
         && incoming().userEmail == existing().userEmail
         && incoming().createdAt == existing().createdAt;
       allow delete: if isValidId(kitId) && isOwnerEmail(existing().userEmail);
+    }
+
+    match /photoBatchPresets/{presetId} {
+      allow get: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
+      allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
+      allow create: if isValidId(presetId) && isValidPhotoBatchPreset(incoming()) && incoming().id == presetId;
+      allow update: if isValidId(presetId)
+        && isOwnerEmail(existing().userEmail)
+        && isValidPhotoBatchPreset(incoming())
+        && incoming().userEmail == existing().userEmail
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
     }
   }
 }

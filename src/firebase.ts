@@ -18,7 +18,7 @@ import {
   where,
   deleteDoc,
 } from 'firebase/firestore';
-import { SavedDocRecord, BrandKitPreset } from './types';
+import { SavedDocRecord, BrandKitPreset, PhotoBatchPresetRecord } from './types';
 import appletConfig from '../firebase-applet-config.json';
 
 // Configure Firebase via Vite env vars (Vercel) or firebase-applet-config.json (AI Studio)
@@ -498,3 +498,104 @@ export const deleteBrandKit = async (kitId: string): Promise<void> => {
     }
   }
 };
+
+// ==========================================
+// Photo Batch Studio Presets Persistence
+// ==========================================
+const LOCAL_STORAGE_PHOTO_PRESETS_KEY = 'paperlink_photo_batch_presets';
+
+function stripHeavyLogosForCloud(preset: PhotoBatchPresetRecord): PhotoBatchPresetRecord {
+  const safeMarks = (preset.setup.marks || []).map((m) =>
+    m.imgData && m.imgData.length > 180000
+      ? { ...m, imgData: null, imgName: m.imgName ? `${m.imgName} (local logo)` : 'Logo' }
+      : m
+  );
+  return {
+    ...preset,
+    setup: {
+      ...preset.setup,
+      marks: safeMarks,
+    },
+  };
+}
+
+export const savePhotoBatchPreset = async (preset: PhotoBatchPresetRecord): Promise<void> => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_PHOTO_PRESETS_KEY);
+    const existing: PhotoBatchPresetRecord[] = raw ? JSON.parse(raw) : [];
+    const updated = [preset, ...existing.filter((p) => p.id !== preset.id)];
+    localStorage.setItem(LOCAL_STORAGE_PHOTO_PRESETS_KEY, JSON.stringify(updated));
+  } catch (err) {
+    console.warn('PhotoBatchPreset local save warning:', err);
+  }
+
+  if (auth.currentUser && preset.userEmail) {
+    try {
+      const cloudSafe = stripHeavyLogosForCloud(preset);
+      await setDoc(doc(db, 'photoBatchPresets', preset.id), sanitizeForFirestore(cloudSafe), {
+        merge: true,
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `photoBatchPresets/${preset.id}`);
+    }
+  }
+};
+
+export const getPhotoBatchPresets = async (
+  userEmail?: string
+): Promise<PhotoBatchPresetRecord[]> => {
+  let cloudPresets: PhotoBatchPresetRecord[] = [];
+  if (auth.currentUser && userEmail) {
+    try {
+      const col = collection(db, 'photoBatchPresets');
+      const q = query(col, where('userEmail', '==', userEmail));
+      const snap = await getDocs(q);
+      cloudPresets = snap.docs.map((d) => d.data() as PhotoBatchPresetRecord);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'photoBatchPresets');
+    }
+  }
+
+  let localPresets: PhotoBatchPresetRecord[] = [];
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_PHOTO_PRESETS_KEY);
+    if (raw) {
+      localPresets = JSON.parse(raw);
+      if (userEmail) {
+        localPresets = localPresets.filter((p) => !p.userEmail || p.userEmail === userEmail);
+      }
+    }
+  } catch (err) {
+    console.warn('PhotoBatchPreset local read error:', err);
+  }
+
+  const map = new Map<string, PhotoBatchPresetRecord>();
+  [...cloudPresets, ...localPresets].forEach((p) => map.set(p.id, p));
+  return Array.from(map.values()).sort(
+    (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)
+  );
+};
+
+export const deletePhotoBatchPreset = async (presetId: string): Promise<void> => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_PHOTO_PRESETS_KEY);
+    if (raw) {
+      const existing: PhotoBatchPresetRecord[] = JSON.parse(raw);
+      localStorage.setItem(
+        LOCAL_STORAGE_PHOTO_PRESETS_KEY,
+        JSON.stringify(existing.filter((p) => p.id !== presetId))
+      );
+    }
+  } catch (err) {
+    console.warn('PhotoBatchPreset local delete error:', err);
+  }
+
+  if (auth.currentUser) {
+    try {
+      await deleteDoc(doc(db, 'photoBatchPresets', presetId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `photoBatchPresets/${presetId}`);
+    }
+  }
+};
+

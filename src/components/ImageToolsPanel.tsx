@@ -34,6 +34,7 @@ import {
   Droplets,
   EyeOff,
   LayoutGrid,
+  Images,
 } from 'lucide-react';
 import {
   BgFillMode,
@@ -55,9 +56,11 @@ import {
 } from '../services/imageToolkit';
 import { PdfToImageTool } from './PdfToImageTool';
 import { ImageRoutineTools } from './ImageRoutineTools';
+import { PhotoBatchStudio } from './PhotoBatchStudio';
 import { PreviewTarget } from './DocumentPreviewModal';
 
 export type ImageToolTab =
+  | 'photo-batch'
   | 'bg-remove'
   | 'bulk-bg-remove'
   | 'watermark-remove'
@@ -73,6 +76,7 @@ export type ImageToolTab =
 interface ImageToolsPanelProps {
   activeTool: ImageToolTab;
   onToolChange: (tool: ImageToolTab) => void;
+  userEmail?: string;
   onUseAsCoverLogo?: (dataUrl: string) => void;
   onTaskComplete?: (info: {
     headline: string;
@@ -99,6 +103,7 @@ const IMAGE_TOOL_TABS: {
 }[] = [
   { id: 'bg-remove', label: 'BG Remover', icon: Eraser },
   { id: 'bulk-bg-remove', label: 'Bulk BG Remover', icon: Layers },
+  { id: 'photo-batch', label: 'Photo Batch Studio', icon: Images },
   { id: 'watermark-remove', label: 'Watermark Remover', icon: Droplets },
   { id: 'blur-redact', label: 'Blur & Redact', icon: EyeOff },
   { id: 'grid-collage', label: 'Photo Grid / IDs', icon: LayoutGrid },
@@ -145,6 +150,7 @@ function isImageFile(file: File): boolean {
 export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
   activeTool,
   onToolChange,
+  userEmail,
   onUseAsCoverLogo,
   onTaskComplete,
   onPreviewDocument,
@@ -874,6 +880,7 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
               popupPlacement="below-right"
               externalPopup={null}
               quickActions={[
+                { label: 'Photo Batch', onClick: () => { resetFeedback(); onToolChange('photo-batch'); } },
                 { label: 'BG Remover', onClick: () => { resetFeedback(); onToolChange('bg-remove'); } },
                 { label: 'Compress', onClick: () => { resetFeedback(); onToolChange('compress'); } },
                 { label: 'Resize', onClick: () => { resetFeedback(); onToolChange('resize'); } },
@@ -2938,6 +2945,18 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           setIsWorking={setIsWorking}
           onTaskComplete={onTaskComplete}
           onSendResultToTool={sendResultToTool}
+        />
+      )}
+
+      {/* ===================================================== */}
+      {/* 12. PHOTO BATCH STUDIO (PRESETS, ADJUST, MARKS, ZIP)  */}
+      {/* ===================================================== */}
+      {activeTool === 'photo-batch' && (
+        <PhotoBatchStudio
+          userEmail={userEmail}
+          onUseAsCoverLogo={onUseAsCoverLogo}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
         />
       )}
       </div>

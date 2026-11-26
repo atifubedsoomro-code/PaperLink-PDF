@@ -341,47 +341,105 @@ class TypewriterAudio {
   }
 
   /**
-   * Exciting playful "Heloooooooooow!" vocalization + bright melodic chime on clicking the robot.
+   * Play a short FM-modulated robotic droid syllable through a resonant formant filter.
    */
-  public playRobotExcitedHello() {
+  private triggerDroidSyllable(
+    ctx: AudioContext,
+    startAt: number,
+    duration: number,
+    startFreq: number,
+    endFreq: number,
+    opts?: {
+      wave?: OscillatorType;
+      modFreq?: number;
+      modDepth?: number;
+      filterFreq?: number;
+      filterQ?: number;
+      peakGain?: number;
+    }
+  ) {
+    if (!this.masterGain) return;
+    const wave = opts?.wave ?? 'square';
+    const modFreq = opts?.modFreq ?? 72;
+    const modDepth = opts?.modDepth ?? 90;
+    const filterFreq = opts?.filterFreq ?? Math.max(600, (startFreq + endFreq) * 0.9);
+    const filterQ = opts?.filterQ ?? 2.4;
+    const peakGain = opts?.peakGain ?? 0.12;
+
+    const carrier = ctx.createOscillator();
+    carrier.type = wave;
+    carrier.frequency.setValueAtTime(Math.max(40, startFreq), startAt);
+    carrier.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), startAt + duration);
+
+    const mod = ctx.createOscillator();
+    mod.type = 'sine';
+    mod.frequency.setValueAtTime(modFreq, startAt);
+
+    const modGain = ctx.createGain();
+    modGain.gain.setValueAtTime(modDepth, startAt);
+    mod.connect(modGain);
+    modGain.connect(carrier.frequency);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(filterFreq, startAt);
+    filter.Q.setValueAtTime(filterQ, startAt);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, startAt);
+    env.gain.exponentialRampToValueAtTime(peakGain, startAt + Math.min(0.015, duration * 0.2));
+    env.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+
+    carrier.connect(filter);
+    filter.connect(env);
+    env.connect(this.masterGain);
+
+    carrier.start(startAt);
+    mod.start(startAt);
+    carrier.stop(startAt + duration + 0.02);
+    mod.stop(startAt + duration + 0.02);
+  }
+
+  /**
+   * Subtle robotic micro-chirp for curious or friendly telemetry cues.
+   */
+  public playRobotChirp(mood: 'happy' | 'curious' | 'notify' = 'happy') {
     if (this.isSoundMuted()) return;
     try {
       const ctx = this.ensureAudioGraph();
-      if (ctx && this.masterGain) {
-        const now = ctx.currentTime;
-        // Playful ascending "He-loooooow!" formant glide + sparkle chord
-        const notes = [523.25, 659.25, 783.99, 1046.5];
-        notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          const start = now + idx * 0.055;
-          const dur = idx === notes.length - 1 ? 0.38 : 0.14;
-          osc.type = idx === notes.length - 1 ? 'triangle' : 'sine';
-          osc.frequency.setValueAtTime(freq, start);
-          if (idx === notes.length - 1) {
-            osc.frequency.exponentialRampToValueAtTime(freq * 1.12, start + 0.24);
-          }
-          gain.gain.setValueAtTime(0.0001, start);
-          gain.gain.exponentialRampToValueAtTime(idx === notes.length - 1 ? 0.16 : 0.11, start + 0.018);
-          gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-          osc.connect(gain);
-          gain.connect(this.masterGain!);
-          osc.start(start);
-          osc.stop(start + dur + 0.02);
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
+      if (mood === 'curious') {
+        this.triggerDroidSyllable(ctx, now, 0.09, 640, 1120, {
+          wave: 'triangle',
+          modFreq: 48,
+          modDepth: 55,
+          filterFreq: 1350,
+          peakGain: 0.09,
         });
-      }
-
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const utter = new SpeechSynthesisUtterance('Helloooooooooow!');
-          utter.pitch = 1.55;
-          utter.rate = 1.08;
-          utter.volume = 0.85;
-          window.speechSynthesis.speak(utter);
-        } catch {
-          // Speech synthesis optional
-        }
+      } else if (mood === 'notify') {
+        this.triggerDroidSyllable(ctx, now, 0.06, 880, 1180, {
+          wave: 'triangle',
+          modFreq: 35,
+          modDepth: 25,
+          filterFreq: 1600,
+          peakGain: 0.075,
+        });
+        this.triggerDroidSyllable(ctx, now + 0.075, 0.08, 1320, 1568, {
+          wave: 'sine',
+          modFreq: 20,
+          modDepth: 15,
+          filterFreq: 1800,
+          peakGain: 0.07,
+        });
+      } else {
+        this.triggerDroidSyllable(ctx, now, 0.075, 760, 1180, {
+          wave: 'square',
+          modFreq: 65,
+          modDepth: 75,
+          filterFreq: 1500,
+          peakGain: 0.09,
+        });
       }
     } catch {
       // ignore audio restrictions
@@ -389,78 +447,199 @@ class TypewriterAudio {
   }
 
   /**
-   * Exhausting "Ahhhhh!" sigh + annoyed robot voice after 3-4 rapid clicks.
+   * Excited playful robotic droid greeting ("Beep-Boop-Whirrr-Bip!") on clicking the robot.
+   * Synthesized 100% via Web Audio API (no human voice or speech synthesis).
+   */
+  public playRobotExcitedHello() {
+    if (this.isSoundMuted()) return;
+    try {
+      const ctx = this.ensureAudioGraph();
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
+
+      // 1. Opening friendly droid "Bip!"
+      this.triggerDroidSyllable(ctx, now, 0.08, 560, 860, {
+        wave: 'square',
+        modFreq: 88,
+        modDepth: 95,
+        filterFreq: 1450,
+        filterQ: 2.2,
+        peakGain: 0.13,
+      });
+
+      // 2. Excited ascending robotic servo whistle with rapid vibrato ("Whirrr-beeeep!")
+      const whistle = ctx.createOscillator();
+      const harmonic = ctx.createOscillator();
+      const vibrato = ctx.createOscillator();
+      const vibratoGain = ctx.createGain();
+      const formant = ctx.createBiquadFilter();
+      const whistleGain = ctx.createGain();
+      const whistleStart = now + 0.095;
+      const whistleDur = 0.28;
+
+      whistle.type = 'triangle';
+      whistle.frequency.setValueAtTime(720, whistleStart);
+      whistle.frequency.exponentialRampToValueAtTime(1340, whistleStart + 0.17);
+      whistle.frequency.exponentialRampToValueAtTime(1160, whistleStart + whistleDur);
+
+      harmonic.type = 'square';
+      harmonic.frequency.setValueAtTime(1440, whistleStart);
+      harmonic.frequency.exponentialRampToValueAtTime(2680, whistleStart + 0.17);
+      harmonic.frequency.exponentialRampToValueAtTime(2320, whistleStart + whistleDur);
+
+      vibrato.type = 'sine';
+      vibrato.frequency.setValueAtTime(28, whistleStart);
+      vibratoGain.gain.setValueAtTime(48, whistleStart);
+      vibrato.connect(vibratoGain);
+      vibratoGain.connect(whistle.frequency);
+      vibratoGain.connect(harmonic.frequency);
+
+      formant.type = 'bandpass';
+      formant.frequency.setValueAtTime(1350, whistleStart);
+      formant.frequency.exponentialRampToValueAtTime(2400, whistleStart + whistleDur);
+      formant.Q.setValueAtTime(1.8, whistleStart);
+
+      const harmonicGain = ctx.createGain();
+      harmonicGain.gain.setValueAtTime(0.32, whistleStart);
+
+      whistleGain.gain.setValueAtTime(0.0001, whistleStart);
+      whistleGain.gain.exponentialRampToValueAtTime(0.15, whistleStart + 0.025);
+      whistleGain.gain.exponentialRampToValueAtTime(0.0001, whistleStart + whistleDur);
+
+      whistle.connect(formant);
+      harmonic.connect(harmonicGain);
+      harmonicGain.connect(formant);
+      formant.connect(whistleGain);
+      whistleGain.connect(this.masterGain);
+
+      whistle.start(whistleStart);
+      harmonic.start(whistleStart);
+      vibrato.start(whistleStart);
+      whistle.stop(whistleStart + whistleDur + 0.02);
+      harmonic.stop(whistleStart + whistleDur + 0.02);
+      vibrato.stop(whistleStart + whistleDur + 0.02);
+
+      // 3. Crisp telemetry "Bi-Bip!" double-ping tail
+      this.triggerDroidSyllable(ctx, now + 0.39, 0.065, 1480, 1760, {
+        wave: 'sine',
+        modFreq: 42,
+        modDepth: 28,
+        filterFreq: 1850,
+        filterQ: 1.4,
+        peakGain: 0.11,
+      });
+      this.triggerDroidSyllable(ctx, now + 0.47, 0.11, 1860, 2240, {
+        wave: 'triangle',
+        modFreq: 32,
+        modDepth: 24,
+        filterFreq: 2150,
+        filterQ: 1.4,
+        peakGain: 0.12,
+      });
+    } catch {
+      // ignore audio restrictions
+    }
+  }
+
+  /**
+   * Annoyed / overloaded robotic warning buzz + grumpy droid scolding chirps + servo power-down droop
+   * after 3-4 rapid clicks. 100% synthesized robotic sounds (no human voice or speech synthesis).
    */
   public playRobotAngrySigh() {
     if (this.isSoundMuted()) return;
     try {
       const ctx = this.ensureAudioGraph();
-      if (ctx && this.masterGain) {
-        const now = ctx.currentTime;
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
 
-        // 1. Breathy "Ahhhhh!" exhale noise sweep
-        const sighLen = Math.floor(ctx.sampleRate * 0.85);
-        const sighBuf = ctx.createBuffer(1, sighLen, ctx.sampleRate);
-        const ch = sighBuf.getChannelData(0);
-        for (let i = 0; i < sighLen; i++) {
-          const t = i / sighLen;
-          const env = Math.sin(Math.min(1, t * 4) * Math.PI * 0.5) * Math.pow(1 - t, 1.35);
-          ch[i] = (Math.random() * 2 - 1) * env;
-        }
-        const noise = ctx.createBufferSource();
-        noise.buffer = sighBuf;
+      // 1. Sharp dual-pulse irritated robotic "BZZZT-BZZT!" overload alert
+      [0, 0.095].forEach((offset) => {
+        const start = now + offset;
+        const dur = 0.075;
+        const oscA = ctx.createOscillator();
+        const oscB = ctx.createOscillator();
+        const buzzMod = ctx.createOscillator();
+        const buzzDepth = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
 
-        const formant = ctx.createBiquadFilter();
-        formant.type = 'bandpass';
-        formant.frequency.setValueAtTime(980, now);
-        formant.frequency.exponentialRampToValueAtTime(340, now + 0.82);
-        formant.Q.setValueAtTime(2.4, now);
+        oscA.type = 'sawtooth';
+        oscB.type = 'square';
+        oscA.frequency.setValueAtTime(285, start);
+        oscB.frequency.setValueAtTime(304, start);
 
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.28, now);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.84);
+        buzzMod.type = 'square';
+        buzzMod.frequency.setValueAtTime(52, start);
+        buzzDepth.gain.setValueAtTime(115, start);
+        buzzMod.connect(buzzDepth);
+        buzzDepth.connect(oscA.frequency);
+        buzzDepth.connect(oscB.frequency);
 
-        noise.connect(formant);
-        formant.connect(noiseGain);
-        noiseGain.connect(this.masterGain);
-        noise.start(now);
-        noise.stop(now + 0.86);
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(960, start);
+        filter.Q.setValueAtTime(2.6, start);
 
-        // 2. Descending exasperated vocal tone ("Ahhhhh!")
-        const osc = ctx.createOscillator();
-        const lpf = ctx.createBiquadFilter();
-        const oscGain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(275, now);
-        osc.frequency.exponentialRampToValueAtTime(128, now + 0.78);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.16, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
 
-        lpf.type = 'lowpass';
-        lpf.frequency.setValueAtTime(820, now);
-        lpf.frequency.exponentialRampToValueAtTime(360, now + 0.78);
+        oscA.connect(filter);
+        oscB.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain!);
 
-        oscGain.gain.setValueAtTime(0.0001, now);
-        oscGain.gain.exponentialRampToValueAtTime(0.14, now + 0.06);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        oscA.start(start);
+        oscB.start(start);
+        buzzMod.start(start);
+        oscA.stop(start + dur + 0.015);
+        oscB.stop(start + dur + 0.015);
+        buzzMod.stop(start + dur + 0.015);
+      });
 
-        osc.connect(lpf);
-        lpf.connect(oscGain);
-        oscGain.connect(this.masterGain);
-        osc.start(now);
-        osc.stop(now + 0.82);
+      // 2. Grumpy scolding astromech stepped descending chirps ("beep-brrt-boop-bwop!")
+      const grumpySteps: Array<[number, number, number, number]> = [
+        [0.2, 0.075, 590, 420],
+        [0.29, 0.075, 490, 325],
+        [0.38, 0.08, 405, 240],
+        [0.475, 0.095, 325, 170],
+      ];
+      for (const [offset, dur, fStart, fEnd] of grumpySteps) {
+        this.triggerDroidSyllable(ctx, now + offset, dur, fStart, fEnd, {
+          wave: 'sawtooth',
+          modFreq: 68,
+          modDepth: 88,
+          filterFreq: Math.max(520, fStart * 1.45),
+          filterQ: 2.8,
+          peakGain: 0.135,
+        });
       }
 
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const utter = new SpeechSynthesisUtterance('Ahhhhh! Why are you disturbing me? Do your work!');
-          utter.pitch = 0.76;
-          utter.rate = 1.04;
-          utter.volume = 0.9;
-          window.speechSynthesis.speak(utter);
-        } catch {
-          // Speech synthesis optional
-        }
-      }
+      // 3. Exhausted robotic servo power-down droop + relay tick
+      const droopStart = now + 0.59;
+      const droopDur = 0.34;
+      const droopOsc = ctx.createOscillator();
+      const droopFilter = ctx.createBiquadFilter();
+      const droopGain = ctx.createGain();
+
+      droopOsc.type = 'square';
+      droopOsc.frequency.setValueAtTime(410, droopStart);
+      droopOsc.frequency.exponentialRampToValueAtTime(92, droopStart + droopDur);
+
+      droopFilter.type = 'lowpass';
+      droopFilter.frequency.setValueAtTime(1150, droopStart);
+      droopFilter.frequency.exponentialRampToValueAtTime(280, droopStart + droopDur);
+      droopFilter.Q.setValueAtTime(3.2, droopStart);
+
+      droopGain.gain.setValueAtTime(0.0001, droopStart);
+      droopGain.gain.exponentialRampToValueAtTime(0.13, droopStart + 0.025);
+      droopGain.gain.exponentialRampToValueAtTime(0.0001, droopStart + droopDur);
+
+      droopOsc.connect(droopFilter);
+      droopFilter.connect(droopGain);
+      droopGain.connect(this.masterGain);
+
+      droopOsc.start(droopStart);
+      droopOsc.stop(droopStart + droopDur + 0.02);
     } catch {
       // ignore audio restrictions
     }

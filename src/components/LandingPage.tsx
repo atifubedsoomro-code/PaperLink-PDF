@@ -13,6 +13,7 @@ import {
   FileType2,
   HardDrive,
   Image as ImageIcon,
+  Images,
   Layers,
   LayoutGrid,
   Lock,
@@ -142,6 +143,7 @@ const DESIGNER_IMAGE_TOOLS: Array<{
 }> = [
   { id: 'bg-remove', title: 'Background Remover', desc: 'Strip backgrounds cleanly with split preview.', icon: Eraser },
   { id: 'bulk-bg-remove', title: 'Bulk BG Remover', desc: 'Batch-cut product shots into one ZIP.', icon: Layers },
+  { id: 'photo-batch', title: 'Photo Batch Studio', desc: 'Looks, presets, frames, watermarks & ZIP.', icon: Images },
   { id: 'watermark-remove', title: 'Watermark Remover', desc: 'Brush or box erase unwanted text & logos.', icon: Droplets },
   { id: 'blur-redact', title: 'Blur & Redact', desc: 'Hide faces, phones & sensitive info.', icon: EyeOff },
   { id: 'grid-collage', title: 'Photo Grid / IDs', desc: 'Join ID front+back or photo collages.', icon: LayoutGrid },

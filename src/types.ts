@@ -179,3 +179,96 @@ export interface SavedDocRecord {
   }>;
 }
 
+export type PhotoBatchAnchor = 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br' | 'custom';
+
+export interface PhotoBatchMark {
+  id: string;
+  type: 'text' | 'logo';
+  text: string;
+  font: string;
+  weight: number;
+  color: string;
+  size: number;
+  opacity: number;
+  rotation: number;
+  anchor: PhotoBatchAnchor;
+  margin: number;
+  tile: boolean;
+  gap: number;
+  shadow: boolean;
+  visible: boolean;
+  x: number;
+  y: number;
+  imgData: string | null;
+  imgName: string;
+}
+
+export interface PhotoBatchFrameConfig {
+  enabled: boolean;
+  thickness: number;
+  radius: number;
+  color: string;
+  innerStroke: boolean;
+}
+
+export interface PhotoBatchAdjustConfig {
+  exposure: number;
+  brightness: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  saturation: number;
+  vibrance: number;
+  clarity: number;
+  temperature: number;
+  tint: number;
+  fade: number;
+  grayscale: number;
+  sepia: number;
+  sharpen: number;
+}
+
+export interface PhotoBatchVignetteConfig {
+  on: boolean;
+  strength: number;
+  size: number;
+  feather: number;
+  roundness: number;
+  color: string;
+}
+
+export interface PhotoBatchSetup {
+  filter: {
+    preset: string;
+    intensity: number;
+  };
+  adjust: PhotoBatchAdjustConfig;
+  vignette: PhotoBatchVignetteConfig;
+  grain: { amount: number };
+  frame: PhotoBatchFrameConfig;
+  marks: PhotoBatchMark[];
+  out: {
+    format: 'jpeg' | 'png' | 'webp';
+    quality: number;
+    maxSide: number;
+    aspectCrop: 'original' | '1:1' | '4:5' | '16:9';
+    prefix: string;
+    suffix: string;
+    zipName: string;
+    perZip: number;
+  };
+}
+
+export type PhotoBatchPresetCategory = 'Events' | 'Portraits' | 'Product' | 'Social' | 'Print' | 'Custom';
+
+export interface PhotoBatchPresetRecord {
+  id: string;
+  name: string;
+  category: PhotoBatchPresetCategory;
+  includeMarks?: boolean;
+  setup: PhotoBatchSetup;
+  userEmail: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+

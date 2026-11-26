@@ -35,6 +35,22 @@
         "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
       },
       "required": ["id", "name", "themeId", "primaryColor", "accentColor", "font", "createdAt", "userEmail"]
+    },
+    "PhotoBatchPreset": {
+      "title": "PhotoBatchPreset",
+      "description": "Saved user editing recipe for Photo Batch Studio (look, light/color adjustments, effects, framing, and optional watermarks).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 40 },
+        "includeMarks": { "type": "boolean" },
+        "setup": { "type": "object" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "required": ["id", "name", "category", "setup", "createdAt", "userEmail"]
     }
   },
   "firestore": {
@@ -45,6 +61,10 @@
     "/brandKits/{kitId}": {
       "schema": { "$ref": "#/entities/BrandKitPreset" },
       "description": "User-owned reusable brand kit cover presets."
+    },
+    "/photoBatchPresets/{presetId}": {
+      "schema": { "$ref": "#/entities/PhotoBatchPreset" },
+      "description": "User-owned reusable Photo Batch Studio presets."
     }
   }
 }

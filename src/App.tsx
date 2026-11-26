@@ -1718,6 +1718,7 @@ export default function App() {
             <ImageToolsPanel
               activeTool={activeImageTool}
               onToolChange={setActiveImageTool}
+              userEmail={user?.email || ''}
               onUseAsCoverLogo={(dataUrl) => {
                 setCoverData((prev) => ({ ...prev, logoUrl: dataUrl }));
                 selectStudioSection('editor');
