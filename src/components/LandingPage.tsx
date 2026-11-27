@@ -216,7 +216,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <strong className="text-zinc-950 dark:text-white font-semibold">Clean Cover Only</strong> to export offline in seconds. Plus {PDF_OFFICE_TOOLS.length + DESIGNER_IMAGE_TOOLS.length} browser-private tools for PDFs, Office files, and images.
               </p>
 
-              {/* Primary CTA + Hover-Typewriter (6.5s Linger) Quick Launchers */}
+              {/* Primary CTA + Always-Visible Quick Launchers */}
               <div className="flex flex-wrap items-center gap-2.5">
                 <LiquidCrystalButton
                   variant="primary"
@@ -230,28 +230,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <TypewriterButton
                   variant="secondary"
                   size="lg"
-                  lingerMs={6500}
+                  alwaysExpanded
                   onClick={() => onOpenPdfTool('pdf-edit')}
                   icon={<Edit3 className="w-4 h-4" />}
                   text="PDF & Office"
+                  className="whitespace-nowrap shrink-0"
                 />
 
                 <TypewriterButton
                   variant="dark"
                   size="lg"
-                  lingerMs={6500}
+                  alwaysExpanded
                   onClick={() => onOpenPdfTool('pdf-scan-crop')}
                   icon={<ScanLine className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
                   text="Crop & Scan"
+                  className="whitespace-nowrap shrink-0"
                 />
 
                 <TypewriterButton
                   variant="dark"
                   size="lg"
-                  lingerMs={6500}
+                  alwaysExpanded
                   onClick={() => onOpenImageTool('bg-remove')}
                   icon={<Sparkles className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
                   text="Image Studio"
+                  className="whitespace-nowrap shrink-0"
                 />
               </div>
 

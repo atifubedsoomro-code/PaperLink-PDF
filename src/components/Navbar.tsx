@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
-import { LogOut, Menu, X, Settings, Bot } from 'lucide-react';
+import { LogOut, Menu, X, Settings, Bot, Search } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { MiniAiRobot, RobotExpression, RobotPromptItem } from './MiniAiRobot';
 import { PaperLinkLogo } from './PaperLinkLogo';
+import { SearchableToolItem, TopToolSearch } from './TopToolSearch';
+import type { PdfToolTab } from './PdfToolsPanel';
+import type { ImageToolTab } from './ImageToolsPanel';
 
 export type AppView = 'home' | 'studio' | 'tools' | 'image-tools' | 'privacy' | 'terms';
 
@@ -12,7 +15,9 @@ interface NavbarProps {
   user: User | null;
   hasDriveAccess: boolean;
   activeView: AppView;
-  onNavigate: (view: AppView) => void;
+  onNavigate: (view: AppView | 'batch' | 'library') => void;
+  onSelectPdfTool?: (tool: PdfToolTab) => void;
+  onSelectImageTool?: (tool: ImageToolTab) => void;
   onLogin: () => void;
   onLogout: () => void;
   onOpenSettings: () => void;
@@ -30,116 +35,130 @@ const NAV_ITEMS: { id: AppView; label: string }[] = [
   { id: 'image-tools', label: 'Image Tools' },
 ];
 
+type RobotPoseKind =
+  | 'beside-ai'
+  | 'walk-to-nav'
+  | 'peek-nav-left'
+  | 'gap-dance'
+  | 'point-google'
+  | 'peek-nav-right'
+  | 'spiderman-tools'
+  | 'walk-home'
+  | 'hop-home';
+
 interface RobotStage {
-  anchor: 'ai' | 'logo' | 'home' | 'studio' | 'tools' | 'image-tools' | 'google' | 'nav-dock';
-  offsetX: number;
-  y: number;
+  kind: RobotPoseKind;
+  anchor: 'ai' | 'logo' | 'home' | 'studio' | 'tools' | 'image-tools' | 'google' | 'nav-dock' | 'search';
   zIndex: number;
   duckBehind: boolean;
   expression: RobotExpression;
+  facing?: 'right' | 'left';
+  leanDeg?: number;
   ropeLength?: number;
   popupPlacement?: 'below-left' | 'below-right' | 'below-center';
   durationMs: number;
 }
 
 const ROAM_STAGES: RobotStage[] = [
-  // 0: Wave warmly beside PaperLink AI / Brand
+  // 0: Wave warmly right beside PaperLink AI pill (or Brand logo)
   {
+    kind: 'beside-ai',
     anchor: 'ai',
-    offsetX: 40,
-    y: 12,
-    zIndex: 28,
+    zIndex: 34,
     duckBehind: false,
     expression: 'wave',
+    facing: 'right',
     popupPlacement: 'below-left',
     durationMs: 4200,
   },
-  // 1: Smooth walk gliding cleanly behind the bounded navigation rail
+  // 1: Brisk stride toward the main navigation rail
   {
-    anchor: 'studio',
-    offsetX: -20,
-    y: 5,
-    zIndex: 5,
-    duckBehind: true,
+    kind: 'walk-to-nav',
+    anchor: 'nav-dock',
+    zIndex: 34,
+    duckBehind: false,
     expression: 'funny-walk',
-    durationMs: 3600,
+    facing: 'right',
+    durationMs: 1850,
   },
-  // 2: Hide behind Cover Studio button like a curious child peeking out and waving
+  // 2: Curious side-peek tucked cleanly around the top-left corner of the nav pill
   {
-    anchor: 'studio',
-    offsetX: 8,
-    y: -5,
-    zIndex: 5,
+    kind: 'peek-nav-left',
+    anchor: 'nav-dock',
+    zIndex: 15,
     duckBehind: true,
     expression: 'child-peek',
-    popupPlacement: 'below-center',
-    durationMs: 4200,
-  },
-  // 3: Dance playfully beside Image Tools with a contextual tip
-  {
-    anchor: 'image-tools',
-    offsetX: 6,
-    y: 10,
-    zIndex: 30,
-    duckBehind: false,
-    expression: 'dance',
-    popupPlacement: 'below-center',
-    durationMs: 4600,
-  },
-  // 4: Glide behind the right side of the nav bar toward Google "G"
-  {
-    anchor: 'google',
-    offsetX: -48,
-    y: 8,
-    zIndex: 5,
-    duckBehind: true,
-    expression: 'funny-walk',
-    durationMs: 3400,
-  },
-  // 5: Point right at the circular Google "G" button!
-  {
-    anchor: 'google',
-    offsetX: -54,
-    y: 12,
-    zIndex: 30,
-    duckBehind: false,
-    expression: 'point-right',
-    popupPlacement: 'below-right',
-    durationMs: 5600,
-  },
-  // 6: Peek like a playful child behind the PDF & Office button edge
-  {
-    anchor: 'tools',
-    offsetX: 4,
-    y: -5,
-    zIndex: 5,
-    duckBehind: true,
-    expression: 'child-peek',
+    facing: 'right',
+    leanDeg: -14,
     popupPlacement: 'below-center',
     durationMs: 4000,
   },
-  // 7: Descend on Spider-Man web anchored directly to the bounded PDF & Office button edge
+  // 3: Cheerful groove dance in the open gap beside Image Tools (collision-free around search bar)
   {
+    kind: 'gap-dance',
+    anchor: 'image-tools',
+    zIndex: 34,
+    duckBehind: false,
+    expression: 'dance',
+    facing: 'right',
+    popupPlacement: 'below-center',
+    durationMs: 4300,
+  },
+  // 4: Aim directly at the Google "G" sign-in button with glowing pointer indicator
+  {
+    kind: 'point-google',
+    anchor: 'google',
+    zIndex: 34,
+    duckBehind: false,
+    expression: 'point-right',
+    facing: 'right',
+    popupPlacement: 'below-right',
+    durationMs: 5200,
+  },
+  // 5: Playful side-peek tucked cleanly behind the right edge of the nav pill
+  {
+    kind: 'peek-nav-right',
+    anchor: 'nav-dock',
+    zIndex: 15,
+    duckBehind: true,
+    expression: 'child-peek',
+    facing: 'left',
+    leanDeg: -14,
+    popupPlacement: 'below-center',
+    durationMs: 3900,
+  },
+  // 6: Spider-Man web drop anchored directly onto the bottom rim of PDF & Office
+  {
+    kind: 'spiderman-tools',
     anchor: 'tools',
-    offsetX: 0,
-    y: 74,
-    zIndex: 30,
+    zIndex: 34,
     duckBehind: false,
     expression: 'spiderman-hang',
-    ropeLength: 38,
+    facing: 'right',
+    ropeLength: 22,
     popupPlacement: 'below-center',
-    durationMs: 6200,
+    durationMs: 5800,
   },
-  // 8: Cheerful playful hop beside Home/Brand before looping
+  // 7: Brisk leftward walk returning toward Home / AI pill
   {
+    kind: 'walk-home',
     anchor: 'home',
-    offsetX: -22,
-    y: 10,
-    zIndex: 28,
+    zIndex: 34,
+    duckBehind: false,
+    expression: 'funny-walk',
+    facing: 'left',
+    durationMs: 1750,
+  },
+  // 8: Joyful squash-and-stretch celebration hop beside Home before restarting loop
+  {
+    kind: 'hop-home',
+    anchor: 'ai',
+    zIndex: 34,
     duckBehind: false,
     expression: 'hop',
+    facing: 'right',
     popupPlacement: 'below-left',
-    durationMs: 3800,
+    durationMs: 3600,
   },
 ];
 
@@ -148,6 +167,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   hasDriveAccess,
   activeView,
   onNavigate,
+  onSelectPdfTool,
+  onSelectImageTool,
   onLogin,
   onLogout,
   onOpenSettings,
@@ -159,6 +180,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const prefersReducedMotion = useReducedMotion();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [googleBtnHovered, setGoogleBtnHovered] = useState(false);
   const [aiPillHovered, setAiPillHovered] = useState(false);
   const [roamingHovered, setRoamingHovered] = useState(false);
@@ -217,12 +239,26 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, []);
 
-  const handleNavClick = (view: AppView) => {
+  const handleNavClick = (view: AppView | 'batch' | 'library') => {
     onNavigate(view);
     setMobileMenuOpen(false);
   };
 
-  // Measure target anchor inside top bar and position the roaming robot accurately
+  const handleSelectSearchTool = (item: SearchableToolItem) => {
+    if (item.target.kind === 'pdf') {
+      if (onSelectPdfTool) onSelectPdfTool(item.target.tool);
+      else onNavigate('tools');
+    } else if (item.target.kind === 'image') {
+      if (onSelectImageTool) onSelectImageTool(item.target.tool);
+      else onNavigate('image-tools');
+    } else {
+      onNavigate(item.target.view);
+    }
+    setMobileMenuOpen(false);
+    setMobileSearchOpen(false);
+  };
+
+  // Measure exact button/rail landmarks inside barRef so the robot aligns cleanly without clipping
   const measureAnchorPosition = useCallback(
     (stage: RobotStage) => {
       const container = barRef.current;
@@ -233,20 +269,110 @@ export const Navbar: React.FC<NavbarProps> = ({
         return;
       }
 
-      const primaryEl = container.querySelector(
-        `[data-robot-anchor="${stage.anchor}"]`
-      ) as HTMLElement | null;
-      const fallbackEl =
-        stage.anchor === 'ai'
-          ? (container.querySelector('[data-robot-anchor="logo"]') as HTMLElement | null)
-          : null;
-      const targetEl = primaryEl || fallbackEl;
-      if (!targetEl) return;
+      const robotW = 44;
+      const robotH = 44;
+      const getRect = (anchor: RobotStage['anchor']): DOMRect | null => {
+        const el = container.querySelector(`[data-robot-anchor="${anchor}"]`) as HTMLElement | null;
+        return el ? el.getBoundingClientRect() : null;
+      };
 
-      const r = targetEl.getBoundingClientRect();
-      const centerX = r.left - barRect.left + r.width / 2;
-      const computedX = Math.max(12, Math.min(barRect.width - 52, centerX + stage.offsetX - 18));
-      setRobotCoords({ x: computedX, y: stage.y });
+      const aiRect = getRect('ai') ?? getRect('logo');
+      const navRect = getRect('nav-dock');
+      const toolsRect = getRect('tools');
+      const searchRect = getRect('search');
+      const googleRect = getRect('google');
+      const homeRect = getRect('home');
+
+      let nextX = 24;
+      let nextY = Math.round((barRect.height - robotH) / 2);
+
+      switch (stage.kind) {
+        case 'beside-ai':
+        case 'hop-home': {
+          if (aiRect && navRect) {
+            const gapLeft = aiRect.right - barRect.left;
+            const gapRight = navRect.left - barRect.left;
+            const idealX = gapLeft + 6;
+            nextX = gapRight - gapLeft >= robotW + 10 ? idealX : Math.max(10, (gapLeft + gapRight - robotW) / 2);
+            nextY = Math.round(aiRect.top - barRect.top + (aiRect.height - robotH) / 2);
+          } else if (aiRect) {
+            nextX = aiRect.right - barRect.left + 8;
+          }
+          break;
+        }
+        case 'walk-to-nav': {
+          if (navRect) {
+            nextX = Math.max(12, navRect.left - barRect.left - robotW + 4);
+            nextY = Math.round(navRect.top - barRect.top + (navRect.height - robotH) / 2 + 2);
+          }
+          break;
+        }
+        case 'peek-nav-left': {
+          if (navRect) {
+            // Tucked right behind the top-left edge of the nav rail so helmet, eyes & waving hand peek cleanly out
+            nextX = navRect.left - barRect.left - 20;
+            nextY = Math.max(3, Math.round(navRect.top - barRect.top - 2));
+          }
+          break;
+        }
+        case 'gap-dance': {
+          if (navRect && searchRect) {
+            const gapLeft = navRect.right - barRect.left;
+            const gapRight = searchRect.left - barRect.left;
+            const gapWidth = gapRight - gapLeft;
+            if (gapWidth >= robotW + 4) {
+              nextX = gapLeft + (gapWidth - robotW) / 2;
+              nextY = Math.round(navRect.top - barRect.top + (navRect.height - robotH) / 2);
+            } else {
+              // Tuck neatly just overlapping the bottom-right corner of the nav pill without obscuring Search
+              nextX = gapLeft - 14;
+              nextY = Math.round(navRect.top - barRect.top + 3);
+            }
+          } else if (navRect) {
+            nextX = navRect.right - barRect.left + 6;
+          }
+          break;
+        }
+        case 'point-google': {
+          if (googleRect) {
+            const googleLeft = googleRect.left - barRect.left;
+            const searchRight = searchRect ? searchRect.right - barRect.left : 0;
+            const gapWidth = googleLeft - searchRight;
+            nextX = gapWidth >= robotW - 4 ? googleLeft - robotW + 2 : Math.max(12, googleLeft - robotW + 6);
+            nextY = Math.round(googleRect.top - barRect.top + (googleRect.height - robotH) / 2);
+          }
+          break;
+        }
+        case 'peek-nav-right': {
+          if (navRect) {
+            // Tucked cleanly behind the right corner of the nav rail, facing right to peek outward
+            nextX = navRect.right - barRect.left - 22;
+            nextY = Math.max(3, Math.round(navRect.top - barRect.top - 2));
+          }
+          break;
+        }
+        case 'spiderman-tools': {
+          if (toolsRect) {
+            // Center directly under PDF & Office button, with web dot flush on its bottom border
+            nextX = toolsRect.left - barRect.left + toolsRect.width / 2 - robotW / 2;
+            nextY = Math.round(toolsRect.bottom - barRect.top + 15);
+          }
+          break;
+        }
+        case 'walk-home': {
+          if (homeRect && aiRect) {
+            const gapMid = ((aiRect.right - barRect.left) + (homeRect.left - barRect.left)) / 2;
+            nextX = gapMid - robotW / 2 + 8;
+            nextY = Math.round(homeRect.top - barRect.top + (homeRect.height - robotH) / 2 + 2);
+          } else if (navRect) {
+            nextX = navRect.left - barRect.left - 24;
+          }
+          break;
+        }
+      }
+
+      const clampedX = Math.round(Math.max(8, Math.min(barRect.width - robotW - 8, nextX)));
+      setRobotCoords({ x: clampedX, y: nextY });
     },
     []
   );
@@ -258,25 +384,35 @@ export const Navbar: React.FC<NavbarProps> = ({
     const timer = window.setTimeout(() => {
       setStageIdx((prev) => {
         const next = (prev + 1) % ROAM_STAGES.length;
-        if (next === 7) setEngageToggle((t) => !t);
+        if (ROAM_STAGES[next]?.kind === 'spiderman-tools') setEngageToggle((t) => !t);
         return next;
       });
     }, stage.durationMs);
     return () => window.clearTimeout(timer);
   }, [stageIdx, showMiniRobot, prefersReducedMotion, roamingHovered]);
 
-  // Re-measure anchor coordinates whenever stage/layout/auth changes or viewport resizes
+  // Re-measure anchor coordinates on stage/layout/auth changes, window resize, and bar ResizeObserver
   useEffect(() => {
     if (!showMiniRobot || prefersReducedMotion) return;
     const stage = ROAM_STAGES[stageIdx];
     const raf = window.requestAnimationFrame(() => measureAnchorPosition(stage));
     const onResize = () => measureAnchorPosition(ROAM_STAGES[stageIdx]);
     window.addEventListener('resize', onResize);
+
+    const observer =
+      typeof ResizeObserver !== 'undefined' && barRef.current
+        ? new ResizeObserver(() => measureAnchorPosition(ROAM_STAGES[stageIdx]))
+        : null;
+    if (observer && barRef.current) {
+      observer.observe(barRef.current);
+    }
+
     return () => {
       window.cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      observer?.disconnect();
     };
-  }, [stageIdx, showMiniRobot, prefersReducedMotion, isChatbotMinimized, isConnected, activeView, measureAnchorPosition]);
+  }, [stageIdx, showMiniRobot, prefersReducedMotion, isChatbotMinimized, isConnected, activeView, googleBtnHovered, measureAnchorPosition]);
 
   const currentStage = ROAM_STAGES[stageIdx];
 
@@ -290,10 +426,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       : { text: 'Create QR covers in seconds!', actionLabel: 'Cover Studio' };
 
   const roamingPopup: RobotPromptItem | null = (() => {
-    if (stageIdx === 5 && !isConnected) {
+    if (currentStage.kind === 'point-google' && !isConnected) {
       return { text: 'Sign in with Google to Explore Cover Studio!', actionLabel: 'Sign in' };
     }
-    if (stageIdx === 7 && (engageToggle || roamingHovered)) {
+    if (currentStage.kind === 'spiderman-tools' && (engageToggle || roamingHovered)) {
       return engageToggle && onOpenFeedback
         ? { text: 'Are you loving PaperLink? Tell us!', isFeedback: true, actionLabel: 'Feedback' }
         : { text: 'Try 21+ PDF & Office Tools!', actionLabel: 'Explore' };
@@ -301,35 +437,39 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (!roamingHovered) {
       return null;
     }
-    if (stageIdx === 0) {
+    if (currentStage.kind === 'beside-ai') {
       return { text: 'Hi! Need help from PaperLink AI?', actionLabel: 'Chat' };
     }
-    if (stageIdx === 5 && isConnected) {
+    if (currentStage.kind === 'point-google' && isConnected) {
       return { text: 'Drive Ready! Explore Cover Studio!', actionLabel: 'Open Studio' };
     }
-    if (stageIdx === 3 || stageIdx === 2 || stageIdx === 6) {
+    if (
+      currentStage.kind === 'peek-nav-left' ||
+      currentStage.kind === 'gap-dance' ||
+      currentStage.kind === 'peek-nav-right'
+    ) {
       return contextTip;
     }
     return { text: 'All tools run fast & private!', actionLabel: 'Studio' };
   })();
 
   const handleRoamingPopupClick = () => {
-    if (stageIdx === 3) {
+    if (currentStage.kind === 'gap-dance') {
       if (activeView === 'home') onNavigate('studio');
       else onRestoreChatbot?.();
       return;
     }
-    if (stageIdx === 5) {
+    if (currentStage.kind === 'point-google') {
       if (isConnected) onNavigate('studio');
       else onLogin();
       return;
     }
-    if (stageIdx === 7) {
+    if (currentStage.kind === 'spiderman-tools') {
       if (engageToggle && onOpenFeedback) onOpenFeedback();
       else onNavigate('tools');
       return;
     }
-    if (stageIdx === 8) {
+    if (currentStage.kind === 'hop-home') {
       onNavigate('studio');
       return;
     }
@@ -357,20 +497,23 @@ export const Navbar: React.FC<NavbarProps> = ({
             initial={false}
             animate={{
               x: robotCoords.x,
-              y: robotCoords.y,
+              y: roamingHovered && currentStage.duckBehind ? robotCoords.y - 3 : robotCoords.y,
             }}
             transition={{
-              x: { type: 'spring', stiffness: 74, damping: 17, mass: 1.0 },
-              y: { type: 'spring', stiffness: 145, damping: 16 },
+              x: { type: 'spring', stiffness: 105, damping: 18, mass: 0.9 },
+              y: { type: 'spring', stiffness: 180, damping: 20 },
             }}
-            style={{ zIndex: roamingHovered ? 35 : currentStage.zIndex }}
+            style={{ zIndex: roamingHovered ? 40 : currentStage.zIndex }}
             className="hidden md:flex items-center absolute left-0 top-0 pointer-events-auto"
           >
             <MiniAiRobot
               variant="topbar"
               isHovered={roamingHovered}
               expressionOverride={currentStage.expression}
-              duckBehind={currentStage.duckBehind}
+              duckBehind={roamingHovered ? false : currentStage.duckBehind}
+              facing={currentStage.facing ?? 'right'}
+              leanDeg={roamingHovered && currentStage.duckBehind ? 0 : currentStage.leanDeg}
+              hideShadow
               ropeLength={currentStage.ropeLength ?? 0}
               externalPopup={roamingPopup}
               quickActions={robotQuickActions}
@@ -433,6 +576,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="md:hidden relative z-0 flex items-center">
                     <MiniAiRobot
                       variant="topbar"
+                      hideShadow
                       isHovered={aiPillHovered}
                       onPopupClick={onRestoreChatbot}
                       onFeedbackClick={onOpenFeedback}
@@ -450,7 +594,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <nav
           data-robot-anchor="nav-dock"
           aria-label="Main navigation"
-          className="relative z-20 hidden md:flex items-center gap-1 p-1 rounded-2xl bg-slate-100/95 dark:bg-zinc-900/95 border border-slate-200/95 dark:border-zinc-700/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_4px_14px_-4px_rgba(15,23,42,0.1)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_14px_-4px_rgba(0,0,0,0.45)]"
+          className="relative z-20 hidden md:flex items-center gap-1 p-1 rounded-2xl bg-slate-100 dark:bg-zinc-900 border border-slate-200/95 dark:border-zinc-700/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_4px_14px_-4px_rgba(15,23,42,0.1)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_14px_-4px_rgba(0,0,0,0.45)]"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activeView === item.id;
@@ -480,8 +624,33 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
+        {/* Desktop Tool Search Bar */}
+        <div
+          data-robot-anchor="search"
+          className="relative z-30 hidden md:block w-36 lg:w-48 xl:w-56 shrink-0"
+        >
+          <TopToolSearch onSelectTool={handleSelectSearchTool} />
+        </div>
+
         {/* Zone 3: Connection Status + Install + Settings + Logout + Mobile Toggle */}
         <div className="relative z-20 flex items-center gap-1 sm:gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileSearchOpen((prev) => !prev);
+              setMobileMenuOpen(false);
+            }}
+            className={`md:hidden p-2 border rounded-full transition-all cursor-pointer shrink-0 shadow-[0_0_14px_-3px_rgba(var(--pl-accent-rgb),0.45)] ${
+              mobileSearchOpen
+                ? 'border-[var(--pl-accent)] bg-blue-50 dark:bg-yellow-400/15 text-[var(--pl-accent-text)] dark:text-[var(--pl-accent)] shadow-[0_0_18px_-2px_rgba(var(--pl-accent-rgb),0.65)]'
+                : 'border-[var(--pl-accent)]/45 bg-[var(--pl-surface)] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200'
+            }`}
+            aria-label={mobileSearchOpen ? 'Close tool search' : 'Search tools'}
+            title="Search tools"
+          >
+            <Search className="w-4 h-4" />
+          </button>
+
           <PWAInstallButton />
 
           {isConnected ? (
@@ -510,7 +679,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 googleBtnHovered || isLoggingIn
                   ? 'h-9 sm:h-10 px-2.5 sm:px-3 rounded-xl gap-2 bg-[var(--pl-surface)] dark:bg-zinc-900 border-[var(--pl-accent)]/85 dark:border-yellow-400/75 shadow-[0_6px_18px_-4px_rgba(var(--pl-accent-rgb),0.4)]'
                   : `w-8 h-8 sm:w-9 sm:h-9 justify-center rounded-full bg-[var(--pl-surface)] dark:bg-zinc-900 shadow-xs ${
-                      showMiniRobot && stageIdx === 5
+                      showMiniRobot && currentStage.kind === 'point-google'
                         ? 'border-[var(--pl-accent)] ring-2 ring-[var(--pl-accent)]/45 shadow-[0_0_16px_rgba(var(--pl-accent-rgb),0.55)]'
                         : 'border-slate-300/90 dark:border-zinc-700 hover:border-[var(--pl-accent)]'
                     }`
@@ -587,6 +756,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Mobile Tool Search Bar */}
+      {mobileSearchOpen && (
+        <div className="md:hidden border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[var(--pl-surface-soft)] px-4 py-2.5">
+          <TopToolSearch
+            autoFocus
+            onSelectTool={handleSelectSearchTool}
+            onAfterSelect={() => setMobileSearchOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Collapsible Mobile Drawer */}
       {mobileMenuOpen && (

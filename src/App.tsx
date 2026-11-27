@@ -1599,6 +1599,14 @@ export default function App() {
         hasDriveAccess={!!token}
         activeView={activeView}
         onNavigate={navigateView}
+        onSelectPdfTool={(tool) => {
+          setActivePdfTool(tool);
+          navigateView('tools');
+        }}
+        onSelectImageTool={(tool) => {
+          setActiveImageTool(tool);
+          navigateView('image-tools');
+        }}
         onLogin={handleLogin}
         onLogout={handleLogout}
         onOpenSettings={() => {

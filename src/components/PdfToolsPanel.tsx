@@ -34,7 +34,9 @@ import {
   Droplets,
   Stamp,
   ScanLine,
+  ArrowLeftRight,
 } from 'lucide-react';
+import { MergeRearrangeModal } from './MergeRearrangeModal';
 import { motion } from 'motion/react';
 import { PreviewTarget } from './DocumentPreviewModal';
 import { LiquidCrystalButton, LiquidCrystalCard } from './LiquidCrystal';
@@ -182,6 +184,8 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   const [mergeSources, setMergeSources] = useState<PdfMergeSource[]>([]);
   const [mergeOutputName, setMergeOutputName] = useState('merged_document');
   const [mergeResult, setMergeResult] = useState<PdfMergeResult | null>(null);
+  const [mergeRearrangeOpen, setMergeRearrangeOpen] = useState(false);
+  const mergePopupNotifyRef = useRef(false);
 
   // 4. PDF Compress
   const compressInputRef = useRef<HTMLInputElement>(null);
@@ -344,22 +348,62 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         setProgress({ percent, status })
       );
       setMergeResult(res);
-      onTaskComplete?.({
-        headline: `Merged ${res.totalPages} Pages Into Single PDF`,
-        subtext: `${res.fileName} is ready for download or Cover Studio`,
-        statusLabel: 'PDF Merge Complete',
-        downloadFile: {
-          blob: res.blob,
-          fileName: res.fileName,
-          fileSizeBytes: res.blob.size,
-          toolLabel: 'PDF Merge',
-        },
-      });
+      if (res.totalPages > 1) {
+        mergePopupNotifyRef.current = true;
+        setMergeRearrangeOpen(true);
+      } else {
+        onTaskComplete?.({
+          headline: `Merged ${res.totalPages} Page Into Single PDF`,
+          subtext: `${res.fileName} is ready for download or Cover Studio`,
+          statusLabel: 'PDF Merge Complete',
+          downloadFile: {
+            blob: res.blob,
+            fileName: res.fileName,
+            fileSizeBytes: res.blob.size,
+            toolLabel: 'PDF Merge',
+          },
+        });
+      }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to merge PDFs.');
     } finally {
       setIsWorking(false);
     }
+  };
+
+  const handleCloseMergeRearrangeKeepCurrent = () => {
+    setMergeRearrangeOpen(false);
+    if (mergePopupNotifyRef.current && mergeResult) {
+      mergePopupNotifyRef.current = false;
+      onTaskComplete?.({
+        headline: `Merged ${mergeResult.totalPages} Pages Into Single PDF`,
+        subtext: `${mergeResult.fileName} is ready for download or Cover Studio`,
+        statusLabel: 'PDF Merge Complete',
+        downloadFile: {
+          blob: mergeResult.blob,
+          fileName: mergeResult.fileName,
+          fileSizeBytes: mergeResult.blob.size,
+          toolLabel: 'PDF Merge',
+        },
+      });
+    }
+  };
+
+  const handleApplyMergeRearranged = (updatedRes: PdfMergeResult) => {
+    setMergeResult(updatedRes);
+    setMergeRearrangeOpen(false);
+    mergePopupNotifyRef.current = false;
+    onTaskComplete?.({
+      headline: `Merged & Arranged ${updatedRes.totalPages} Pages`,
+      subtext: `${updatedRes.fileName} is ready for download or Cover Studio`,
+      statusLabel: 'PDF Merge & Arrange Complete',
+      downloadFile: {
+        blob: updatedRes.blob,
+        fileName: updatedRes.fileName,
+        fileSizeBytes: updatedRes.blob.size,
+        toolLabel: 'PDF Merge & Arrange',
+      },
+    });
   };
 
   const handleSelectCompressFile = async (f: File) => {
@@ -1473,7 +1517,18 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                       {formatBytes(mergeResult.blob.size)}
                     </span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        mergePopupNotifyRef.current = false;
+                        setMergeRearrangeOpen(true);
+                      }}
+                      className="py-2 px-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-yellow-400 text-zinc-900 dark:text-white font-semibold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5" />
+                      <span>Rearrange Pages</span>
+                    </button>
                     {onPreviewDocument && (
                       <button
                         type="button"
@@ -1485,7 +1540,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                             subtitle: `${mergeResult.totalPages} merged pages`,
                           })
                         }
-                        className="py-2.5 px-3 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1"
+                        className="py-2 px-3 rounded-lg border border-cyan-400/60 bg-cyan-50/70 dark:bg-cyan-950/30 hover:bg-cyan-400/20 text-cyan-700 dark:text-cyan-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1"
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span>Preview</span>
@@ -1494,7 +1549,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => triggerBlobDownload(mergeResult.blob, mergeResult.fileName)}
-                      className="flex-1 py-2.5 px-3 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      className="flex-1 py-2 px-3 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-1.5"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Download {mergeResult.fileName}</span>
@@ -2869,6 +2924,13 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
         />
       )}
       </div>
+
+      <MergeRearrangeModal
+        isOpen={mergeRearrangeOpen}
+        mergedResult={mergeResult}
+        onCloseKeepCurrent={handleCloseMergeRearrangeKeepCurrent}
+        onApplyRearranged={handleApplyMergeRearranged}
+      />
     </div>
   );
 };
