@@ -1738,3 +1738,215 @@ export async function createPhotoGridCollage(
     });
   }
 }
+
+export type ImageEnhanceMode = 'vector-sharp' | 'photo-clarity' | 'document-crisp';
+
+export interface ImageEnhanceOptions {
+  mode: ImageEnhanceMode;
+  scale: 1 | 2 | 4;
+  sharpness: number; // 0..100
+  clarity: number; // 0..100
+  denoise: number; // 0..100
+  format: 'png' | 'jpg' | 'webp';
+  quality: number;
+}
+
+/**
+ * TOOL: Enhance Vector Graphic, Logo, or Picture Quality
+ * Performs multi-step high-quality upscaling + edge-preserving bilateral denoise +
+ * luminance-safe unsharp masking (prevents color shifts) + crisp vector edge quantization.
+ */
+export async function enhanceImageQuality(
+  file: File,
+  options: ImageEnhanceOptions,
+  onProgress?: (percent: number, status: string) => void
+): Promise<ProcessedImageResult> {
+  onProgress?.(10, 'Decoding source graphic or photo...');
+  const loaded = await loadImageElement(file);
+
+  try {
+    const srcW = Math.max(1, loaded.width);
+    const srcH = Math.max(1, loaded.height);
+    const maxAllowedSide = 4096;
+    const rawTargetW = srcW * options.scale;
+    const rawTargetH = srcH * options.scale;
+    const fitCap = Math.min(1, maxAllowedSide / Math.max(rawTargetW, rawTargetH));
+    const targetW = Math.max(1, Math.round(rawTargetW * fitCap));
+    const targetH = Math.max(1, Math.round(rawTargetH * fitCap));
+
+    // Progressive step-upscaling (x2 hops) keeps curved edges & typography noticeably smoother than single jump
+    onProgress?.(32, `Upscaling ${srcW}x${srcH} -> ${targetW}x${targetH}...`);
+    let workCanvas = document.createElement('canvas');
+    workCanvas.width = srcW;
+    workCanvas.height = srcH;
+    let wCtx = workCanvas.getContext('2d');
+    if (!wCtx) throw new Error('Canvas context unavailable.');
+    wCtx.imageSmoothingEnabled = true;
+    wCtx.imageSmoothingQuality = 'high';
+    wCtx.drawImage(loaded.img, 0, 0, srcW, srcH);
+
+    while (workCanvas.width < targetW || workCanvas.height < targetH) {
+      const nextW = Math.min(targetW, workCanvas.width * 2);
+      const nextH = Math.min(targetH, workCanvas.height * 2);
+      const stepCanvas = document.createElement('canvas');
+      stepCanvas.width = nextW;
+      stepCanvas.height = nextH;
+      const sCtx = stepCanvas.getContext('2d');
+      if (!sCtx) break;
+      sCtx.imageSmoothingEnabled = true;
+      sCtx.imageSmoothingQuality = 'high';
+      sCtx.drawImage(workCanvas, 0, 0, nextW, nextH);
+      workCanvas = stepCanvas;
+      wCtx = sCtx;
+    }
+
+    onProgress?.(58, 'Refining edges, clarity & removing compression noise...');
+    const imgData = wCtx.getImageData(0, 0, targetW, targetH);
+    const src = imgData.data;
+    const copy = new Uint8ClampedArray(src);
+    const totalPixels = targetW * targetH;
+
+    const sharpStrength = Math.max(0, Math.min(100, options.sharpness)) / 100;
+    const clarityAmt = Math.max(0, Math.min(100, options.clarity)) / 100;
+    const denoiseAmt = Math.max(0, Math.min(100, options.denoise)) / 100;
+
+    // 1. Gentle edge-preserving denoise (smooth flat regions while locking edges)
+    if (denoiseAmt > 0.05) {
+      const edgeThresh = options.mode === 'vector-sharp' ? 22 : 16;
+      const mix = denoiseAmt * 0.65;
+      for (let y = 1; y < targetH - 1; y++) {
+        for (let x = 1; x < targetW - 1; x++) {
+          const idx = (y * targetW + x) * 4;
+          if (copy[idx + 3] < 8) continue;
+          const r0 = copy[idx];
+          const g0 = copy[idx + 1];
+          const b0 = copy[idx + 2];
+
+          let sr = 0;
+          let sg = 0;
+          let sb = 0;
+          let wtSum = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const ni = ((y + dy) * targetW + (x + dx)) * 4;
+              const diff =
+                Math.abs(copy[ni] - r0) +
+                Math.abs(copy[ni + 1] - g0) +
+                Math.abs(copy[ni + 2] - b0);
+              if (diff <= edgeThresh * 3) {
+                const w = dx === 0 && dy === 0 ? 2 : 1;
+                sr += copy[ni] * w;
+                sg += copy[ni + 1] * w;
+                sb += copy[ni + 2] * w;
+                wtSum += w;
+              }
+            }
+          }
+          if (wtSum > 2) {
+            src[idx] = Math.round(r0 * (1 - mix) + (sr / wtSum) * mix);
+            src[idx + 1] = Math.round(g0 * (1 - mix) + (sg / wtSum) * mix);
+            src[idx + 2] = Math.round(b0 * (1 - mix) + (sb / wtSum) * mix);
+          }
+        }
+      }
+    }
+
+    onProgress?.(76, 'Applying luminance-safe unsharp clarity & tone boost...');
+    // Snapshot cleaned buffer for unsharp luminance pass
+    const base = new Uint8ClampedArray(src);
+    const amount =
+      options.mode === 'vector-sharp'
+        ? 0.9 + sharpStrength * 1.45
+        : options.mode === 'document-crisp'
+        ? 0.8 + sharpStrength * 1.25
+        : 0.45 + sharpStrength * 0.95;
+
+    for (let y = 1; y < targetH - 1; y++) {
+      for (let x = 1; x < targetW - 1; x++) {
+        const i = (y * targetW + x) * 4;
+        const a = base[i + 3];
+        if (a < 4) continue;
+
+        const r = base[i];
+        const g = base[i + 1];
+        const b = base[i + 2];
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+        const iN = ((y - 1) * targetW + x) * 4;
+        const iS = ((y + 1) * targetW + x) * 4;
+        const iW = (y * targetW + (x - 1)) * 4;
+        const iE = (y * targetW + (x + 1)) * 4;
+
+        const lumBlur =
+          (0.299 * (base[iN] + base[iS] + base[iW] + base[iE]) +
+            0.587 * (base[iN + 1] + base[iS + 1] + base[iW + 1] + base[iE + 1]) +
+            0.114 * (base[iN + 2] + base[iS + 2] + base[iW + 2] + base[iE + 2])) *
+          0.25;
+
+        let detail = lum - lumBlur;
+        // Skip microscopic sensor noise floor
+        if (Math.abs(detail) < (options.mode === 'photo-clarity' ? 3.5 : 2.0)) {
+          detail = 0;
+        }
+
+        // Clarity midtone micro-contrast & mode-specific polish
+        let toneShift = detail * amount;
+        if (clarityAmt > 0.02) {
+          const mid = (lum - 128) / 128;
+          toneShift += mid * (1 - mid * mid) * (clarityAmt * 22);
+        }
+
+        let nr = r + toneShift;
+        let ng = g + toneShift;
+        let nb = b + toneShift;
+
+        if (options.mode === 'document-crisp') {
+          if (lum > 205) {
+            nr = nr * 0.55 + 255 * 0.45;
+            ng = ng * 0.55 + 255 * 0.45;
+            nb = nb * 0.55 + 255 * 0.45;
+          } else if (lum < 95) {
+            nr *= 0.85;
+            ng *= 0.85;
+            nb *= 0.85;
+          }
+        } else if (options.mode === 'vector-sharp' && a > 12 && a < 245) {
+          // Crisp semi-transparent vector outline fringes
+          const sharpenedA = Math.round(128 + (a - 128) * (1.2 + sharpStrength * 0.9));
+          src[i + 3] = Math.max(0, Math.min(255, sharpenedA));
+        }
+
+        src[i] = Math.max(0, Math.min(255, Math.round(nr)));
+        src[i + 1] = Math.max(0, Math.min(255, Math.round(ng)));
+        src[i + 2] = Math.max(0, Math.min(255, Math.round(nb)));
+      }
+    }
+
+    if (totalPixels > 0) {
+      wCtx.putImageData(imgData, 0, 0);
+    }
+
+    onProgress?.(92, 'Encoding enhanced image...');
+    const blob = await encodeCanvasToFormat(workCanvas, options.format, options.quality, '#FFFFFF');
+    const dataUrl = await blobToDataUrl(blob);
+    onProgress?.(100, 'Enhancement complete');
+
+    return {
+      id: `enh_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      originalName: file.name,
+      fileName: `${stripExtension(file.name)}_enhanced_${options.scale}x.${options.format}`,
+      format: options.format,
+      width: targetW,
+      height: targetH,
+      originalWidth: srcW,
+      originalHeight: srcH,
+      originalSizeBytes: file.size,
+      sizeBytes: blob.size,
+      blob,
+      dataUrl,
+    };
+  } finally {
+    if (loaded.objectUrl) URL.revokeObjectURL(loaded.objectUrl);
+  }
+}
+

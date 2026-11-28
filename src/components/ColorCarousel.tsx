@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { BrandKitPreset, CoverData, FontStyle, QRPosition } from '../types';
+import { BrandKitPreset, CoverBorderStyle, CoverData, FontStyle, QRPosition } from '../types';
 import { PRESET_IMAGES } from '../constants/themes';
 import {
   Palette,
@@ -13,6 +13,15 @@ import {
   Trash2,
   ShieldCheck,
   Stamp,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  PenTool,
+  Square,
+  Move,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 
 interface ColorPreset {
@@ -42,6 +51,22 @@ const COLOR_PRESETS: ColorPreset[] = [
     subtitleColor: '#2563eb',
   },
   {
+    id: 'academic-navy-gold',
+    name: 'Academic Navy',
+    primary: '#1e3a8a',
+    accent: '#ca8a04',
+    titleColor: '#1e3a8a',
+    subtitleColor: '#b45309',
+  },
+  {
+    id: 'burgundy-heritage',
+    name: 'Burgundy Crest',
+    primary: '#7f1d1d',
+    accent: '#d97706',
+    titleColor: '#7f1d1d',
+    subtitleColor: '#b45309',
+  },
+  {
     id: 'imperial-crimson',
     name: 'Crimson',
     primary: '#18181b',
@@ -56,6 +81,14 @@ const COLOR_PRESETS: ColorPreset[] = [
     accent: '#10b981',
     titleColor: '#064e3b',
     subtitleColor: '#059669',
+  },
+  {
+    id: 'teal-executive',
+    name: 'Teal Advisory',
+    primary: '#134e4a',
+    accent: '#14b8a6',
+    titleColor: '#115e59',
+    subtitleColor: '#0d9488',
   },
   {
     id: 'royal-indigo',
@@ -73,6 +106,62 @@ const COLOR_PRESETS: ColorPreset[] = [
     titleColor: '#fbbf24',
     subtitleColor: '#fde68a',
   },
+  {
+    id: 'charcoal-coral',
+    name: 'Charcoal Coral',
+    primary: '#18181b',
+    accent: '#f43f5e',
+    titleColor: '#18181b',
+    subtitleColor: '#e11d48',
+  },
+  {
+    id: 'royal-plum',
+    name: 'Royal Plum',
+    primary: '#4c1d95',
+    accent: '#ec4899',
+    titleColor: '#4c1d95',
+    subtitleColor: '#db2777',
+  },
+  {
+    id: 'ocean-cyan',
+    name: 'Cyber Cyan',
+    primary: '#020617',
+    accent: '#06b6d4',
+    titleColor: '#22d3ee',
+    subtitleColor: '#67e8f9',
+  },
+  {
+    id: 'warm-terracotta',
+    name: 'Terracotta',
+    primary: '#7c2d12',
+    accent: '#f97316',
+    titleColor: '#7c2d12',
+    subtitleColor: '#ea580c',
+  },
+  {
+    id: 'espresso-brass',
+    name: 'Espresso Brass',
+    primary: '#292524',
+    accent: '#a16207',
+    titleColor: '#292524',
+    subtitleColor: '#92400e',
+  },
+  {
+    id: 'mint-sage',
+    name: 'Nordic Sage',
+    primary: '#1e293b',
+    accent: '#22c55e',
+    titleColor: '#1e293b',
+    subtitleColor: '#16a34a',
+  },
+  {
+    id: 'steel-titanium',
+    name: 'Steel Monochrome',
+    primary: '#111827',
+    accent: '#64748b',
+    titleColor: '#0f172a',
+    subtitleColor: '#475569',
+  },
 ];
 
 interface ColorCarouselProps {
@@ -82,6 +171,12 @@ interface ColorCarouselProps {
   onSaveBrandKit?: (name: string) => void;
   onApplyBrandKit?: (kit: BrandKitPreset) => void;
   onDeleteBrandKit?: (id: string) => void;
+  savedSignatureUrl?: string;
+  savedProfileName?: string;
+  onOpenProfile?: () => void;
+  hasUploadedDoc?: boolean;
+  isAnalyzingDoc?: boolean;
+  onAutoAnalyzeFromFile?: () => void;
 }
 
 export const ColorCarousel: React.FC<ColorCarouselProps> = ({
@@ -91,6 +186,12 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
   onSaveBrandKit,
   onApplyBrandKit,
   onDeleteBrandKit,
+  savedSignatureUrl,
+  savedProfileName,
+  onOpenProfile,
+  hasUploadedDoc = false,
+  isAnalyzingDoc = false,
+  onAutoAnalyzeFromFile,
 }) => {
   const [subTab, setSubTab] = useState<'details' | 'colors' | 'branding'>('details');
   const [newKitName, setNewKitName] = useState('');
@@ -392,58 +493,277 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Type className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
-                Cover Typography Font
-              </label>
-              <select
-                value={coverData.font}
-                onChange={(e) => updateField('font', e.target.value as FontStyle)}
-                className="w-full px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-white font-medium focus:border-yellow-400 focus:outline-none cursor-pointer"
-              >
-                {fonts.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                  <Type className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                  Cover Typography Font
+                </label>
+                <select
+                  value={coverData.font}
+                  onChange={(e) => updateField('font', e.target.value as FontStyle)}
+                  className="w-full px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-white font-medium focus:border-yellow-400 focus:outline-none cursor-pointer"
+                >
+                  {fonts.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 block">
+                  Paper Size
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['a4', 'letter'] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => updateField('paperSize', sz)}
+                      className={`py-2 px-3 rounded-lg border text-xs font-semibold cursor-pointer ${
+                        coverData.paperSize === sz
+                          ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                      }`}
+                    >
+                      {sz === 'a4' ? 'A4 Print' : 'US Letter'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1.5 block">
-                Paper Size
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['a4', 'letter'] as const).map((sz) => (
+            {/* Font Size Controls */}
+            <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                  <Type className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                  Typography Sizing (1:1 PDF Match)
+                </span>
+                {(coverData.titleFontSize || coverData.subtitleFontSize || coverData.summaryFontSize) && (
                   <button
-                    key={sz}
                     type="button"
-                    onClick={() => updateField('paperSize', sz)}
-                    className={`py-2 px-3 rounded-lg border text-xs font-semibold cursor-pointer ${
-                      coverData.paperSize === sz
-                        ? 'border-yellow-400 bg-yellow-400/15 text-amber-800 dark:text-yellow-300 font-bold'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
-                    }`}
+                    onClick={() =>
+                      onChange({
+                        ...coverData,
+                        titleFontSize: undefined,
+                        subtitleFontSize: undefined,
+                        summaryFontSize: undefined,
+                      })
+                    }
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-yellow-400 hover:underline cursor-pointer"
                   >
-                    {sz === 'a4' ? 'A4 Print' : 'US Letter'}
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset sizes</span>
                   </button>
-                ))}
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <div className="flex items-center justify-between text-[11px] text-zinc-600 dark:text-zinc-400 mb-1">
+                    <span>Title Size</span>
+                    <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">
+                      {coverData.titleFontSize ?? 30}px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={18}
+                    max={46}
+                    step={1}
+                    value={coverData.titleFontSize ?? 30}
+                    onChange={(e) => updateField('titleFontSize', Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-[11px] text-zinc-600 dark:text-zinc-400 mb-1">
+                    <span>Subtitle Size</span>
+                    <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">
+                      {coverData.subtitleFontSize ?? 14}px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={24}
+                    step={1}
+                    value={coverData.subtitleFontSize ?? 14}
+                    onChange={(e) => updateField('subtitleFontSize', Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-[11px] text-zinc-600 dark:text-zinc-400 mb-1">
+                    <span>Body / Index</span>
+                    <span className="font-mono font-bold text-zinc-900 dark:text-white tabular-nums">
+                      {coverData.summaryFontSize ?? 12}px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={9}
+                    max={18}
+                    step={1}
+                    value={coverData.summaryFontSize ?? 12}
+                    onChange={(e) => updateField('summaryFontSize', Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Clean Page Border Controls */}
+            <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                  <Square className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                  Page Border (Optional)
+                </span>
+                {coverData.elementOffsets && Object.keys(coverData.elementOffsets).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => updateField('elementOffsets', undefined)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-yellow-400 hover:underline cursor-pointer"
+                  >
+                    <Move className="w-3 h-3" />
+                    <span>Reset Drag Positions</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block mb-1">Style</span>
+                  <select
+                    value={coverData.borderStyle || 'none'}
+                    onChange={(e) => updateField('borderStyle', e.target.value as CoverBorderStyle)}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white cursor-pointer"
+                  >
+                    <option value="none">Theme Default / None</option>
+                    <option value="solid">Clean Solid Frame</option>
+                    <option value="double">Classic Double Border</option>
+                    <option value="dashed">Modern Dashed Border</option>
+                    <option value="corner-accents">Corner Brackets</option>
+                    <option value="inset-frame">Executive Inset Frame</option>
+                  </select>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block mb-1">
+                    Thickness ({coverData.borderWidth ?? 2}px)
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={6}
+                    step={1}
+                    value={coverData.borderWidth ?? 2}
+                    onChange={(e) => updateField('borderWidth', Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer mt-2"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-zinc-600 dark:text-zinc-400 block mb-1">Border Color</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={coverData.borderColor || coverData.primaryColor}
+                      onChange={(e) => updateField('borderColor', e.target.value)}
+                      className="w-7 h-7 rounded border border-zinc-300 dark:border-zinc-700 bg-transparent cursor-pointer"
+                    />
+                    <span className="font-mono text-[11px] text-zinc-900 dark:text-white uppercase">
+                      {coverData.borderColor || coverData.primaryColor}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* TAB 2: OPTIONAL COVER METADATA + VERIFICATION BADGE */}
+      {/* TAB 2: OPTIONAL COVER METADATA + TEXT FORMATTING + AI AUTO-FILL */}
       {subTab === 'details' && (
         <div className="space-y-4">
+          {hasUploadedDoc && onAutoAnalyzeFromFile && (
+            <div className="p-3 rounded-xl border border-yellow-400/40 bg-yellow-400/8 dark:bg-yellow-500/10 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400 shrink-0" />
+                  <span>
+                    {coverData.aiAnalyzedCategory
+                      ? `Auto-Equipped: ${coverData.aiAnalyzedCategory}`
+                      : 'AI Smart Cover & Content Extractor'}
+                  </span>
+                </p>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400 truncate">
+                  Re-scan uploaded document to auto-fill Title, Subtitle, clean Index bullets &amp; fitting template
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isAnalyzingDoc}
+                onClick={onAutoAnalyzeFromFile}
+                className="px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-[11px] inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+              >
+                {isAnalyzingDoc ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span>{isAnalyzingDoc ? 'Analyzing...' : 'AI Auto-Fill from File'}</span>
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Document Title
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Document Title
+                </label>
+                <div className="inline-flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md p-0.5">
+                  <button
+                    type="button"
+                    title="Bold title"
+                    onClick={() => updateField('titleBold', coverData.titleBold === false ? true : false)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.titleBold !== false
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Bold className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Italic title"
+                    onClick={() => updateField('titleItalic', !coverData.titleItalic)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.titleItalic
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Italic className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Underline title"
+                    onClick={() => updateField('titleUnderline', !coverData.titleUnderline)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.titleUnderline
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Underline className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
               <input
                 type="text"
                 value={coverData.title}
@@ -454,9 +774,49 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Subtitle (Optional)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Subtitle (Optional)
+                </label>
+                <div className="inline-flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md p-0.5">
+                  <button
+                    type="button"
+                    title="Bold subtitle"
+                    onClick={() => updateField('subtitleBold', !coverData.subtitleBold)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.subtitleBold
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Bold className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Italic subtitle"
+                    onClick={() => updateField('subtitleItalic', !coverData.subtitleItalic)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.subtitleItalic
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Italic className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Underline subtitle"
+                    onClick={() => updateField('subtitleUnderline', !coverData.subtitleUnderline)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.subtitleUnderline
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Underline className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
               <input
                 type="text"
                 value={coverData.subtitle}
@@ -519,15 +879,70 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-              Summary / Description (Optional)
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Summary / Description (Supports line breaks &amp; bullet points)
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="Insert bullet line"
+                  onClick={() => {
+                    const current = coverData.summary || '';
+                    const prefix = current.length > 0 && !current.endsWith('\n') ? '\n• ' : '• ';
+                    updateField('summary', `${current}${prefix}`);
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold text-zinc-700 dark:text-zinc-300 hover:border-yellow-400 cursor-pointer"
+                >
+                  <List className="w-3 h-3" />
+                  <span>+ Bullet</span>
+                </button>
+                <div className="inline-flex items-center gap-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md p-0.5">
+                  <button
+                    type="button"
+                    title="Bold description"
+                    onClick={() => updateField('summaryBold', !coverData.summaryBold)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.summaryBold
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Bold className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Italic description"
+                    onClick={() => updateField('summaryItalic', !coverData.summaryItalic)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.summaryItalic
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Italic className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Underline description"
+                    onClick={() => updateField('summaryUnderline', !coverData.summaryUnderline)}
+                    className={`p-1 rounded cursor-pointer ${
+                      coverData.summaryUnderline
+                        ? 'bg-yellow-400 text-black'
+                        : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Underline className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
             <textarea
-              rows={2}
+              rows={4}
               value={coverData.summary}
               onChange={(e) => updateField('summary', e.target.value)}
-              placeholder="Optional short overview printed on the cover sheet"
-              className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 focus:border-yellow-400 focus:outline-none text-zinc-900 dark:text-zinc-200"
+              placeholder={"Press Enter for new lines or start lines with - or • for bullet points\n• Key deliverable summary\n• Submission date & notes"}
+              className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 focus:border-yellow-400 focus:outline-none text-zinc-900 dark:text-zinc-200 leading-relaxed"
             />
           </div>
 
@@ -669,6 +1084,71 @@ export const ColorCarousel: React.FC<ColorCarouselProps> = ({
                     <option value="large">Large</option>
                   </select>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Profile Saved Signature Stamp on Cover */}
+          <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                  <PenTool className="w-3.5 h-3.5 text-amber-600 dark:text-yellow-400" />
+                  Authorized Signature on Cover (Optional)
+                </h4>
+                <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                  Place your saved signature from Profile directly onto Page 1 (draggable in preview)
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {coverData.signatureUrl && (
+                  <button
+                    type="button"
+                    onClick={() => updateField('signatureUrl', undefined)}
+                    className="text-xs text-red-600 dark:text-red-400 hover:underline cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                )}
+                {savedSignatureUrl ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        ...coverData,
+                        signatureUrl: savedSignatureUrl,
+                        signatureLabel: coverData.signatureLabel || savedProfileName || coverData.preparedBy || 'Signature',
+                      })
+                    }
+                    className="px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs cursor-pointer"
+                  >
+                    {coverData.signatureUrl ? 'Refresh Profile Sig' : 'Use Saved Signature'}
+                  </button>
+                ) : onOpenProfile ? (
+                  <button
+                    type="button"
+                    onClick={onOpenProfile}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 font-semibold text-xs hover:border-yellow-400 cursor-pointer"
+                  >
+                    Draw Signature in Profile
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {coverData.signatureUrl && (
+              <div className="flex items-center gap-3 pt-1">
+                <img
+                  src={coverData.signatureUrl}
+                  alt="Cover signature preview"
+                  className="h-9 max-w-[120px] object-contain bg-white rounded border border-zinc-200 px-2"
+                />
+                <input
+                  type="text"
+                  value={coverData.signatureLabel || ''}
+                  onChange={(e) => updateField('signatureLabel', e.target.value)}
+                  placeholder="Signature label (e.g. Authorized Signatory)"
+                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-900 dark:text-white"
+                />
               </div>
             )}
           </div>

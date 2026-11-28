@@ -36,6 +36,47 @@
       },
       "required": ["id", "name", "themeId", "primaryColor", "accentColor", "font", "createdAt", "userEmail"]
     },
+    "LetterheadPreset": {
+      "title": "LetterheadPreset",
+      "description": "Saved user company letterhead configuration (template, brand colors, company header/footer, logo, and optional signature defaults).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "templateId": { "type": "string", "maxLength": 64 },
+        "primaryColor": { "type": "string", "maxLength": 32 },
+        "accentColor": { "type": "string", "maxLength": 32 },
+        "paperSize": { "type": "string", "enum": ["a4", "letter"] },
+        "companyName": { "type": "string", "maxLength": 200 },
+        "tagline": { "type": "string", "maxLength": 200 },
+        "registrationNo": { "type": "string", "maxLength": 80 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "email": { "type": "string", "maxLength": 254 },
+        "website": { "type": "string", "maxLength": 200 },
+        "address": { "type": "string", "maxLength": 400 },
+        "logoUrl": { "type": "string", "maxLength": 250000 },
+        "showWatermark": { "type": "boolean" },
+        "showPageBorder": { "type": "boolean" },
+        "includeSampleContent": { "type": "boolean" },
+        "signerName": { "type": "string", "maxLength": 160 },
+        "signerTitle": { "type": "string", "maxLength": 160 },
+        "signatureUrl": { "type": "string", "maxLength": 160000 },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "required": [
+        "id",
+        "name",
+        "templateId",
+        "primaryColor",
+        "accentColor",
+        "paperSize",
+        "companyName",
+        "createdAt",
+        "userEmail"
+      ]
+    },
     "PhotoBatchPreset": {
       "title": "PhotoBatchPreset",
       "description": "Saved user editing recipe for Photo Batch Studio (look, light/color adjustments, effects, framing, and optional watermarks).",
@@ -51,6 +92,47 @@
         "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
       },
       "required": ["id", "name", "category", "setup", "createdAt", "userEmail"]
+    },
+    "StampPreset": {
+      "title": "StampPreset",
+      "description": "User-saved custom image or text PDF stamp preset stored in the reusable stamp library.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 80 },
+        "kind": { "type": "string", "enum": ["image", "text"] },
+        "imageUrl": { "type": "string", "maxLength": 180000 },
+        "text": { "type": "string", "maxLength": 48 },
+        "subtext": { "type": "string", "maxLength": 48 },
+        "shape": { "type": "string", "enum": ["rect", "double-rect", "round", "solid-badge"] },
+        "color": { "type": "string", "maxLength": 32 },
+        "position": {
+          "type": "string",
+          "enum": ["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"]
+        },
+        "scale": { "type": "number" },
+        "opacity": { "type": "number" },
+        "rotationDeg": { "type": "number" },
+        "pageScope": {
+          "type": "string",
+          "enum": ["all-attached", "all-including-cover", "first-attached", "cover-only"]
+        },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "position",
+        "scale",
+        "opacity",
+        "rotationDeg",
+        "pageScope",
+        "createdAt",
+        "userEmail"
+      ]
     },
     "PublicReview": {
       "title": "PublicReview",
@@ -96,6 +178,35 @@
         "updatedAt": { "type": "number" }
       },
       "required": ["sheetUrl", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private owner-only user biodata, optional compressed ID/passport documents, reusable signature, and biodata presets.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userEmail": { "type": "string", "format": "email", "maxLength": 254 },
+        "fullName": { "type": "string", "maxLength": 160 },
+        "fatherName": { "type": "string", "maxLength": 160 },
+        "contactNumber": { "type": "string", "maxLength": 48 },
+        "email": { "type": "string", "maxLength": 254 },
+        "dateOfBirth": { "type": "string", "maxLength": 40 },
+        "nationalIdNumber": { "type": "string", "maxLength": 64 },
+        "passportNumber": { "type": "string", "maxLength": 64 },
+        "organization": { "type": "string", "maxLength": 200 },
+        "designation": { "type": "string", "maxLength": 160 },
+        "address": { "type": "string", "maxLength": 400 },
+        "bioNotes": { "type": "string", "maxLength": 1000 },
+        "nationalIdFrontUrl": { "type": "string", "maxLength": 260000 },
+        "nationalIdBackUrl": { "type": "string", "maxLength": 260000 },
+        "passportImageUrl": { "type": "string", "maxLength": 260000 },
+        "signatureUrl": { "type": "string", "maxLength": 160000 },
+        "avatarUrl": { "type": "string", "maxLength": 200000 },
+        "presets": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "userEmail", "fullName", "fatherName", "contactNumber", "presets", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -107,9 +218,17 @@
       "schema": { "$ref": "#/entities/BrandKitPreset" },
       "description": "User-owned reusable brand kit cover presets."
     },
+    "/letterheadPresets/{presetId}": {
+      "schema": { "$ref": "#/entities/LetterheadPreset" },
+      "description": "User-owned reusable Company Letterhead presets synced across sessions and logins."
+    },
     "/photoBatchPresets/{presetId}": {
       "schema": { "$ref": "#/entities/PhotoBatchPreset" },
       "description": "User-owned reusable Photo Batch Studio presets."
+    },
+    "/stampPresets/{stampId}": {
+      "schema": { "$ref": "#/entities/StampPreset" },
+      "description": "User-owned reusable custom image and text stamp library presets for PDF pages."
     },
     "/publicReviews/{reviewId}": {
       "schema": { "$ref": "#/entities/PublicReview" },
@@ -118,6 +237,10 @@
     "/appConfig/{configId}": {
       "schema": { "$ref": "#/entities/FeedbackSyncConfig" },
       "description": "Shared public configuration for Google Sheet review synchronization."
+    },
+    "/userProfiles/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Strictly owner-only encrypted-at-rest user profile vault for biodata, IDs, signature, and document presets."
     }
   }
 }

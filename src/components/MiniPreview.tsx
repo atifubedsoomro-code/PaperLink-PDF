@@ -1,6 +1,12 @@
 import React from 'react';
 import { CoverData, UploadedDocInfo } from '../types';
 import { COVER_THEMES } from '../constants/themes';
+import {
+  getCoverFontCssFamily,
+  hasBannerHeaderLayout,
+  isCenteredCoverLayout,
+  resolveEffectiveColors,
+} from '../utils/coverFormatting';
 import { Eye, Layout, Palette, QrCode } from 'lucide-react';
 
 interface MiniPreviewProps {
@@ -34,32 +40,24 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
   const thumbH = Math.round(paperH * SCALE);
   const includeQr = coverData.includeQr !== false;
 
-  const isDarkModeTheme = !!theme.isDark;
-  const isCentered = theme.layoutStyle === 'plain-centered';
+  const {
+    isDarkModeTheme,
+    effectiveTitleColor,
+    effectiveSubtitleColor,
+    effectiveTextColor,
+    effectiveBorderColor,
+    effectiveBorderWidth,
+  } = resolveEffectiveColors(coverData, theme);
+
+  const isCentered = isCenteredCoverLayout(theme.layoutStyle);
   const isLeftBar = theme.layoutStyle === 'plain-left-bar';
+  const isSplitCover = theme.layoutStyle === 'split-cover';
+  const hasTopBanner = hasBannerHeaderLayout(theme.layoutStyle, !!coverData.backgroundImageUrl);
 
-  const effectiveTitleColor = coverData.titleColor || (isDarkModeTheme ? '#ffffff' : coverData.primaryColor);
-  const effectiveSubtitleColor = coverData.subtitleColor || coverData.accentColor;
-  const effectiveTextColor = coverData.textColor || (isDarkModeTheme ? '#cbd5e1' : '#334155');
-
-  const getFontStyle = (): React.CSSProperties => {
-    switch (coverData.font) {
-      case 'playfair':
-        return { fontFamily: '"Playfair Display", Georgia, serif' };
-      case 'merriweather':
-        return { fontFamily: '"Merriweather", Georgia, serif' };
-      case 'mono':
-        return { fontFamily: '"JetBrains Mono", monospace' };
-      case 'montserrat':
-        return { fontFamily: '"Montserrat", "Plus Jakarta Sans", sans-serif' };
-      case 'oswald':
-        return { fontFamily: '"Oswald", sans-serif', letterSpacing: '-0.01em' };
-      case 'space':
-      case 'inter':
-      default:
-        return { fontFamily: '"Plus Jakarta Sans", "DM Sans", sans-serif' };
-    }
-  };
+  const getFontStyle = (): React.CSSProperties => ({
+    fontFamily: getCoverFontCssFamily(coverData.font),
+    letterSpacing: coverData.font === 'oswald' ? '-0.01em' : undefined,
+  });
 
   const miniQrBlock = (
     <div
@@ -131,23 +129,61 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
               />
             )}
 
-            {(theme.layoutStyle === 'banner-top' || theme.layoutStyle === 'split-vertical') &&
-              !coverData.backgroundImageUrl && (
-                <div className="relative z-10">
-                  <div className="relative w-full h-[160px] overflow-hidden" style={{ backgroundColor: coverData.primaryColor }}>
-                    {coverData.imageUrl && (
-                      <img
-                        src={coverData.imageUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover opacity-90"
-                      />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
-                    <div className="absolute bottom-0 inset-x-0 h-[6px]" style={{ backgroundColor: coverData.accentColor }} />
-                  </div>
+            {hasTopBanner && (
+              <div className="relative z-10">
+                <div
+                  className="relative w-full overflow-hidden"
+                  style={{
+                    height: theme.layoutStyle === 'full-bleed-hero' ? 195 : 160,
+                    backgroundColor: coverData.primaryColor,
+                  }}
+                >
+                  {coverData.imageUrl && (
+                    <img
+                      src={coverData.imageUrl}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover opacity-90"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+                  <div className="absolute bottom-0 inset-x-0 h-[6px]" style={{ backgroundColor: coverData.accentColor }} />
                 </div>
-              )}
+              </div>
+            )}
+
+            {isSplitCover && (
+              <div className="absolute left-0 inset-y-0 w-[124px] z-0" style={{ backgroundColor: coverData.primaryColor }}>
+                <div className="absolute inset-y-0 right-0 w-[4px]" style={{ backgroundColor: coverData.accentColor }} />
+              </div>
+            )}
+
+            {theme.layoutStyle === 'ribbon-crest' && (
+              <div className="relative z-10 shrink-0">
+                <div className="h-[44px] w-full" style={{ backgroundColor: coverData.primaryColor }} />
+                <div className="h-[4px] w-full" style={{ backgroundColor: coverData.accentColor }} />
+              </div>
+            )}
+
+            {theme.layoutStyle === 'executive-memo' && (
+              <div className="relative z-10 px-[40px] pt-[28px] shrink-0">
+                <div className="h-[34px] rounded-md" style={{ backgroundColor: coverData.primaryColor }} />
+                <div className="h-[3px] w-full mt-[4px]" style={{ backgroundColor: coverData.accentColor }} />
+              </div>
+            )}
+
+            {theme.layoutStyle === 'certificate-frame' && (
+              <div className="absolute inset-[14px] border-[3px] z-10" style={{ borderColor: coverData.primaryColor }}>
+                <div className="absolute inset-[6px] border" style={{ borderColor: coverData.accentColor }} />
+              </div>
+            )}
+
+            {theme.layoutStyle === 'diagonal-accent' && (
+              <div className="absolute inset-0 overflow-hidden z-0">
+                <div className="absolute -top-[88px] -right-[88px] w-[240px] h-[240px] rotate-45" style={{ backgroundColor: coverData.primaryColor }} />
+                <div className="absolute bottom-0 inset-x-0 h-[5px]" style={{ backgroundColor: coverData.accentColor }} />
+              </div>
+            )}
 
             {theme.layoutStyle === 'bordered-formal' && (
               <div
@@ -208,11 +244,21 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
               </>
             )}
 
+            {coverData.borderStyle && coverData.borderStyle !== 'none' && (
+              <div
+                className="absolute inset-[14px] pointer-events-none z-20"
+                style={{
+                  border: `${effectiveBorderWidth}px ${coverData.borderStyle === 'dashed' ? 'dashed' : 'solid'} ${effectiveBorderColor}`,
+                  borderRadius: coverData.borderRadius ?? 4,
+                }}
+              />
+            )}
+
             <div
               className="flex-1 flex flex-col justify-between z-10 relative"
               style={{
                 padding: 40,
-                paddingLeft: isLeftBar ? 56 : 40,
+                paddingLeft: isSplitCover ? 148 : isLeftBar ? 56 : 40,
               }}
             >
               <div className={isCentered ? 'flex-1 flex flex-col justify-center' : ''}>
@@ -237,16 +283,28 @@ export const MiniPreview: React.FC<MiniPreviewProps> = ({
 
                 <div className={`mt-[8px] space-y-[10px] ${isCentered ? 'text-center' : ''}`}>
                   <h4
-                    className="text-[30px] font-extrabold leading-[1.2] tracking-tight break-words line-clamp-3"
-                    style={{ color: effectiveTitleColor }}
+                    className="leading-[1.2] tracking-tight break-words line-clamp-3"
+                    style={{
+                      fontSize: `${coverData.titleFontSize ?? 30}px`,
+                      color: effectiveTitleColor,
+                      fontWeight: coverData.titleBold === false ? 500 : 800,
+                      fontStyle: coverData.titleItalic ? 'italic' : 'normal',
+                      textDecoration: coverData.titleUnderline ? 'underline' : 'none',
+                    }}
                   >
                     {coverData.title || currentDoc?.extractedTitle || currentDoc?.name || 'Document Title'}
                   </h4>
 
                   {coverData.subtitle && (
                     <p
-                      className="text-[14px] font-medium leading-[1.35] opacity-90 line-clamp-2"
-                      style={{ color: effectiveSubtitleColor }}
+                      className="leading-[1.35] opacity-90 line-clamp-2"
+                      style={{
+                        fontSize: `${coverData.subtitleFontSize ?? 14}px`,
+                        color: effectiveSubtitleColor,
+                        fontWeight: coverData.subtitleBold ? 700 : 500,
+                        fontStyle: coverData.subtitleItalic ? 'italic' : 'normal',
+                        textDecoration: coverData.subtitleUnderline ? 'underline' : 'none',
+                      }}
                     >
                       {coverData.subtitle}
                     </p>

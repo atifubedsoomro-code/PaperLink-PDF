@@ -35,6 +35,7 @@ import {
   Stamp,
   ScanLine,
   ArrowLeftRight,
+  Building2,
 } from 'lucide-react';
 import { MergeRearrangeModal } from './MergeRearrangeModal';
 import { motion } from 'motion/react';
@@ -67,6 +68,8 @@ import {
   inspectPdfThumbnails,
   transformPdfPages,
   signAndStampPdf,
+  applyPdfEdits,
+  PdfStampShape,
   estimateCompressedPdfSize,
   parsePageRange,
 } from '../services/pdfToolkit';
@@ -77,7 +80,9 @@ import { PdfToImageTool } from './PdfToImageTool';
 import { PdfAddImagesTool } from './PdfAddImagesTool';
 import { PdfWatermarkTools } from './PdfWatermarkTools';
 import { PdfScanCropTool } from './PdfScanCropTool';
+import { PdfLetterheadTool } from './PdfLetterheadTool';
 import { OfficeUtilityTools, OfficeUtilityTabId } from './OfficeUtilityTools';
+import { UserProfileData } from '../types';
 
 export type PdfToolTab =
   | 'pdf-to-word'
@@ -94,6 +99,7 @@ export type PdfToolTab =
   | 'pdf-organize'
   | 'pdf-sign'
   | 'pdf-edit'
+  | 'pdf-letterhead'
   | 'pdf-protect'
   | OfficeUtilityTabId;
 
@@ -108,6 +114,10 @@ interface PdfToolsPanelProps {
     downloadFile?: ReadyDownloadPayload;
   }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
+  savedSignatureUrl?: string;
+  userProfile?: UserProfileData | null;
+  userEmail?: string;
+  onOpenProfile?: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -141,6 +151,7 @@ const PDF_TOOL_TABS: { id: PdfToolTab; label: string; icon: React.ComponentType<
   { id: 'pdf-scan-crop', label: 'Crop & Auto-Scan', icon: ScanLine },
   { id: 'pdf-organize', label: 'Rotate & Delete', icon: RotateCw },
   { id: 'pdf-sign', label: 'Sign & Stamp', icon: PenTool },
+  { id: 'pdf-letterhead', label: 'Letterhead', icon: Building2 },
   { id: 'pdf-protect', label: 'Protect PDF', icon: Lock },
 ];
 
@@ -161,6 +172,10 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   onSendPdfToCoverStudio,
   onTaskComplete,
   onPreviewDocument,
+  savedSignatureUrl,
+  userProfile,
+  userEmail,
+  onOpenProfile,
 }) => {
   // Common feedback states
   const [isWorking, setIsWorking] = useState(false);
@@ -233,6 +248,16 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
   const [uploadedStampUrl, setUploadedStampUrl] = useState<string | null>(null);
   const [hasDrawnSig, setHasDrawnSig] = useState(false);
   const [signResult, setSignResult] = useState<PdfSignResult | null>(null);
+  const [signToolMode, setSignToolMode] = useState<'signature' | 'rubber-stamp'>('signature');
+  const [stampText, setStampText] = useState('APPROVED');
+  const [stampSubtext, setStampSubtext] = useState(() =>
+    new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  );
+  const [stampColor, setStampColor] = useState('#16a34a');
+  const [stampShape, setStampShape] = useState<PdfStampShape>('double-rect');
+  const [stampAngle, setStampAngle] = useState(-12);
+  const [stampOpacity, setStampOpacity] = useState(0.92);
+  const [stampAllPages, setStampAllPages] = useState(false);
   const isDrawingRef = useRef(false);
 
   const resetFeedback = () => {
@@ -746,6 +771,66 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
 
   const handleRunSignPdf = async () => {
     if (!signFile) return;
+
+    if (signToolMode === 'rubber-stamp') {
+      if (!stampText.trim()) {
+        setErrorMsg('Enter a stamp label such as APPROVED or CONFIDENTIAL.');
+        return;
+      }
+      resetFeedback();
+      setSignResult(null);
+      setIsWorking(true);
+      try {
+        const totalTarget = Math.max(1, signPagePreviews.length);
+        const targetPages = stampAllPages
+          ? Array.from({ length: totalTarget }, (_, idx) => idx + 1)
+          : [signTargetPage];
+        const isRound = stampShape === 'round';
+        const elements = targetPages.map((pg) => ({
+          id: `stamp_${pg}_${Date.now()}`,
+          kind: 'stamp' as const,
+          pageNumber: pg,
+          xFraction: Math.max(0.02, Math.min(0.92 - sigWidthFrac, sigPos.x)),
+          yFraction: Math.max(0.02, Math.min(0.86, sigPos.y)),
+          widthFraction: Math.max(0.16, sigWidthFrac),
+          heightFraction: isRound ? Math.max(0.12, sigWidthFrac * 0.72) : 0.088,
+          text: stampText.trim(),
+          subtext: stampSubtext.trim() || undefined,
+          color: stampColor,
+          shape: stampShape,
+          rotationDeg: stampAngle,
+          opacity: stampOpacity,
+        }));
+        const res = await applyPdfEdits(signFile, elements, (percent, status) =>
+          setProgress({ percent, status })
+        );
+        const stampedResult: PdfSignResult = {
+          blob: res.blob,
+          bytes: res.bytes,
+          fileName: `${signFile.name.replace(/\.pdf$/i, '')}_stamped.pdf`,
+          pageCount: res.pageCount,
+        };
+        setSignResult(stampedResult);
+        onTaskComplete?.({
+          headline: 'Rubber Stamp Applied to PDF',
+          subtext: `${stampedResult.fileName} (${stampText.toUpperCase()}) ready for download`,
+          statusLabel: 'PDF Stamp Complete',
+          downloadFile: {
+            blob: stampedResult.blob,
+            fileName: stampedResult.fileName,
+            fileSizeBytes: stampedResult.blob.size,
+            toolLabel: 'Stamp PDF',
+          },
+        });
+      } catch (err: any) {
+        setErrorMsg(err?.message || 'Failed to stamp PDF.');
+      } finally {
+        setIsWorking(false);
+        setProgress(null);
+      }
+      return;
+    }
+
     let sigDataUrl = uploadedStampUrl;
     if (!sigDataUrl && hasDrawnSig && sigCanvasRef.current) {
       sigDataUrl = sigCanvasRef.current.toDataURL('image/png');
@@ -2604,6 +2689,34 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               </button>
             </div>
 
+            {/* Sign Mode Switcher: Handwritten Signature vs Official Rubber Stamp Builder */}
+            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setSignToolMode('signature')}
+                className={`py-1.5 px-3 rounded-lg font-bold cursor-pointer transition-colors ${
+                  signToolMode === 'signature'
+                    ? 'bg-yellow-400 text-black'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                }`}
+              >
+                Signature / PNG
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignToolMode('rubber-stamp')}
+                className={`py-1.5 px-3 rounded-lg font-bold cursor-pointer transition-colors ${
+                  signToolMode === 'rubber-stamp'
+                    ? 'bg-yellow-400 text-black'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
+                }`}
+              >
+                Rubber Stamp Builder
+              </button>
+            </div>
+
+            {signToolMode === 'signature' ? (
+              <>
             {/* Signature Drawing Canvas */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
@@ -2619,6 +2732,23 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                       aria-label={`Ink color ${c}`}
                     />
                   ))}
+                  {savedSignatureUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setUploadedStampUrl(savedSignatureUrl)}
+                      className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      Use Profile Signature
+                    </button>
+                  ) : onOpenProfile ? (
+                    <button
+                      type="button"
+                      onClick={onOpenProfile}
+                      className="text-xs font-semibold text-blue-600 dark:text-sky-400 hover:underline cursor-pointer"
+                    >
+                      Save Signature in Profile
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => stampImgInputRef.current?.click()}
@@ -2701,7 +2831,7 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               </div>
               <div>
                 <div className="flex justify-between text-zinc-600 dark:text-zinc-400 mb-1">
-                  <span>Stamp Width</span>
+                  <span>Width</span>
                   <span className="font-mono">{Math.round(sigWidthFrac * 100)}%</span>
                 </div>
                 <input
@@ -2715,6 +2845,133 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
                 />
               </div>
             </div>
+              </>
+            ) : (
+              <div className="space-y-3 text-xs">
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { text: 'APPROVED', color: '#16a34a', shape: 'double-rect' as PdfStampShape },
+                    { text: 'CONFIDENTIAL', color: '#dc2626', shape: 'rect' as PdfStampShape },
+                    { text: 'PAID', color: '#059669', shape: 'round' as PdfStampShape },
+                    { text: 'URGENT', color: '#ea580c', shape: 'solid-badge' as PdfStampShape },
+                    { text: 'CERTIFIED', color: '#1d4ed8', shape: 'round' as PdfStampShape },
+                    { text: 'DRAFT', color: '#d97706', shape: 'rect' as PdfStampShape },
+                    { text: 'RECEIVED', color: '#0f766e', shape: 'rect' as PdfStampShape },
+                    { text: 'FINAL', color: '#4f46e5', shape: 'solid-badge' as PdfStampShape },
+                  ].map((st) => (
+                    <button
+                      key={st.text}
+                      type="button"
+                      onClick={() => {
+                        setStampText(st.text);
+                        setStampColor(st.color);
+                        setStampShape(st.shape);
+                      }}
+                      className="px-2.5 py-1 rounded-lg border text-[10px] font-mono font-bold cursor-pointer"
+                      style={{
+                        color: stampText === st.text ? '#ffffff' : st.color,
+                        backgroundColor: stampText === st.text ? st.color : 'transparent',
+                        borderColor: st.color,
+                      }}
+                    >
+                      {st.text}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                      Stamp Text
+                    </label>
+                    <input
+                      type="text"
+                      value={stampText}
+                      onChange={(e) => setStampText(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 font-mono font-bold uppercase text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                      Date / Author Subtext
+                    </label>
+                    <input
+                      type="text"
+                      value={stampSubtext}
+                      onChange={(e) => setStampSubtext(e.target.value)}
+                      placeholder="e.g. 28 NOV 2026"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 font-mono uppercase text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                      Shape
+                    </label>
+                    <select
+                      value={stampShape}
+                      onChange={(e) => setStampShape(e.target.value as PdfStampShape)}
+                      className="w-full px-2 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 cursor-pointer"
+                    >
+                      <option value="double-rect">Double Box</option>
+                      <option value="rect">Clean Box</option>
+                      <option value="round">Circular Seal</option>
+                      <option value="solid-badge">Solid Badge</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                      Rotation ({stampAngle}°)
+                    </label>
+                    <input
+                      type="range"
+                      min={-30}
+                      max={30}
+                      step={2}
+                      value={stampAngle}
+                      onChange={(e) => setStampAngle(Number(e.target.value))}
+                      className="w-full accent-yellow-400 mt-2 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 mb-1">
+                      Ink &amp; Opacity ({Math.round(stampOpacity * 100)}%)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={stampColor}
+                        onChange={(e) => setStampColor(e.target.value)}
+                        className="w-7 h-7 rounded border border-zinc-300 cursor-pointer bg-transparent shrink-0"
+                      />
+                      <input
+                        type="range"
+                        min={0.3}
+                        max={1}
+                        step={0.05}
+                        value={stampOpacity}
+                        onChange={(e) => setStampOpacity(Number(e.target.value))}
+                        className="w-full accent-yellow-400 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {signPagePreviews.length > 1 && (
+                  <label className="inline-flex items-center gap-2 font-semibold text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={stampAllPages}
+                      onChange={(e) => setStampAllPages(e.target.checked)}
+                      className="accent-yellow-400"
+                    />
+                    <span>Apply this rubber stamp to ALL {signPagePreviews.length} pages</span>
+                  </label>
+                )}
+              </div>
+            )}
 
             <button
               type="button"
@@ -2722,8 +2979,14 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
               disabled={!signFile || isWorking}
               className="w-full py-3 px-5 rounded-xl bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-bold text-sm cursor-pointer inline-flex items-center justify-center gap-2"
             >
-              {isWorking ? <Loader2 className="w-4 h-4 animate-spin" /> : <PenTool className="w-4 h-4" />}
-              <span>Apply Signature to Page {signTargetPage}</span>
+              {isWorking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Stamp className="w-4 h-4" />}
+              <span>
+                {signToolMode === 'rubber-stamp'
+                  ? stampAllPages && signPagePreviews.length > 1
+                    ? `Stamp All ${signPagePreviews.length} Pages`
+                    : `Apply Rubber Stamp to Page ${signTargetPage}`
+                  : `Apply Signature to Page ${signTargetPage}`}
+              </span>
             </button>
 
             {signResult && (
@@ -2842,6 +3105,8 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
           setIsWorking={setIsWorking}
           onTaskComplete={onTaskComplete}
           onPreviewDocument={onPreviewDocument}
+          savedSignatureUrl={savedSignatureUrl}
+          onOpenProfile={onOpenProfile}
         />
       )}
 
@@ -2900,6 +3165,21 @@ export const PdfToolsPanel: React.FC<PdfToolsPanelProps> = ({
       {/* TOOL 14B: CROP & AUTO-SCAN PHONE PDF */}
       {activeTool === 'pdf-scan-crop' && (
         <PdfScanCropTool
+          onOpenInCoverStudio={openGeneratedPdfInStudio}
+          onError={setErrorMsg}
+          onProgress={setProgress}
+          isWorking={isWorking}
+          setIsWorking={setIsWorking}
+          onTaskComplete={onTaskComplete}
+          onPreviewDocument={onPreviewDocument}
+        />
+      )}
+
+      {/* TOOL 14C: COMPANY LETTERHEAD GENERATOR (12 TEMPLATES) */}
+      {activeTool === 'pdf-letterhead' && (
+        <PdfLetterheadTool
+          userProfile={userProfile}
+          userEmail={userEmail || userProfile?.userEmail || ''}
           onOpenInCoverStudio={openGeneratedPdfInStudio}
           onError={setErrorMsg}
           onProgress={setProgress}

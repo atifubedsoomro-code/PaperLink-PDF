@@ -177,8 +177,18 @@ export interface PdfEditorSidebarPanelsProps {
   ensureCommittedFile: () => Promise<File | null>;
   commitTransformedFile: (newFile: File, historyLabel: string) => Promise<void>;
   onInsertPictureFile: (file: File) => void;
+  onInsertSignatureDataUrl?: (dataUrl: string) => void;
+  savedSignatureUrl?: string;
+  onOpenProfile?: () => void;
   onOpenSignatureModal: () => void;
-  onAddStampPreset: (preset: { text: string; color: string }) => void;
+  onAddStampPreset: (preset: {
+    text: string;
+    color: string;
+    subtext?: string;
+    shape?: 'rect' | 'double-rect' | 'round' | 'solid-badge';
+    rotationDeg?: number;
+    opacity?: number;
+  }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
   onTaskComplete?: (info: {
     headline: string;
@@ -188,12 +198,21 @@ export interface PdfEditorSidebarPanelsProps {
   }) => void;
 }
 
-const STAMP_PRESETS = [
-  { text: 'APPROVED', color: '#16a34a' },
-  { text: 'CONFIDENTIAL', color: '#dc2626' },
-  { text: 'DRAFT', color: '#d97706' },
-  { text: 'VERIFIED', color: '#2563eb' },
-  { text: 'PAID', color: '#059669' },
+const STAMP_PRESETS: Array<{
+  text: string;
+  color: string;
+  shape?: 'rect' | 'double-rect' | 'round' | 'solid-badge';
+}> = [
+  { text: 'APPROVED', color: '#16a34a', shape: 'double-rect' },
+  { text: 'CONFIDENTIAL', color: '#dc2626', shape: 'rect' },
+  { text: 'PAID', color: '#059669', shape: 'round' },
+  { text: 'URGENT', color: '#ea580c', shape: 'solid-badge' },
+  { text: 'CERTIFIED', color: '#1d4ed8', shape: 'round' },
+  { text: 'DRAFT', color: '#d97706', shape: 'rect' },
+  { text: 'VERIFIED', color: '#2563eb', shape: 'double-rect' },
+  { text: 'RECEIVED', color: '#0f766e', shape: 'rect' },
+  { text: 'FINAL', color: '#4f46e5', shape: 'solid-badge' },
+  { text: 'COPY', color: '#64748b', shape: 'rect' },
 ];
 
 export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
@@ -210,6 +229,9 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
   ensureCommittedFile,
   commitTransformedFile,
   onInsertPictureFile,
+  onInsertSignatureDataUrl,
+  savedSignatureUrl,
+  onOpenProfile,
   onOpenSignatureModal,
   onAddStampPreset,
   onPreviewDocument,
@@ -398,17 +420,53 @@ export const PdfEditorSidebarPanels: React.FC<PdfEditorSidebarPanelsProps> = ({
           </button>
         </div>
 
-        <div className="pt-1 space-y-1.5">
-          <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 block">
-            Quick Stamps
-          </span>
+        {savedSignatureUrl && onInsertSignatureDataUrl ? (
+          <button
+            type="button"
+            disabled={!workingFile}
+            onClick={() => onInsertSignatureDataUrl(savedSignatureUrl)}
+            className="w-full py-2 px-2.5 rounded-xl border border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 hover:border-emerald-500 disabled:opacity-40 text-emerald-800 dark:text-emerald-300 font-bold text-xs cursor-pointer inline-flex items-center justify-center gap-2"
+          >
+            <PenTool className="w-3.5 h-3.5 shrink-0" />
+            <span>Insert Saved Profile Signature</span>
+          </button>
+        ) : onOpenProfile ? (
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="w-full py-1.5 px-2.5 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 cursor-pointer"
+          >
+            Save a reusable signature in Profile Vault
+          </button>
+        ) : null}
+
+        <div className="pt-1 space-y-2 border-t border-zinc-200 dark:border-zinc-800">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">
+              Official PDF Rubber Stamps
+            </span>
+            <span className="text-[10px] text-zinc-500">Click to stamp Page {currentPage}</span>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {STAMP_PRESETS.map((st) => (
               <button
                 key={st.text}
                 type="button"
                 disabled={!workingFile}
-                onClick={() => onAddStampPreset(st)}
+                onClick={() =>
+                  onAddStampPreset({
+                    text: st.text,
+                    color: st.color,
+                    shape: st.shape,
+                    subtext: new Date().toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    }),
+                    rotationDeg: -10,
+                    opacity: 0.92,
+                  })
+                }
                 className="px-2.5 py-1 rounded-lg border text-[10px] font-mono font-bold cursor-pointer hover:opacity-80 disabled:opacity-40"
                 style={{ color: st.color, borderColor: st.color }}
               >

@@ -15,6 +15,8 @@ import {
   deleteBrandKit,
   isEmbeddedIframe,
   getSharedFeedbackSheetUrl,
+  getUserProfile,
+  saveUserProfile,
 } from './firebase';
 import { Navbar, AppView } from './components/Navbar';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -55,6 +57,7 @@ import { OnboardingTutorial } from './components/OnboardingTutorial';
 import { PaperLinkChatbot } from './components/PaperLinkChatbot';
 import { DocumentPreviewModal, PreviewTarget } from './components/DocumentPreviewModal';
 import { StudioScanCropPanel } from './components/StudioScanCropPanel';
+import { UserProfileModal } from './components/UserProfileModal';
 import { COVER_THEMES } from './constants/themes';
 import { parseUploadedDocument } from './services/documentParser';
 import {
@@ -71,9 +74,11 @@ import {
   CoverTheme,
   DriveUploadMode,
   DriveUploadResult,
+  FontStyle,
   SavedDocRecord,
   UploadedDocInfo,
   BatchItem,
+  UserProfileData,
 } from './types';
 import { generateQRCodeDataUrl } from './services/qrService';
 import {
@@ -385,6 +390,11 @@ export default function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('preferences');
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
 
+  // User Identity Vault & Saved Biodata / Signature / Presets
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<UserProfileData | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+
   // Shared Document Preview Modal State
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [isPreparingPreview, setIsPreparingPreview] = useState(false);
@@ -509,6 +519,7 @@ export default function App() {
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [detectedSuggestionTopic, setDetectedSuggestionTopic] = useState<string | null>(null);
+  const [isAnalyzingDoc, setIsAnalyzingDoc] = useState(false);
   const lastSuggestedDocIdRef = useRef<string | null>(null);
 
   const initialDraft = useRef<{ coverData: CoverData; savedAt: number | null } | null>(null);
@@ -845,6 +856,94 @@ export default function App() {
   useEffect(() => {
     refreshDocuments();
   }, [refreshDocuments]);
+
+  // Hydrate or clear private UserProfile when auth state changes
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setUserProfile(null);
+      setIsLoadingProfile(false);
+      return;
+    }
+    setIsLoadingProfile(true);
+    getUserProfile(user)
+      .then((prof) => {
+        if (!active) return;
+        setUserProfile(prof);
+        const fallbackName = prof?.fullName?.trim() || user.displayName?.trim() || '';
+        const fallbackOrg = prof?.organization?.trim() || '';
+        const fallbackSig = prof?.signatureUrl || '';
+        setCoverData((prev) => ({
+          ...prev,
+          preparedBy: prev.preparedBy?.trim() ? prev.preparedBy : fallbackName,
+          organization: prev.organization?.trim() ? prev.organization : fallbackOrg,
+          signatureUrl: prev.signatureUrl || fallbackSig || undefined,
+          signatureLabel:
+            prev.signatureLabel?.trim() || (fallbackSig && fallbackName ? fallbackName : ''),
+        }));
+      })
+      .catch((err) => {
+        console.warn('Could not load user profile:', err);
+      })
+      .finally(() => {
+        if (active) setIsLoadingProfile(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const handleSaveUserProfile = async (next: UserProfileData) => {
+    const saved = await saveUserProfile(next, user);
+    setUserProfile(saved);
+    const savedName = saved.fullName?.trim() || '';
+    const savedOrg = saved.organization?.trim() || '';
+    const savedSig = saved.signatureUrl || '';
+    setCoverData((prev) => ({
+      ...prev,
+      preparedBy: prev.preparedBy?.trim() ? prev.preparedBy : savedName,
+      organization: prev.organization?.trim() ? prev.organization : savedOrg,
+      signatureUrl: prev.signatureUrl || savedSig || undefined,
+      signatureLabel: prev.signatureLabel?.trim() || (savedSig && savedName ? savedName : ''),
+    }));
+  };
+
+  const handleApplyProfileToCoverStudio = (opts: {
+    preparedBy?: string;
+    organization?: string;
+    documentId?: string;
+    summary?: string;
+    title?: string;
+    subtitle?: string;
+    signatureUrl?: string;
+    signatureLabel?: string;
+  }) => {
+    setCoverData((prev) => ({
+      ...prev,
+      ...(opts.preparedBy !== undefined ? { preparedBy: opts.preparedBy } : {}),
+      ...(opts.organization !== undefined ? { organization: opts.organization } : {}),
+      ...(opts.documentId !== undefined ? { documentId: opts.documentId } : {}),
+      ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
+      ...(opts.title !== undefined ? { title: opts.title } : {}),
+      ...(opts.subtitle !== undefined ? { subtitle: opts.subtitle } : {}),
+      ...(opts.signatureUrl !== undefined ? { signatureUrl: opts.signatureUrl } : {}),
+      ...(opts.signatureLabel !== undefined ? { signatureLabel: opts.signatureLabel } : {}),
+    }));
+    selectStudioSection('editor');
+    navigateView('studio');
+    setCurrentStep(3);
+  };
+
+  const hasSavedProfileData = Boolean(
+    userProfile &&
+      (userProfile.fullName ||
+        userProfile.fatherName ||
+        userProfile.contactNumber ||
+        userProfile.nationalIdFrontUrl ||
+        userProfile.passportImageUrl ||
+        userProfile.signatureUrl ||
+        userProfile.presets.length > 0)
+  );
 
   const handleSaveBrandKit = async (name: string) => {
     const kit: BrandKitPreset = {
@@ -1231,6 +1330,142 @@ export default function App() {
     }));
   };
 
+  const analyzeAndApplyDocToCover = useCallback(
+    async (doc: UploadedDocInfo, overwriteUserText = true) => {
+      setIsAnalyzingDoc(true);
+      try {
+        const cleanFileTitle = doc.name
+          .replace(/\.[^/.]+$/, '')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        let analysis: {
+          category?: string;
+          suggestedThemeId?: string;
+          suggestedFont?: FontStyle;
+          primaryColor?: string;
+          accentColor?: string;
+          title?: string;
+          subtitle?: string;
+          summary?: string;
+        } | null = null;
+
+        try {
+          const resp = await fetch('/api/analyze-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: doc.name,
+              extractedTitle: doc.extractedTitle,
+              documentText: doc.extractedText,
+              pageCount: doc.pageCount,
+            }),
+          });
+          if (resp.ok) {
+            analysis = (await resp.json()) as typeof analysis;
+          }
+        } catch {
+          // Local heuristic fallback runs cleanly if API is unreachable
+        }
+
+        if (!analysis) {
+          const sample = `${doc.name}\n${(doc.extractedText || '').slice(0, 4000)}`.toLowerCase();
+          const isAcademic =
+            /\b(lab\s*task|lab\s*manual|experiment|semester|university|college|assignment|quiz|midterm|student|department)\b/i.test(
+              sample
+            );
+          const isTech =
+            /\b(architecture|api|algorithm|engineering|circuit|schematic|backend|database|software)\b/i.test(
+              sample
+            );
+          const isFinance = /\b(invoice|budget|ledger|fiscal|audit|balance\s*sheet|revenue)\b/i.test(sample);
+          const isLegal = /\b(agreement|contract|nda|clause|compliance|policy)\b/i.test(sample);
+
+          const matchedLines = (doc.extractedText || '')
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter((l) =>
+              /^(lab\s*task|task\s*#?\d|experiment|chapter\s+\d|section\s+\d|\d+[.)]\s+[A-Z])/i.test(l)
+            )
+            .slice(0, 6);
+
+          analysis = {
+            category: isAcademic
+              ? 'Academic / Lab Report'
+              : isTech
+              ? 'Engineering & Technical'
+              : isFinance
+              ? 'Financial & Invoice'
+              : isLegal
+              ? 'Legal & Compliance'
+              : 'General Document',
+            suggestedThemeId: isAcademic
+              ? 'academic-thesis'
+              : isTech
+              ? 'technical-blueprint'
+              : isFinance
+              ? 'emerald-chronicle'
+              : isLegal
+              ? 'legal-governance'
+              : 'executive-horizon',
+            suggestedFont: isAcademic ? 'merriweather' : isTech ? 'space' : 'inter',
+            title: doc.extractedTitle?.trim() || cleanFileTitle || doc.name,
+            subtitle: /\blab\b/i.test(sample)
+              ? 'Lab Tasks, Practical Exercises & Observations'
+              : isAcademic
+              ? 'Academic Submission & Structured Outline'
+              : 'Document Overview & Structured Contents',
+            summary:
+              matchedLines.length > 0
+                ? matchedLines.map((l) => `• ${l.replace(/^[•*\-–]+\s*/, '')}`).join('\n')
+                : `• Document: ${cleanFileTitle || doc.name}\n• ${doc.pageCount} page(s) compiled\n• Ready for review & signature`,
+          };
+        }
+
+        const matchedTheme =
+          COVER_THEMES.find((t) => t.id === analysis?.suggestedThemeId) ||
+          COVER_THEMES.find((t) => t.id === 'academic-thesis') ||
+          COVER_THEMES[0];
+
+        setCoverData((prev) => ({
+          ...prev,
+          themeId: matchedTheme.id,
+          imageUrl: matchedTheme.defaultImage,
+          font: analysis?.suggestedFont || matchedTheme.defaultFont,
+          primaryColor: analysis?.primaryColor || matchedTheme.primaryColor,
+          accentColor: analysis?.accentColor || matchedTheme.accentColor,
+          title:
+            overwriteUserText || !prev.title.trim()
+              ? analysis?.title || doc.extractedTitle || cleanFileTitle || doc.name
+              : prev.title,
+          subtitle:
+            overwriteUserText || !prev.subtitle.trim()
+              ? analysis?.subtitle || prev.subtitle
+              : prev.subtitle,
+          summary:
+            overwriteUserText || !prev.summary.trim()
+              ? analysis?.summary || prev.summary
+              : prev.summary,
+          preparedBy: prev.preparedBy?.trim()
+            ? prev.preparedBy
+            : userProfile?.fullName || user?.displayName || '',
+          organization: prev.organization?.trim()
+            ? prev.organization
+            : userProfile?.organization || '',
+          signatureUrl: prev.signatureUrl || userProfile?.signatureUrl,
+          signatureLabel:
+            prev.signatureLabel?.trim() ||
+            (userProfile?.signatureUrl ? userProfile?.fullName || user?.displayName || '' : ''),
+          aiAnalyzedCategory: analysis?.category || 'General Document',
+        }));
+      } finally {
+        setIsAnalyzingDoc(false);
+      }
+    },
+    [userProfile, user]
+  );
+
   const handleDocumentParsed = (doc: UploadedDocInfo) => {
     setCurrentDoc(doc);
     setUploadResult(null);
@@ -1240,12 +1475,16 @@ export default function App() {
       ...prev,
       title: doc.extractedTitle || doc.name,
       subtitle: '',
-      organization: prev.organization || '',
+      organization: prev.organization || userProfile?.organization || '',
+      preparedBy: prev.preparedBy || userProfile?.fullName || user?.displayName || '',
+      signatureUrl: prev.signatureUrl || userProfile?.signatureUrl,
       summary: '',
       documentId: '',
     }));
 
     setCurrentStep(2);
+
+    void analyzeAndApplyDocToCover(doc, true);
 
     if (lastSuggestedDocIdRef.current !== doc.id) {
       lastSuggestedDocIdRef.current = doc.id;
@@ -1617,6 +1856,9 @@ export default function App() {
           setSettingsInitialTab('feedback');
           setIsSettingsOpen(true);
         }}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        hasSavedProfileData={hasSavedProfileData}
+        profileAvatarUrl={userProfile?.avatarUrl}
         isLoggingIn={isLoggingIn}
         isChatbotMinimized={isChatbotMinimized}
         onRestoreChatbot={() => setIsChatbotMinimized(false)}
@@ -1736,6 +1978,10 @@ export default function App() {
               onSendPdfToCoverStudio={handleReceivePdfFromTools}
               onTaskComplete={triggerTaskTypewriter}
               onPreviewDocument={setPreviewTarget}
+              savedSignatureUrl={userProfile?.signatureUrl}
+              userProfile={userProfile}
+              userEmail={user?.email || userProfile?.userEmail || ''}
+              onOpenProfile={() => setIsProfileOpen(true)}
             />
           ) : activeView === 'image-tools' ? (
             <ImageToolsPanel
@@ -1952,6 +2198,7 @@ export default function App() {
                       onFullPreview={handlePreviewMergedPdf}
                       isPreparingFullPreview={isPreparingPreview}
                       isDriveUploaded={includeQr && !!uploadResult}
+                      onUpdateCoverData={setCoverData}
                     />
                   </div>
                 </div>
@@ -2203,6 +2450,14 @@ export default function App() {
                                 onSaveBrandKit={handleSaveBrandKit}
                                 onApplyBrandKit={handleApplyBrandKit}
                                 onDeleteBrandKit={handleDeleteBrandKit}
+                                savedSignatureUrl={userProfile?.signatureUrl}
+                                savedProfileName={userProfile?.fullName || user?.displayName || undefined}
+                                onOpenProfile={() => setIsProfileOpen(true)}
+                                hasUploadedDoc={!!currentDoc}
+                                isAnalyzingDoc={isAnalyzingDoc}
+                                onAutoAnalyzeFromFile={() =>
+                                  currentDoc && void analyzeAndApplyDocToCover(currentDoc, true)
+                                }
                               />
                             )}
 
@@ -2604,6 +2859,19 @@ export default function App() {
         onEmailSentSuccess={() => {
           refreshDocuments();
         }}
+      />
+
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={user}
+        isLoggingIn={isLoggingIn}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+        profile={userProfile}
+        isLoading={isLoadingProfile}
+        onSaveProfile={handleSaveUserProfile}
+        onApplyToCoverStudio={handleApplyProfileToCoverStudio}
       />
 
       <PaperLinkChatbot

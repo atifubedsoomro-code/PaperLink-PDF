@@ -6,11 +6,37 @@ export type QRPosition = 'bottom-right' | 'bottom-center' | 'bottom-left' | 'sid
 
 export type DriveUploadMode = 'source' | 'merged';
 
+export type CoverBorderStyle =
+  | 'none'
+  | 'solid'
+  | 'double'
+  | 'dashed'
+  | 'corner-accents'
+  | 'inset-frame';
+
+export type CoverDraggableKey =
+  | 'logo'
+  | 'headerMeta'
+  | 'titleBlock'
+  | 'summary'
+  | 'metaBlock'
+  | 'qrBlock'
+  | 'signature';
+
 export interface CoverTheme {
   id: string;
   name: string;
   description: string;
-  category: 'Plain' | 'Corporate' | 'Minimalist' | 'Creative' | 'Academic' | 'Modern' | 'Luxury' | 'Editorial';
+  category:
+    | 'Plain'
+    | 'Corporate'
+    | 'Minimalist'
+    | 'Creative'
+    | 'Academic'
+    | 'Modern'
+    | 'Luxury'
+    | 'Editorial'
+    | 'Official';
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -31,7 +57,14 @@ export interface CoverTheme {
     | 'plain'
     | 'plain-rule'
     | 'plain-left-bar'
-    | 'plain-centered';
+    | 'plain-centered'
+    // Expanded architectural & official templates
+    | 'ribbon-crest'
+    | 'diagonal-accent'
+    | 'split-cover'
+    | 'certificate-frame'
+    | 'executive-memo'
+    | 'full-bleed-hero';
   /** Dark background theme: light title and body text */
   isDark?: boolean;
 }
@@ -66,6 +99,30 @@ export interface CoverData {
   showLogoInQR: boolean;
   /** Set to false for clean basic covers without a QR code block */
   includeQr?: boolean;
+  /** Text formatting & sizing flags (px at 500px preview scale) */
+  titleFontSize?: number;
+  subtitleFontSize?: number;
+  summaryFontSize?: number;
+  aiAnalyzedCategory?: string;
+  titleBold?: boolean;
+  titleItalic?: boolean;
+  titleUnderline?: boolean;
+  subtitleBold?: boolean;
+  subtitleItalic?: boolean;
+  subtitleUnderline?: boolean;
+  summaryBold?: boolean;
+  summaryItalic?: boolean;
+  summaryUnderline?: boolean;
+  /** Custom page border styling */
+  borderStyle?: CoverBorderStyle;
+  borderWidth?: number;
+  borderColor?: string;
+  borderRadius?: number;
+  /** Drag-and-drop canvas element offsets in base 500px preview units */
+  elementOffsets?: Partial<Record<CoverDraggableKey, { x: number; y: number }>>;
+  /** Optional saved signature drawn directly onto the cover */
+  signatureUrl?: string;
+  signatureLabel?: string;
   /** Optional dynamic QR verification metadata printed on cover footer */
   version?: string;
   showSyncTimestamp?: boolean;
@@ -76,6 +133,103 @@ export interface CoverData {
   watermarkOpacity?: number;
   /** Scaling percentage (50–125, default 100) of uploaded document pages relative to the cover page */
   documentPageScale?: number;
+  /** Custom image/text stamps applied directly onto Cover or appended PDF pages */
+  appliedStamps?: AppliedPdfStamp[];
+}
+
+export type PdfStampShape = 'rect' | 'double-rect' | 'round' | 'solid-badge';
+
+export type PdfStampPlacement =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'center'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
+
+export type PdfStampPageScope =
+  | 'all-attached'
+  | 'all-including-cover'
+  | 'first-attached'
+  | 'cover-only';
+
+export interface CustomStampPreset {
+  id: string;
+  name: string;
+  kind: 'image' | 'text';
+  imageUrl?: string;
+  text?: string;
+  subtext?: string;
+  shape?: PdfStampShape;
+  color?: string;
+  position: PdfStampPlacement;
+  scale: number;
+  opacity: number;
+  rotationDeg: number;
+  pageScope: PdfStampPageScope;
+  userEmail: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface AppliedPdfStamp {
+  id: string;
+  presetId?: string;
+  name: string;
+  kind: 'image' | 'text';
+  imageUrl?: string;
+  text?: string;
+  subtext?: string;
+  shape?: PdfStampShape;
+  color?: string;
+  position: PdfStampPlacement;
+  scale: number;
+  opacity: number;
+  rotationDeg: number;
+  pageScope: PdfStampPageScope;
+}
+
+export interface UserBiodataPreset {
+  id: string;
+  name: string;
+  fullName: string;
+  fatherName: string;
+  contactNumber: string;
+  email: string;
+  organization: string;
+  designation: string;
+  nationalIdNumber: string;
+  passportNumber: string;
+  address: string;
+  notes: string;
+  coverTitle: string;
+  coverSubtitle: string;
+  updatedAt: number;
+}
+
+export interface UserProfileData {
+  uid: string;
+  userEmail: string;
+  fullName: string;
+  fatherName: string;
+  contactNumber: string;
+  email: string;
+  dateOfBirth: string;
+  nationalIdNumber: string;
+  passportNumber: string;
+  organization: string;
+  designation: string;
+  address: string;
+  bioNotes: string;
+  nationalIdFrontUrl?: string;
+  nationalIdBackUrl?: string;
+  passportImageUrl?: string;
+  signatureUrl?: string;
+  avatarUrl?: string;
+  presets: UserBiodataPreset[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface BrandKitPreset {
@@ -99,6 +253,32 @@ export interface BrandKitPreset {
   showLogoInQR?: boolean;
   userEmail: string;
   createdAt: number;
+}
+
+export interface LetterheadPresetRecord {
+  id: string;
+  name: string;
+  templateId: string;
+  primaryColor: string;
+  accentColor: string;
+  paperSize: PaperSize;
+  companyName: string;
+  tagline?: string;
+  registrationNo?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  address?: string;
+  logoUrl?: string;
+  showWatermark?: boolean;
+  showPageBorder?: boolean;
+  includeSampleContent?: boolean;
+  signerName?: string;
+  signerTitle?: string;
+  signatureUrl?: string;
+  userEmail: string;
+  createdAt: number;
+  updatedAt?: number;
 }
 
 export interface UploadedDocInfo {

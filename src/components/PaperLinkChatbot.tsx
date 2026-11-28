@@ -65,7 +65,9 @@ import {
   convertPdfToImages,
   createImagesZip,
   cropRotateFlipImage,
+  enhanceImageQuality,
   extractDominantPalette,
+  ImageEnhanceMode,
   removeImageBackground,
   resizeImageFile,
 } from '../services/imageToolkit';
@@ -315,6 +317,221 @@ function playOutputSuccessSound() {
   } catch {
     // Ignore audio API errors on restricted environments
   }
+}
+
+function buildLocalChatbotBackup(
+  rawPrompt: string,
+  files: File[],
+  _activeView: AppView
+): { reply: string; functionCalls: GeminiFunctionCall[]; modelUsed: string } {
+  const prompt = rawPrompt.trim();
+  const low = prompt.toLowerCase();
+  const pdfs = files.filter(isPdfFile);
+  const words = files.filter(isWordFile);
+  const ppts = files.filter(isPptFile);
+  const excels = files.filter(isExcelFile);
+  const images = files.filter(isImageFile);
+  const textFiles = files.filter(isTextFile);
+  const calls: GeminiFunctionCall[] = [];
+
+  if (/\b(who\s+(built|created|made|developed|leads)|developer|team\s+terminators|atif\s*ubed)\b/i.test(low)) {
+    return {
+      reply:
+        'PaperLink was **developed by Team Terminators** (from Pakistan):\n- **Lead:** Atif Ubed\n- **2.** Sufyan Ali\n- **3.** Muhammad Bilal\n- **4.** Muhammad Arham\n- **5.** Manahil Shamsi',
+      functionCalls: [],
+      modelUsed: 'paperlink-local-backup',
+    };
+  }
+
+  if (
+    /\b(hi|hello|hey|salam|assalam|good\s+(morning|afternoon|evening)|how\s+are\s+you|help|what\s+can\s+you\s+do)\b/i.test(
+      low
+    ) &&
+    files.length === 0 &&
+    low.length < 60
+  ) {
+    return {
+      reply:
+        "Hello! I'm **PaperLink Assistant**, ready to run directly in your browser anytime.\n\nYou can:\n- Attach PDFs, Word, PowerPoint, Excel, or images with **+** and tell me to **compress, merge, split, convert, stamp, remove background, or enhance quality**\n- Say **Open Company Letterhead**, **Open Cover Studio**, **Open PDF Tools**, or **Open Image Studio**\n- Upload a Lab Manual or Question Paper and type **Solve this sheet**",
+      functionCalls: [],
+      modelUsed: 'paperlink-local-backup',
+    };
+  }
+
+  // Navigation requests
+  if (/\b(letterhead|company\s+header|official\s+pad)\b/i.test(low) && !/\bstamp\b/i.test(low)) {
+    calls.push({ name: 'navigate_workspace', args: { view: 'tools', pdfTool: 'pdf-letterhead' } });
+  } else if (/\b(crop\s*&?\s*scan|auto[-\s]?scan|deskew|corner\s+detect|scanner)\b/i.test(low)) {
+    calls.push({ name: 'navigate_workspace', args: { view: 'tools', pdfTool: 'pdf-scan-crop' } });
+  } else if (/\b(open|go\s+to|show|switch\s+to)\b/i.test(low) && files.length === 0) {
+    if (/\bcover\s*studio\b/i.test(low)) calls.push({ name: 'navigate_workspace', args: { view: 'studio' } });
+    else if (/\bbatch\b/i.test(low)) calls.push({ name: 'navigate_workspace', args: { view: 'batch' } });
+    else if (/\blibrary|history\b/i.test(low)) calls.push({ name: 'navigate_workspace', args: { view: 'library' } });
+    else if (/\bimage\s*(tools|studio)\b/i.test(low)) {
+      calls.push({ name: 'navigate_workspace', args: { view: 'image-tools' } });
+    } else if (/\b(pdf|office)\s*tools?\b/i.test(low)) {
+      calls.push({ name: 'navigate_workspace', args: { view: 'tools' } });
+    }
+  }
+
+  // Document & Image conversions + pipelines
+  let hasPdfInPipeline = pdfs.length > 0;
+  let hasImgInPipeline = images.length > 0;
+
+  if (words.length > 0 && /\b(pdf|convert|merge|stamp|compress|cover|protect|lock)\b/i.test(low)) {
+    calls.push({ name: 'word_to_pdf', args: { paperSize: 'a4' } });
+    hasPdfInPipeline = true;
+  }
+  if (ppts.length > 0 && /\b(pdf|convert|merge|compress|cover|stamp)\b/i.test(low)) {
+    calls.push({ name: 'ppt_to_pdf', args: { layout: 'slide-fit' } });
+    hasPdfInPipeline = true;
+  } else if (ppts.length > 0 && /\b(image|png|jpg|webp|slides)\b/i.test(low)) {
+    calls.push({ name: 'ppt_to_images', args: { format: 'png', scale: 1.5 } });
+    hasImgInPipeline = true;
+  }
+  if (excels.length > 0 && /\b(pdf|convert|merge|compress)\b/i.test(low)) {
+    calls.push({ name: 'excel_to_pdf', args: { orientation: 'landscape' } });
+    hasPdfInPipeline = true;
+  } else if (excels.length > 0 && /\b(image|png|jpg|webp)\b/i.test(low)) {
+    calls.push({ name: 'excel_to_images', args: { format: 'png', scale: 1.5 } });
+    hasImgInPipeline = true;
+  }
+  if (textFiles.length > 0 && /\b(pdf|convert)\b/i.test(low)) {
+    calls.push({ name: 'text_to_pdf', args: { paperSize: 'a4' } });
+    hasPdfInPipeline = true;
+  }
+  if (images.length > 0 && /\b(into\s+pdf|to\s+pdf|images?\s+to\s+pdf|make\s+pdf)\b/i.test(low)) {
+    calls.push({ name: 'images_to_pdf', args: { paperSize: 'a4' } });
+    hasPdfInPipeline = true;
+  }
+
+  if (pdfs.length >= 2 && /\b(merge|combine|join)\b/i.test(low)) {
+    calls.push({ name: 'merge_pdfs', args: { outputName: 'merged_document' } });
+  }
+  if (hasPdfInPipeline && /\b(pdf\s+to\s+word|to\s+word|docx)\b/i.test(low)) {
+    calls.push({ name: 'pdf_to_word', args: { mode: 'editable' } });
+  }
+  if (hasPdfInPipeline && /\b(pdf\s+to\s+excel|to\s+excel|csv|xlsx)\b/i.test(low)) {
+    calls.push({ name: 'pdf_to_excel', args: { format: low.includes('csv') ? 'csv' : 'xlsx' } });
+  }
+  if (hasPdfInPipeline && /\b(pdf\s+to\s+ppt|to\s+ppt|powerpoint)\b/i.test(low)) {
+    calls.push({ name: 'pdf_to_ppt', args: { scale: 1.5 } });
+  }
+  if (hasPdfInPipeline && /\b(pdf\s+to\s+images?|export\s+pages|as\s+(png|jpg|webp))\b/i.test(low)) {
+    const fmt = low.includes('webp') ? 'webp' : low.includes('jpg') ? 'jpg' : 'png';
+    calls.push({ name: 'pdf_to_images', args: { format: fmt, scale: 2 } });
+  }
+  if (hasPdfInPipeline && /\b(split|extract\s+pages)\b/i.test(low)) {
+    const rangeMatch = prompt.match(/\b(\d+\s*(?:-\s*\d+)?(?:\s*,\s*\d+\s*(?:-\s*\d+)?)*)\b/);
+    calls.push({
+      name: 'split_pdf',
+      args: { mode: 'extract-range', rangeOrInterval: rangeMatch?.[1] || '1' },
+    });
+  }
+  if (hasPdfInPipeline && /\b(rotate|reverse|delete\s+page)\b/i.test(low)) {
+    const deg = low.includes('180') ? 180 : low.includes('270') ? 270 : 90;
+    calls.push({
+      name: 'organize_pdf_pages',
+      args: { rotateDegrees: low.includes('rotate') ? deg : 0, reverseOrder: low.includes('reverse') },
+    });
+  }
+  if (hasPdfInPipeline && /\b(add\s+cover|prepend\s+cover|cover\s+page)\b/i.test(low)) {
+    calls.push({
+      name: 'add_cover_to_pdf',
+      args: {
+        themeStyle: low.includes('corporate') ? 'corporate' : low.includes('academic') ? 'academic' : 'basic',
+        includeQr: /\bqr\b/i.test(low) && !/\b(without|no)\s+qr\b/i.test(low),
+      },
+    });
+  }
+  if (hasPdfInPipeline && /\b(stamp|confidential|approved|draft|urgent|verified|copy)\b/i.test(low)) {
+    const m = low.match(/\b(confidential|approved|draft|urgent|verified|final|copy|paid)\b/i);
+    calls.push({
+      name: 'stamp_pdf',
+      args: { text: (m?.[1] || 'APPROVED').toUpperCase(), pages: 'all', position: 'top-right' },
+    });
+  }
+  if (hasPdfInPipeline && /\b(protect|lock|encrypt|password)\b/i.test(low) && !/\bunlock|decrypt\b/i.test(low)) {
+    const pwMatch = prompt.match(/(?:password|with|pin|code)\s*[:=]?\s*["']?([A-Za-z0-9!@#$%_-]{2,24})["']?/i);
+    calls.push({ name: 'protect_pdf', args: { password: pwMatch?.[1] || '1234', allowPrinting: true } });
+  }
+  if (hasPdfInPipeline && /\b(compress|shrink|reduce\s*size|smaller)\b/i.test(low)) {
+    calls.push({
+      name: 'compress_pdf',
+      args: { level: low.includes('max') ? 'maximum' : 'balanced', qualityPercent: low.includes('max') ? 35 : 60 },
+    });
+  }
+
+  // Image actions
+  if (hasImgInPipeline && /\b(remove\s*bg|remove\s*background|transparent|cutout)\b/i.test(low)) {
+    calls.push({ name: 'remove_image_background', args: { engine: 'ai', outputFormat: 'png' } });
+  }
+  if (hasImgInPipeline && /\b(enhance|upscale|vector|hd|4k|clarify|sharpen|quality)\b/i.test(low)) {
+    calls.push({
+      name: 'enhance_image_quality',
+      args: {
+        mode: /vector|logo/i.test(low) ? 'vector-sharp' : /doc|scan|page/i.test(low) ? 'document-crisp' : 'photo-clarity',
+        upscaleFactor: /\b4x|4k\b/i.test(low) ? 4 : 2,
+      },
+    });
+  }
+  if (hasImgInPipeline && /\bresize\b/i.test(low)) {
+    const dims = low.match(/(\d{2,4})\s*[x×]\s*(\d{2,4})/);
+    calls.push({
+      name: 'resize_image',
+      args: { width: dims ? Number(dims[1]) : 1080, height: dims ? Number(dims[2]) : 1080, fit: 'contain' },
+    });
+  }
+  if (hasImgInPipeline && /\b(grayscale|black\s+and\s+white|sepia|vintage|vivid|palette|hex|filter)\b/i.test(low)) {
+    calls.push({
+      name: 'filter_or_palette_image',
+      args: {
+        preset: low.includes('sepia') || low.includes('vintage') ? 'vintage' : low.includes('vivid') ? 'vivid' : low.includes('bw') || low.includes('grayscale') ? 'bw' : 'none',
+        extractPalette: low.includes('palette') || low.includes('hex') || low.includes('color'),
+      },
+    });
+  }
+  if (hasImgInPipeline && /\b(convert\s+to\s+(webp|png|jpg|jpeg|bmp|ico)|make\s+(webp|png|jpg|ico))\b/i.test(low)) {
+    const m = low.match(/\b(webp|png|jpg|jpeg|bmp|ico)\b/);
+    calls.push({ name: 'convert_image_format', args: { targetFormat: m?.[1] === 'jpeg' ? 'jpg' : m?.[1] || 'png' } });
+  }
+  if (hasImgInPipeline && /\bcompress\b/i.test(low) && !hasPdfInPipeline) {
+    calls.push({ name: 'compress_image', args: { format: 'webp', quality: 0.72 } });
+  }
+  if (hasImgInPipeline && /\b(crop|rotate|flip)\b/i.test(low)) {
+    const rot = low.includes('180') ? 180 : low.includes('270') ? 270 : low.includes('rotate') ? 90 : 0;
+    calls.push({
+      name: 'crop_rotate_image',
+      args: { rotateDeg: rot, flipH: low.includes('horizontal') || low.includes('mirror'), flipV: low.includes('vertical') },
+    });
+  }
+  if (files.length > 0 && calls.length === 0 && /\b(cover|open\s+in\s+cover)\b/i.test(low)) {
+    calls.push({ name: 'open_in_cover_studio', args: { role: images.length > 0 && pdfs.length === 0 ? 'logo' : 'document' } });
+  }
+
+  if (calls.length > 0) {
+    return {
+      reply: 'Processed using PaperLink’s built-in local tool engine.',
+      functionCalls: calls,
+      modelUsed: 'paperlink-local-backup',
+    };
+  }
+
+  if (files.length > 0) {
+    const names = files.map((f) => f.name).join(', ');
+    return {
+      reply: `Your file(s) (**${names}**) are loaded! Try telling me a specific action such as:\n- *"Compress PDF"*, *"Convert to Word"*, *"Merge PDFs"*, or *"Stamp CONFIDENTIAL"*\n- *"Remove background"*, *"Enhance quality 2x"*, or *"Convert to WebP"*\n- *"Open in Cover Studio"* or click a quick chip below.`,
+      functionCalls: [],
+      modelUsed: 'paperlink-local-backup',
+    };
+  }
+
+  return {
+    reply:
+      'PaperLink Assistant is ready! You can ask me to open any tool (**Company Letterhead**, **Cover Studio**, **PDF Tools**, **Image Studio**, **Crop & Scan**) or attach a file with **+** to run conversions, compression, stamps, background removal, and quality enhancement right inside your browser.',
+    functionCalls: [],
+    modelUsed: 'paperlink-local-backup',
+  };
 }
 
 export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
@@ -1963,6 +2180,63 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
         };
       }
 
+      case 'enhance_image_quality': {
+        if (images.length === 0) {
+          throw new Error('Attach at least one vector graphic or photo to enhance its quality.');
+        }
+        const rawMode = String(args.mode || 'vector-sharp').toLowerCase();
+        const mode: ImageEnhanceMode =
+          rawMode === 'photo-clarity' || rawMode === 'document-crisp'
+            ? (rawMode as ImageEnhanceMode)
+            : 'vector-sharp';
+        const rawScale = Number(args.upscaleFactor);
+        const upscaleFactor: 1 | 2 | 4 = rawScale === 4 ? 4 : rawScale === 1 ? 1 : 2;
+
+        const outZip: { fileName: string; blob: Blob }[] = [];
+        for (const img of images) {
+          setExecStatus(`${prefix}Enhancing ${img.name} (${upscaleFactor}x)...`);
+          const res = await enhanceImageQuality(img, {
+            mode,
+            scale: upscaleFactor,
+            sharpness: 68,
+            denoise: mode === 'vector-sharp' ? 36 : 48,
+            clarity: 44,
+            format: 'png',
+            quality: 0.94,
+          });
+          const outFile = new File([res.blob], res.fileName, { type: 'image/png' });
+          producedFiles.push(outFile);
+          outZip.push({ fileName: res.fileName, blob: res.blob });
+          artifacts.push({
+            id: `enh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            fileName: res.fileName,
+            summary: `${upscaleFactor}× Enhanced · ${res.width}×${res.height}px (${formatBytes(res.sizeBytes)})`,
+            blob: res.blob,
+            kind: 'image',
+            fileObj: outFile,
+            dataUrl: res.dataUrl,
+          });
+        }
+        if (outZip.length > 1) {
+          const zip = await createImagesZip(outZip);
+          artifacts.unshift({
+            id: `zip_enh_${Date.now()}`,
+            fileName: 'paperlink_enhanced_images.zip',
+            summary: `${outZip.length} enhanced images ZIP`,
+            blob: zip,
+            kind: 'zip',
+          });
+        }
+        return {
+          summaryText: `Enhanced **${images.length}** image(s) at **${upscaleFactor}×** using **${mode}** edge sharpening.`,
+          artifacts,
+          badge: `Quality ${upscaleFactor}×`,
+          producedFiles,
+          consumedKind: 'image',
+          producedKind: 'image',
+        };
+      }
+
       case 'navigate_workspace': {
         const viewRaw = String(args.view || 'studio');
         if (viewRaw === 'tools') {
@@ -2212,33 +2486,47 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
 
         let resp: Response | null = null;
         let rawText = '';
+        let fetchedOk = false;
 
-        for (let chatAttempt = 0; chatAttempt < 2; chatAttempt++) {
-          resp = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: chatPayloadStr,
-          });
-          rawText = await resp.text();
-          try {
-            data = rawText ? JSON.parse(rawText) : {};
-            break;
-          } catch {
-            const looksHtml = /^\s*</.test(rawText);
-            if (looksHtml && chatAttempt === 0) {
-              await new Promise((r) => setTimeout(r, 1200));
-              continue;
+        try {
+          for (let chatAttempt = 0; chatAttempt < 2; chatAttempt++) {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(() => controller.abort(), 16000);
+            try {
+              resp = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: chatPayloadStr,
+                signal: controller.signal,
+              });
+            } finally {
+              window.clearTimeout(timeoutId);
             }
-            throw new Error(
-              resp.status === 404
-                ? 'Chat API route (/api/chat) was not found on this deployment. Please redeploy so /api/chat is published.'
-                : `Unexpected server response (HTTP ${resp.status}). Please try again.`
-            );
+
+            rawText = await resp.text();
+            try {
+              data = rawText ? JSON.parse(rawText) : {};
+              if (resp.ok && !data?.error) {
+                fetchedOk = true;
+              }
+              break;
+            } catch {
+              const looksHtml = /^\s*</.test(rawText);
+              if (looksHtml && chatAttempt === 0) {
+                await new Promise((r) => setTimeout(r, 900));
+                continue;
+              }
+              break;
+            }
           }
+        } catch {
+          fetchedOk = false;
         }
 
-        if (!resp || !resp.ok) {
-          throw new Error(data?.error || `Server error (${resp?.status ?? 500})`);
+        if (!fetchedOk) {
+          const activeFilesForBackup =
+            currentFiles.length > 0 ? currentFiles : lastProducedFilesRef.current;
+          data = buildLocalChatbotBackup(trimmed, activeFilesForBackup, activeView);
         }
       }
 
@@ -2286,9 +2574,10 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
           } catch (stepErr: any) {
             const msg = stepErr?.message || `Step ${i + 1} (${fc.name}) could not be completed.`;
             if (stepResults.length === 0) {
-              throw stepErr;
+              failedStepNote = msg;
+              break;
             }
-            failedStepNote = `Stopped at **Step ${i + 1}/${totalSteps}** (\`${fc.name}\`): ${msg}`;
+            failedStepNote = `Note on **Step ${i + 1}/${totalSteps}**: ${msg}`;
             break;
           }
         }
@@ -2340,18 +2629,28 @@ export const PaperLinkChatbot: React.FC<PaperLinkChatbotProps> = ({
       setTypedCharCount(0);
       setTypingMsgId(replyMsgId);
     } catch (err: any) {
-      const errMsgId = `err_${Date.now()}`;
+      const backup = buildLocalChatbotBackup(
+        trimmed,
+        currentFiles.length > 0 ? currentFiles : lastProducedFilesRef.current,
+        activeView
+      );
+      const safeText =
+        backup.functionCalls.length === 0 && backup.reply
+          ? backup.reply
+          : err?.message || 'Attach a matching file using + so I can process it locally in your browser.';
+      const infoMsgId = `m_${Date.now()}`;
       setMessages((prev) => [
         ...prev,
         {
-          id: errMsgId,
+          id: infoMsgId,
           role: 'model',
-          text: err?.message || 'Something went wrong while communicating with PaperLink AI.',
-          isError: true,
+          text: safeText,
+          isError: false,
+          modelUsed: 'paperlink-local-backup',
         },
       ]);
       setTypedCharCount(0);
-      setTypingMsgId(errMsgId);
+      setTypingMsgId(infoMsgId);
     } finally {
       setIsBusy(false);
       setExecStatus(null);

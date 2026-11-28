@@ -10,11 +10,14 @@ interface ThemeSelectorProps {
 
 const PlainThumb: React.FC<{ theme: CoverTheme }> = ({ theme }) => {
   const ink = theme.isDark ? '#ffffff' : theme.primaryColor;
-  const centered = theme.layoutStyle === 'plain-centered' || theme.layoutStyle === 'card-centered';
+  const centered =
+    theme.layoutStyle === 'plain-centered' ||
+    theme.layoutStyle === 'card-centered' ||
+    theme.layoutStyle === 'certificate-frame';
   const leftBar = theme.layoutStyle === 'plain-left-bar';
 
   return (
-    <div className="absolute inset-0" style={{ backgroundColor: theme.backgroundColor }}>
+    <div className="absolute inset-0 overflow-hidden" style={{ backgroundColor: theme.backgroundColor }}>
       {theme.layoutStyle === 'plain-rule' && (
         <>
           <div className="absolute top-2 inset-x-3 h-0.5" style={{ backgroundColor: theme.primaryColor }} />
@@ -22,6 +25,29 @@ const PlainThumb: React.FC<{ theme: CoverTheme }> = ({ theme }) => {
         </>
       )}
       {leftBar && <div className="absolute left-0 inset-y-0 w-2" style={{ backgroundColor: theme.primaryColor }} />}
+      {theme.layoutStyle === 'ribbon-crest' && (
+        <>
+          <div className="absolute top-0 inset-x-0 h-3" style={{ backgroundColor: theme.primaryColor }} />
+          <div className="absolute top-3 inset-x-0 h-0.5" style={{ backgroundColor: theme.accentColor }} />
+        </>
+      )}
+      {theme.layoutStyle === 'executive-memo' && (
+        <>
+          <div className="absolute top-2 left-3 right-3 h-2.5 rounded-xs" style={{ backgroundColor: theme.primaryColor }} />
+          <div className="absolute top-5 left-3 right-3 h-[1.5px]" style={{ backgroundColor: theme.accentColor }} />
+        </>
+      )}
+      {theme.layoutStyle === 'certificate-frame' && (
+        <div className="absolute inset-1.5 border-2 rounded-xs" style={{ borderColor: theme.primaryColor }}>
+          <div className="absolute inset-1 border" style={{ borderColor: theme.accentColor }} />
+        </div>
+      )}
+      {theme.layoutStyle === 'diagonal-accent' && (
+        <div
+          className="absolute -top-6 -right-6 w-20 h-20 rotate-45"
+          style={{ backgroundColor: theme.accentColor, opacity: 0.9 }}
+        />
+      )}
 
       <div
         className={`absolute top-6 flex flex-col gap-1.5 ${
@@ -41,7 +67,7 @@ const PlainThumb: React.FC<{ theme: CoverTheme }> = ({ theme }) => {
         className="absolute bottom-3 left-4 text-[8px] font-bold uppercase tracking-wider"
         style={{ color: ink, opacity: 0.6 }}
       >
-        Plain print
+        {theme.category}
       </span>
     </div>
   );
@@ -53,7 +79,18 @@ export const ThemeSelector: React.FC<ThemeSelectorProps> = ({
 }) => {
   const [filterCategory, setFilterCategory] = useState<string>('All');
 
-  const categories = ['All', 'Plain', 'Corporate', 'Minimalist', 'Modern', 'Creative', 'Academic', 'Luxury', 'Editorial'];
+  const categories = [
+    'All',
+    'Plain',
+    'Official',
+    'Corporate',
+    'Minimalist',
+    'Modern',
+    'Creative',
+    'Academic',
+    'Luxury',
+    'Editorial',
+  ];
 
   const filteredThemes =
     filterCategory === 'All'

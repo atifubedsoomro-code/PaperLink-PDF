@@ -84,6 +84,43 @@ service cloud.firestore {
         && (!('qrPosition' in data) || (data.qrPosition is string && data.qrPosition.size() <= 24));
     }
 
+    function isValidLetterheadPreset(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'templateId', 'primaryColor', 'accentColor', 'paperSize',
+          'companyName', 'createdAt', 'userEmail'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'templateId', 'primaryColor', 'accentColor', 'paperSize',
+          'companyName', 'tagline', 'registrationNo', 'phone', 'email', 'website', 'address',
+          'logoUrl', 'showWatermark', 'showPageBorder', 'includeSampleContent',
+          'signerName', 'signerTitle', 'signatureUrl', 'createdAt', 'updatedAt', 'userEmail'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.templateId is string && data.templateId.size() > 0 && data.templateId.size() <= 64
+        && data.primaryColor is string && data.primaryColor.size() <= 32
+        && data.accentColor is string && data.accentColor.size() <= 32
+        && data.paperSize is string && (data.paperSize == 'a4' || data.paperSize == 'letter')
+        && data.companyName is string && data.companyName.size() <= 200
+        && data.createdAt is number && data.createdAt > 0
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && (!('tagline' in data) || (data.tagline is string && data.tagline.size() <= 200))
+        && (!('registrationNo' in data) || (data.registrationNo is string && data.registrationNo.size() <= 80))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 64))
+        && (!('email' in data) || (data.email is string && data.email.size() <= 254))
+        && (!('website' in data) || (data.website is string && data.website.size() <= 200))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 400))
+        && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 250000))
+        && (!('showWatermark' in data) || (data.showWatermark is bool))
+        && (!('showPageBorder' in data) || (data.showPageBorder is bool))
+        && (!('includeSampleContent' in data) || (data.includeSampleContent is bool))
+        && (!('signerName' in data) || (data.signerName is string && data.signerName.size() <= 160))
+        && (!('signerTitle' in data) || (data.signerTitle is string && data.signerTitle.size() <= 160))
+        && (!('signatureUrl' in data) || (data.signatureUrl is string && data.signatureUrl.size() <= 160000))
+        && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
+    }
+
     function isValidPhotoBatchPreset(data) {
       return data.keys().hasAll([
           'id', 'name', 'category', 'setup', 'createdAt', 'userEmail'
@@ -99,6 +136,35 @@ service cloud.firestore {
         && data.userEmail is string && data.userEmail.size() <= 254
         && isOwnerEmail(data.userEmail)
         && (!('includeMarks' in data) || (data.includeMarks is bool))
+        && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
+    }
+
+    function isValidStampPreset(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'kind', 'position', 'scale', 'opacity', 'rotationDeg', 'pageScope', 'createdAt', 'userEmail'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'kind', 'imageUrl', 'text', 'subtext', 'shape', 'color',
+          'position', 'scale', 'opacity', 'rotationDeg', 'pageScope', 'createdAt', 'updatedAt', 'userEmail'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 80
+        && data.kind is string && (data.kind == 'image' || data.kind == 'text')
+        && data.position is string
+        && data.position in ['top-left', 'top-center', 'top-right', 'center', 'bottom-left', 'bottom-center', 'bottom-right']
+        && data.scale is number && data.scale >= 8 && data.scale <= 50
+        && data.opacity is number && data.opacity >= 0.1 && data.opacity <= 1.0
+        && data.rotationDeg is number && data.rotationDeg >= -180 && data.rotationDeg <= 180
+        && data.pageScope is string
+        && data.pageScope in ['all-attached', 'all-including-cover', 'first-attached', 'cover-only']
+        && data.createdAt is number && data.createdAt > 0
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 180000))
+        && (!('text' in data) || (data.text is string && data.text.size() <= 48))
+        && (!('subtext' in data) || (data.subtext is string && data.subtext.size() <= 48))
+        && (!('shape' in data) || (data.shape is string && data.shape in ['rect', 'double-rect', 'round', 'solid-badge']))
+        && (!('color' in data) || (data.color is string && data.color.size() <= 32))
         && (!('updatedAt' in data) || (data.updatedAt is number && data.updatedAt > 0));
     }
 
@@ -140,6 +206,45 @@ service cloud.firestore {
         && data.updatedAt is number && data.updatedAt > 0;
     }
 
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'userEmail', 'fullName', 'fatherName', 'contactNumber',
+          'presets', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'userEmail', 'fullName', 'fatherName', 'contactNumber',
+          'email', 'dateOfBirth', 'nationalIdNumber', 'passportNumber',
+          'organization', 'designation', 'address', 'bioNotes',
+          'nationalIdFrontUrl', 'nationalIdBackUrl', 'passportImageUrl',
+          'signatureUrl', 'avatarUrl', 'presets', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.userEmail is string && data.userEmail.size() <= 254
+        && isOwnerEmail(data.userEmail)
+        && data.fullName is string && data.fullName.size() <= 160
+        && data.fatherName is string && data.fatherName.size() <= 160
+        && data.contactNumber is string && data.contactNumber.size() <= 48
+        && (!('email' in data) || (data.email is string && data.email.size() <= 254))
+        && (!('dateOfBirth' in data) || (data.dateOfBirth is string && data.dateOfBirth.size() <= 40))
+        && (!('nationalIdNumber' in data) || (data.nationalIdNumber is string && data.nationalIdNumber.size() <= 64))
+        && (!('passportNumber' in data) || (data.passportNumber is string && data.passportNumber.size() <= 64))
+        && (!('organization' in data) || (data.organization is string && data.organization.size() <= 200))
+        && (!('designation' in data) || (data.designation is string && data.designation.size() <= 160))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 400))
+        && (!('bioNotes' in data) || (data.bioNotes is string && data.bioNotes.size() <= 1000))
+        && (!('nationalIdFrontUrl' in data) || (data.nationalIdFrontUrl is string && data.nationalIdFrontUrl.size() <= 260000))
+        && (!('nationalIdBackUrl' in data) || (data.nationalIdBackUrl is string && data.nationalIdBackUrl.size() <= 260000))
+        && (!('passportImageUrl' in data) || (data.passportImageUrl is string && data.passportImageUrl.size() <= 260000))
+        && (!('signatureUrl' in data) || (data.signatureUrl is string && data.signatureUrl.size() <= 160000))
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000))
+        && data.presets is list && data.presets.size() <= 20
+        && (data.presets.size() == 0 || data.presets[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     match /documents/{docId} {
       allow get: if isValidId(docId) && isOwnerEmail(existing().userEmail);
       allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
@@ -164,6 +269,19 @@ service cloud.firestore {
       allow delete: if isValidId(kitId) && isOwnerEmail(existing().userEmail);
     }
 
+    match /letterheadPresets/{presetId} {
+      allow get: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
+      allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
+      allow create: if isValidId(presetId) && isValidLetterheadPreset(incoming()) && incoming().id == presetId;
+      allow update: if isValidId(presetId)
+        && isOwnerEmail(existing().userEmail)
+        && isValidLetterheadPreset(incoming())
+        && incoming().id == existing().id
+        && incoming().userEmail == existing().userEmail
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
+    }
+
     match /photoBatchPresets/{presetId} {
       allow get: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
       allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
@@ -174,6 +292,19 @@ service cloud.firestore {
         && incoming().userEmail == existing().userEmail
         && incoming().createdAt == existing().createdAt;
       allow delete: if isValidId(presetId) && isOwnerEmail(existing().userEmail);
+    }
+
+    match /stampPresets/{stampId} {
+      allow get: if isValidId(stampId) && isOwnerEmail(existing().userEmail);
+      allow list: if isSignedInVerified() && existing().userEmail == request.auth.token.email;
+      allow create: if isValidId(stampId) && isValidStampPreset(incoming()) && incoming().id == stampId;
+      allow update: if isValidId(stampId)
+        && isOwnerEmail(existing().userEmail)
+        && isValidStampPreset(incoming())
+        && incoming().id == existing().id
+        && incoming().userEmail == existing().userEmail
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(stampId) && isOwnerEmail(existing().userEmail);
     }
 
     match /publicReviews/{reviewId} {
@@ -201,6 +332,32 @@ service cloud.firestore {
         && isFeedbackAdmin()
         && isValidFeedbackSyncConfig(incoming());
       allow delete: if configId == 'feedback_sync' && isFeedbackAdmin();
+    }
+
+    match /userProfiles/{userId} {
+      allow get: if isSignedInVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && (resource == null || existing().uid == request.auth.uid);
+      allow list: if false;
+      allow create: if isSignedInVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedInVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && existing().uid == request.auth.uid
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isSignedInVerified()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && existing().uid == request.auth.uid;
     }
   }
 }

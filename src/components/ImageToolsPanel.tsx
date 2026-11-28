@@ -35,6 +35,8 @@ import {
   EyeOff,
   LayoutGrid,
   Images,
+  Wand2,
+  Sparkles,
 } from 'lucide-react';
 import {
   BgFillMode,
@@ -53,6 +55,8 @@ import {
   getImageDimensions,
   removeImageBackground,
   resizeImageFile,
+  enhanceImageQuality,
+  ImageEnhanceMode,
 } from '../services/imageToolkit';
 import { PdfToImageTool } from './PdfToImageTool';
 import { ImageRoutineTools } from './ImageRoutineTools';
@@ -60,6 +64,7 @@ import { PhotoBatchStudio } from './PhotoBatchStudio';
 import { PreviewTarget } from './DocumentPreviewModal';
 
 export type ImageToolTab =
+  | 'quality-enhance'
   | 'photo-batch'
   | 'bg-remove'
   | 'bulk-bg-remove'
@@ -101,6 +106,7 @@ const IMAGE_TOOL_TABS: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
+  { id: 'quality-enhance', label: 'Quality Enhancer', icon: Wand2 },
   { id: 'bg-remove', label: 'BG Remover', icon: Eraser },
   { id: 'bulk-bg-remove', label: 'Bulk BG Remover', icon: Layers },
   { id: 'photo-batch', label: 'Photo Batch Studio', icon: Images },
@@ -263,6 +269,73 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
       });
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to remove background.');
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  // =========================================================
+  // 1B. VECTOR & PICTURE QUALITY ENHANCER
+  // =========================================================
+  const enhanceInputRef = useRef<HTMLInputElement>(null);
+  const [enhFile, setEnhFile] = useState<File | null>(null);
+  const [enhPreviewUrl, setEnhPreviewUrl] = useState<string | null>(null);
+  const [enhMode, setEnhMode] = useState<ImageEnhanceMode>('vector-sharp');
+  const [enhScale, setEnhScale] = useState<1 | 2 | 4>(2);
+  const [enhSharpness, setEnhSharpness] = useState<number>(68);
+  const [enhClarity, setEnhClarity] = useState<number>(42);
+  const [enhDenoise, setEnhDenoise] = useState<number>(38);
+  const [enhFormat, setEnhFormat] = useState<'png' | 'jpg' | 'webp'>('png');
+  const [enhResult, setEnhResult] = useState<ProcessedImageResult | null>(null);
+  const [enhCompareSplit, setEnhCompareSplit] = useState<number>(52);
+
+  const handleLoadEnhFile = (file: File) => {
+    if (!isImageFile(file)) {
+      setErrorMsg('Please select a PNG, JPG, WebP, SVG, or BMP file to enhance.');
+      return;
+    }
+    if (enhPreviewUrl) URL.revokeObjectURL(enhPreviewUrl);
+    setEnhFile(file);
+    setEnhPreviewUrl(URL.createObjectURL(file));
+    setEnhResult(null);
+    setErrorMsg(null);
+    const isVectorLike = /\.svg$/i.test(file.name) || file.type === 'image/png';
+    setEnhMode(isVectorLike ? 'vector-sharp' : 'photo-clarity');
+  };
+
+  const handleRunEnhanceQuality = async () => {
+    if (!enhFile) return;
+    resetFeedback();
+    setEnhResult(null);
+    setIsWorking(true);
+    try {
+      const res = await enhanceImageQuality(
+        enhFile,
+        {
+          mode: enhMode,
+          scale: enhScale,
+          sharpness: enhSharpness,
+          clarity: enhClarity,
+          denoise: enhDenoise,
+          format: enhFormat,
+          quality: 0.94,
+        },
+        (percent, status) => setProgress({ percent, status })
+      );
+      setEnhResult(res);
+      onTaskComplete?.({
+        headline: 'Vector / Image Quality Enhanced',
+        subtext: `Upscaled & refined to ${res.width}×${res.height}px (${formatBytes(res.sizeBytes)})`,
+        statusLabel: 'Quality Enhancement Complete',
+        downloadFile: {
+          blob: res.blob,
+          fileName: res.fileName,
+          fileSizeBytes: res.sizeBytes,
+          toolLabel: 'Quality Enhancer',
+        },
+      });
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to enhance image quality.');
     } finally {
       setIsWorking(false);
     }
@@ -3023,6 +3096,289 @@ export const ImageToolsPanel: React.FC<ImageToolsPanelProps> = ({
           onTaskComplete={onTaskComplete}
           onPreviewDocument={onPreviewDocument}
         />
+      )}
+
+      {/* ===================================================== */}
+      {/* 13. VECTOR & PICTURE QUALITY ENHANCER (UPSCALE/CRISP) */}
+      {/* ===================================================== */}
+      {activeTool === 'quality-enhance' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-5">
+            <div>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Wand2 className="w-4 h-4 text-amber-600 dark:text-yellow-400" />
+                <span>Vector &amp; Picture Quality Enhancer</span>
+              </h2>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+                Upscale low-res logos, SVGs, illustrations, or blurry pictures 2x/4x with edge-preserving unsharp clarity and compression noise cleanup.
+              </p>
+            </div>
+
+            <input
+              ref={enhanceInputRef}
+              type="file"
+              accept="image/*,.svg"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleLoadEnhFile(f);
+                e.target.value = '';
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={() => enhanceInputRef.current?.click()}
+              className="w-full py-4 px-4 rounded-xl border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 bg-zinc-50 dark:bg-zinc-950 text-xs font-bold text-zinc-900 dark:text-white cursor-pointer flex flex-col items-center gap-1"
+            >
+              <span>
+                {enhFile ? `Replace File (${enhFile.name})` : 'Upload Vector (.svg/.png) or Picture to Enhance'}
+              </span>
+              <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 shrink-0" />
+                <span>100% browser-private pixel &amp; vector enhancement</span>
+              </span>
+            </button>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                  Enhancement Profile
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'vector-sharp' as ImageEnhanceMode, label: 'Vector & Logo', hint: 'Crisp lines & curves' },
+                    { id: 'photo-clarity' as ImageEnhanceMode, label: 'Photo HD', hint: 'Natural skin & depth' },
+                    { id: 'document-crisp' as ImageEnhanceMode, label: 'Text & Scan', hint: 'Sharp ink & white bg' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setEnhMode(m.id)}
+                      className={`p-2 rounded-xl border text-left cursor-pointer transition-colors ${
+                        enhMode === m.id
+                          ? 'border-yellow-400 bg-yellow-400/15 text-zinc-950 dark:text-yellow-300 font-bold'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
+                      }`}
+                    >
+                      <span className="block text-[11px] font-bold">{m.label}</span>
+                      <span className="block text-[9.5px] opacity-75">{m.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                  HD Upscale Resolution
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { val: 1, label: '1× Crisp Polish' },
+                    { val: 2, label: '2× HD Upscale' },
+                    { val: 4, label: '4× Ultra HD' },
+                  ] as const).map((sc) => (
+                    <button
+                      key={sc.val}
+                      type="button"
+                      onClick={() => setEnhScale(sc.val)}
+                      className={`py-2 px-2 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                        enhScale === sc.val
+                          ? 'border-yellow-400 bg-yellow-400 text-black'
+                          : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400'
+                      }`}
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2.5 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
+                <div>
+                  <div className="flex justify-between mb-0.5">
+                    <span>Edge Crispness / Sharpen</span>
+                    <span className="font-mono tabular-nums">{enhSharpness}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={enhSharpness}
+                    onChange={(e) => setEnhSharpness(Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-0.5">
+                    <span>Midtone Clarity &amp; Contrast</span>
+                    <span className="font-mono tabular-nums">{enhClarity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={enhClarity}
+                    onChange={(e) => setEnhClarity(Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-0.5">
+                    <span>JPEG Artifact &amp; Grain Clean</span>
+                    <span className="font-mono tabular-nums">{enhDenoise}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={enhDenoise}
+                    onChange={(e) => setEnhDenoise(Number(e.target.value))}
+                    className="w-full accent-yellow-400 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {(['png', 'jpg', 'webp'] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => setEnhFormat(fmt)}
+                    className={`flex-1 py-1.5 rounded-lg border text-xs font-bold uppercase cursor-pointer ${
+                      enhFormat === fmt
+                        ? 'border-yellow-400 bg-yellow-400 text-black'
+                        : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'
+                    }`}
+                  >
+                    {fmt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={!enhFile || isWorking}
+              onClick={handleRunEnhanceQuality}
+              className="w-full py-3 px-4 rounded-xl bg-yellow-400 hover:bg-yellow-300 disabled:opacity-45 text-black font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isWorking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              <span>Enhance Quality ({enhScale}×)</span>
+            </button>
+          </div>
+
+          <div className="lg:col-span-7 bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
+                  Before / After HD Comparison
+                </h3>
+                {enhResult && (
+                  <p className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    {enhResult.originalWidth}×{enhResult.originalHeight}px → {enhResult.width}×{enhResult.height}px ·{' '}
+                    {formatBytes(enhResult.sizeBytes)}
+                  </p>
+                )}
+              </div>
+
+              {enhResult && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(enhResult.blob, enhResult.fileName)}
+                    className="px-3.5 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download .{enhResult.format}</span>
+                  </button>
+                  {onUseAsCoverLogo && (
+                    <button
+                      type="button"
+                      onClick={() => onUseAsCoverLogo(enhResult.dataUrl)}
+                      className="px-3 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-white font-bold text-xs cursor-pointer"
+                    >
+                      Use as Cover Logo
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {enhPreviewUrl ? (
+              <div className="space-y-3">
+                <div
+                  className="relative h-[380px] rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex items-center justify-center p-4"
+                  style={CHECKERBOARD_STYLE}
+                >
+                  {enhResult ? (
+                    <>
+                      <img
+                        src={enhResult.dataUrl}
+                        alt="Enhanced preview"
+                        className="max-h-full max-w-full object-contain select-none"
+                      />
+                      <div
+                        className="absolute inset-0 overflow-hidden flex items-center justify-center p-4 pointer-events-none"
+                        style={{ clipPath: `inset(0 ${100 - enhCompareSplit}% 0 0)` }}
+                      >
+                        <img
+                          src={enhPreviewUrl}
+                          alt="Original preview"
+                          className="max-h-full max-w-full object-contain select-none"
+                        />
+                      </div>
+                      <div
+                        className="absolute inset-y-0 w-0.5 bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.9)] pointer-events-none"
+                        style={{ left: `${enhCompareSplit}%` }}
+                      />
+                      <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-black/70 text-white text-[10px] font-bold">
+                        Before
+                      </span>
+                      <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-yellow-400 text-black text-[10px] font-extrabold">
+                        After ({enhScale}× HD)
+                      </span>
+                    </>
+                  ) : (
+                    <img
+                      src={enhPreviewUrl}
+                      alt="Uploaded graphic preview"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  )}
+                </div>
+
+                {enhResult && (
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="font-semibold text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                      Split Slider
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={enhCompareSplit}
+                      onChange={(e) => setEnhCompareSplit(Number(e.target.value))}
+                      className="w-full accent-yellow-400 cursor-pointer"
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={() => enhanceInputRef.current?.click()}
+                className="flex-1 min-h-[300px] border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl flex flex-col items-center justify-center p-8 text-center cursor-pointer"
+              >
+                <Wand2 className="w-8 h-8 text-zinc-400 dark:text-zinc-600 mb-2" />
+                <p className="text-xs text-zinc-500">
+                  Upload any blurry logo, vector badge, or photo to upscale 2x/4x and sharpen details.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
       </div>
     </div>

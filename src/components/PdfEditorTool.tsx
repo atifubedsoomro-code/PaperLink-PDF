@@ -67,6 +67,8 @@ interface PdfEditorToolProps {
     downloadFile?: ReadyDownloadPayload;
   }) => void;
   onPreviewDocument?: (target: PreviewTarget) => void;
+  savedSignatureUrl?: string;
+  onOpenProfile?: () => void;
 }
 
 interface PdfRevisionItem {
@@ -94,9 +96,12 @@ function triggerDownload(blob: Blob, fileName: string) {
 const STAMP_PRESETS = [
   { text: 'APPROVED', color: '#16a34a' },
   { text: 'CONFIDENTIAL', color: '#dc2626' },
+  { text: 'PAID', color: '#059669' },
+  { text: 'URGENT', color: '#ea580c' },
+  { text: 'CERTIFIED', color: '#1d4ed8' },
   { text: 'DRAFT', color: '#d97706' },
   { text: 'VERIFIED', color: '#2563eb' },
-  { text: 'PAID', color: '#059669' },
+  { text: 'RECEIVED', color: '#0f766e' },
 ];
 
 export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
@@ -109,6 +114,8 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
   setIsWorking,
   onTaskComplete,
   onPreviewDocument,
+  savedSignatureUrl,
+  onOpenProfile,
 }) => {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const picInputRef = useRef<HTMLInputElement>(null);
@@ -419,6 +426,37 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const handleInsertSignatureDataUrl = (sigUrl: string) => {
+    if (!sourceFile) {
+      onError('Open or import a PDF first before placing your saved signature.');
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const wFrac = 0.26;
+      const aspect = (img.naturalHeight || 160) / Math.max(1, img.naturalWidth || 400);
+      const hFrac = Math.min(0.4, Math.max(0.05, wFrac * aspect * 0.707));
+      const id = `sig_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const newSig: PdfImageEditElement = {
+        id,
+        kind: 'image',
+        pageNumber: currentPage,
+        xFraction: 0.62,
+        yFraction: 0.74,
+        widthFraction: wFrac,
+        heightFraction: hFrac,
+        dataUrl: sigUrl,
+        opacity: 1,
+        label: 'Profile Signature',
+      };
+      setElements((prev) => [...prev, newSig]);
+      setSelectedId(id);
+      setSidebarSection('canvas');
+      setLastSavedStatus(null);
+    };
+    img.src = sigUrl;
+  };
+
   const handleRotateSelectedPicture = () => {
     if (!selectedElement || selectedElement.kind !== 'image') return;
     const img = new Image();
@@ -494,19 +532,31 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
     setLastSavedStatus(null);
   };
 
-  const handleAddStamp = (preset: { text: string; color: string }) => {
+  const handleAddStamp = (preset: {
+    text: string;
+    color: string;
+    subtext?: string;
+    shape?: 'rect' | 'double-rect' | 'round' | 'solid-badge';
+    rotationDeg?: number;
+    opacity?: number;
+  }) => {
     if (!sourceFile) return;
+    const isRound = preset.shape === 'round';
     const id = `stm_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const el: PdfStampEditElement = {
       id,
       kind: 'stamp',
       pageNumber: currentPage,
-      xFraction: 0.6,
+      xFraction: 0.58,
       yFraction: 0.12,
-      widthFraction: 0.28,
-      heightFraction: 0.075,
+      widthFraction: isRound ? 0.2 : 0.29,
+      heightFraction: isRound ? 0.14 : 0.085,
       text: preset.text,
       color: preset.color,
+      subtext: preset.subtext,
+      shape: preset.shape || 'double-rect',
+      rotationDeg: preset.rotationDeg ?? -10,
+      opacity: preset.opacity ?? 0.92,
     };
     setElements((prev) => [...prev, el]);
     setSelectedId(id);
@@ -813,6 +863,9 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                 ensureCommittedFile={ensureCommittedFile}
                 commitTransformedFile={commitTransformedFile}
                 onInsertPictureFile={handleAddPictureFile}
+                onInsertSignatureDataUrl={handleInsertSignatureDataUrl}
+                savedSignatureUrl={savedSignatureUrl}
+                onOpenProfile={onOpenProfile}
                 onOpenSignatureModal={() => setShowDrawModal(true)}
                 onAddStampPreset={handleAddStamp}
                 onPreviewDocument={onPreviewDocument}
@@ -1198,16 +1251,116 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-3 text-xs">
-                    <input
-                      type="text"
-                      value={selectedElement.text}
-                      onChange={(e) =>
-                        updateSelected((el) => (el.kind === 'stamp' ? { ...el, text: e.target.value } : el))
-                      }
-                      className="w-full px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 font-mono font-bold uppercase"
-                    />
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-2.5 text-xs">
+                    <div>
+                      <label className="text-[11px] font-semibold text-zinc-500 block mb-1">
+                        Stamp Text
+                      </label>
+                      <input
+                        type="text"
+                        value={selectedElement.text}
+                        onChange={(e) =>
+                          updateSelected((el) => (el.kind === 'stamp' ? { ...el, text: e.target.value } : el))
+                        }
+                        className="w-full px-3 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 font-mono font-bold uppercase"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-semibold text-zinc-500">
+                          Date / Subtext (Optional)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSelected((el) =>
+                              el.kind === 'stamp'
+                                ? {
+                                    ...el,
+                                    subtext: new Date().toLocaleDateString('en-GB', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      year: 'numeric',
+                                    }),
+                                  }
+                                : el
+                            )
+                          }
+                          className="text-[10px] font-semibold text-amber-600 dark:text-yellow-400 hover:underline cursor-pointer"
+                        >
+                          Insert Today
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={selectedElement.subtext || ''}
+                        placeholder="e.g. BY PAPERLINK · 28 NOV 2026"
+                        onChange={(e) =>
+                          updateSelected((el) => (el.kind === 'stamp' ? { ...el, subtext: e.target.value } : el))
+                        }
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 font-mono text-[11px] uppercase"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-500 block mb-1">
+                          Stamp Style
+                        </label>
+                        <select
+                          value={selectedElement.shape || 'double-rect'}
+                          onChange={(e) =>
+                            updateSelected((el) =>
+                              el.kind === 'stamp'
+                                ? { ...el, shape: e.target.value as PdfStampEditElement['shape'] }
+                                : el
+                            )
+                          }
+                          className="w-full px-2 py-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-[11px] cursor-pointer"
+                        >
+                          <option value="double-rect">Double Frame</option>
+                          <option value="rect">Clean Box</option>
+                          <option value="round">Circular Seal</option>
+                          <option value="solid-badge">Solid Badge</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-zinc-500 block mb-1">
+                          Angle ({selectedElement.rotationDeg ?? 0}°)
+                        </label>
+                        <input
+                          type="range"
+                          min={-35}
+                          max={35}
+                          step={1}
+                          value={selectedElement.rotationDeg ?? 0}
+                          onChange={(e) =>
+                            updateSelected((el) =>
+                              el.kind === 'stamp' ? { ...el, rotationDeg: Number(e.target.value) } : el
+                            )
+                          }
+                          className="w-full accent-yellow-400 cursor-pointer mt-2"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-zinc-500 block mb-1">
+                        Ink Opacity ({Math.round((selectedElement.opacity ?? 0.92) * 100)}%)
+                      </label>
+                      <input
+                        type="range"
+                        min={0.25}
+                        max={1}
+                        step={0.05}
+                        value={selectedElement.opacity ?? 0.92}
+                        onChange={(e) =>
+                          updateSelected((el) =>
+                            el.kind === 'stamp' ? { ...el, opacity: Number(e.target.value) } : el
+                          )
+                        }
+                        className="w-full accent-yellow-400 cursor-pointer"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                       {STAMP_PRESETS.map((st) => (
                         <button
                           key={st.text}
@@ -1222,7 +1375,39 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                           title={st.text}
                         />
                       ))}
+                      <input
+                        type="color"
+                        value={selectedElement.color}
+                        onChange={(e) =>
+                          updateSelected((el) => (el.kind === 'stamp' ? { ...el, color: e.target.value } : el))
+                        }
+                        className="w-6 h-6 rounded border border-zinc-300 cursor-pointer bg-transparent"
+                        title="Custom ink color"
+                      />
                     </div>
+                    {pagePreviews.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clones: PdfStampEditElement[] = [];
+                          for (let p = 1; p <= pagePreviews.length; p++) {
+                            if (p === selectedElement.pageNumber) continue;
+                            clones.push({
+                              ...selectedElement,
+                              id: `stm_${Date.now()}_${p}_${Math.random().toString(36).slice(2, 5)}`,
+                              pageNumber: p,
+                            });
+                          }
+                          if (clones.length > 0) {
+                            setElements((prev) => [...prev, ...clones]);
+                            setLastSavedStatus(`Stamp copied to all ${pagePreviews.length} pages`);
+                          }
+                        }}
+                        className="w-full py-1.5 px-2.5 rounded-lg border border-yellow-400/50 bg-yellow-400/10 text-amber-800 dark:text-yellow-300 font-bold text-[11px] cursor-pointer"
+                      >
+                        Duplicate Stamp to All {pagePreviews.length} Pages
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1536,11 +1721,28 @@ export const PdfEditorTool: React.FC<PdfEditorToolProps> = ({
                           <div
                             style={{
                               borderColor: el.color,
-                              color: el.color,
+                              color: el.shape === 'solid-badge' ? '#ffffff' : el.color,
+                              backgroundColor:
+                                el.shape === 'solid-badge' ? el.color : 'rgba(255,255,255,0.9)',
+                              opacity: el.opacity ?? 0.92,
+                              transform: el.rotationDeg ? `rotate(${el.rotationDeg}deg)` : undefined,
+                              borderRadius: el.shape === 'round' ? '9999px' : '6px',
+                              outline:
+                                el.shape === 'double-rect' || el.shape === 'round'
+                                  ? `1.5px solid ${el.color}`
+                                  : undefined,
+                              outlineOffset: '-5px',
                             }}
-                            className="w-full h-full border-2 bg-white/90 flex items-center justify-center font-bold font-mono tracking-wider text-xs px-1 truncate"
+                            className="w-full h-full border-2 flex flex-col items-center justify-center font-extrabold font-mono tracking-wider px-2 text-center select-none overflow-hidden"
                           >
-                            {el.text.toUpperCase()}
+                            <span className="text-xs leading-tight truncate max-w-full">
+                              {el.text.toUpperCase()}
+                            </span>
+                            {el.subtext && (
+                              <span className="text-[8px] font-bold opacity-85 leading-tight truncate max-w-full mt-0.5">
+                                {el.subtext.toUpperCase()}
+                              </span>
+                            )}
                           </div>
                         )}
 

@@ -23,9 +23,22 @@ import {
   limit,
   onSnapshot,
   deleteDoc,
+  serverTimestamp,
+  Timestamp,
 } from 'firebase/firestore';
 import type { FeedbackEntry } from './services/feedbackSheets';
-import { SavedDocRecord, BrandKitPreset, PhotoBatchPresetRecord } from './types';
+import {
+  SavedDocRecord,
+  BrandKitPreset,
+  CustomStampPreset,
+  LetterheadPresetRecord,
+  PdfStampPageScope,
+  PdfStampPlacement,
+  PdfStampShape,
+  PhotoBatchPresetRecord,
+  UserProfileData,
+  UserBiodataPreset,
+} from './types';
 import appletConfig from '../firebase-applet-config.json';
 
 // Configure Firebase via Vite env vars (Vercel) or firebase-applet-config.json (AI Studio)
@@ -519,6 +532,230 @@ export const deleteBrandKit = async (kitId: string): Promise<void> => {
 };
 
 // ==========================================
+// Company Letterhead Presets Persistence
+// ==========================================
+const LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY = 'paperlink_letterhead_presets';
+
+function sanitizePresetDocId(rawId: string): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, 128);
+  return cleaned || `lh_${Date.now()}`;
+}
+
+async function compressPresetAssetIfNeeded(
+  dataUrl: string | undefined,
+  maxBytes: number,
+  maxDim: number
+): Promise<string | undefined> {
+  if (!dataUrl || typeof dataUrl !== 'string') return undefined;
+  if (dataUrl.length <= maxBytes) return dataUrl;
+  try {
+    const pngAttempt = await compressDocumentImageDataUrl(dataUrl, {
+      maxDim,
+      preservePngTransparency: true,
+      maxLength: maxBytes,
+    });
+    if (pngAttempt.length <= maxBytes) return pngAttempt;
+    const jpgAttempt = await compressDocumentImageDataUrl(dataUrl, {
+      maxDim: Math.min(maxDim, 520),
+      quality: 0.72,
+      preservePngTransparency: false,
+      maxLength: maxBytes,
+    });
+    if (jpgAttempt.length <= maxBytes) return jpgAttempt;
+  } catch (err) {
+    console.warn('Letterhead preset image compression warning:', err);
+  }
+  return undefined;
+}
+
+async function sanitizeLetterheadPreset(
+  preset: LetterheadPresetRecord
+): Promise<LetterheadPresetRecord> {
+  const now = Date.now();
+  const safeLogo = await compressPresetAssetIfNeeded(preset.logoUrl, 240000, 640);
+  const safeSignature = await compressPresetAssetIfNeeded(preset.signatureUrl, 150000, 520);
+
+  const clean: LetterheadPresetRecord = {
+    id: sanitizePresetDocId(preset.id),
+    name: (String(preset.name || 'Company Letterhead').trim() || 'Company Letterhead').slice(0, 100),
+    templateId: (String(preset.templateId || 'executive-navy').trim() || 'executive-navy').slice(0, 64),
+    primaryColor: (String(preset.primaryColor || '#0f172a').trim() || '#0f172a').slice(0, 32),
+    accentColor: (String(preset.accentColor || '#ca8a04').trim() || '#ca8a04').slice(0, 32),
+    paperSize: preset.paperSize === 'letter' ? 'letter' : 'a4',
+    companyName: String(preset.companyName || '').trim().slice(0, 200),
+    showWatermark: Boolean(preset.showWatermark),
+    showPageBorder: Boolean(preset.showPageBorder),
+    includeSampleContent: Boolean(preset.includeSampleContent),
+    userEmail: String(preset.userEmail || '').trim().slice(0, 254),
+    createdAt: typeof preset.createdAt === 'number' && preset.createdAt > 0 ? preset.createdAt : now,
+    updatedAt: typeof preset.updatedAt === 'number' && preset.updatedAt > 0 ? preset.updatedAt : now,
+  };
+
+  if (preset.tagline?.trim()) clean.tagline = preset.tagline.trim().slice(0, 200);
+  if (preset.registrationNo?.trim()) clean.registrationNo = preset.registrationNo.trim().slice(0, 80);
+  if (preset.phone?.trim()) clean.phone = preset.phone.trim().slice(0, 64);
+  if (preset.email?.trim()) clean.email = preset.email.trim().slice(0, 254);
+  if (preset.website?.trim()) clean.website = preset.website.trim().slice(0, 200);
+  if (preset.address?.trim()) clean.address = preset.address.trim().slice(0, 400);
+  if (preset.signerName?.trim()) clean.signerName = preset.signerName.trim().slice(0, 160);
+  if (preset.signerTitle?.trim()) clean.signerTitle = preset.signerTitle.trim().slice(0, 160);
+  if (safeLogo) clean.logoUrl = safeLogo;
+  if (safeSignature) clean.signatureUrl = safeSignature;
+
+  return clean;
+}
+
+export const saveLetterheadPreset = async (
+  preset: LetterheadPresetRecord
+): Promise<LetterheadPresetRecord> => {
+  const clean = await sanitizeLetterheadPreset(preset);
+
+  // Preserve original createdAt if updating an existing local preset
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY);
+    const existing: LetterheadPresetRecord[] = raw ? JSON.parse(raw) : [];
+    const prevMatch = existing.find((p) => p.id === clean.id);
+    if (prevMatch && prevMatch.createdAt > 0) {
+      clean.createdAt = prevMatch.createdAt;
+    }
+    const updated = [clean, ...existing.filter((p) => p.id !== clean.id)];
+    localStorage.setItem(LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY, JSON.stringify(updated));
+  } catch (err) {
+    console.warn('LetterheadPreset local save warning:', err);
+  }
+
+  if (auth.currentUser && clean.userEmail && auth.currentUser.email === clean.userEmail) {
+    const path = `letterheadPresets/${clean.id}`;
+    try {
+      const docRef = doc(db, 'letterheadPresets', clean.id);
+      const existingSnap = await getDoc(docRef);
+      const cloudPayload = existingSnap.exists()
+        ? {
+            ...clean,
+            createdAt:
+              typeof existingSnap.data()?.createdAt === 'number'
+                ? existingSnap.data().createdAt
+                : clean.createdAt,
+          }
+        : clean;
+      await setDoc(docRef, sanitizeForFirestore(cloudPayload));
+      return cloudPayload;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  }
+
+  return clean;
+};
+
+export const getLetterheadPresets = async (
+  userEmail?: string
+): Promise<LetterheadPresetRecord[]> => {
+  const normalizedEmail = String(userEmail || '').trim();
+  let cloudPresets: LetterheadPresetRecord[] = [];
+  const activeCloudEmail = auth.currentUser?.email || '';
+
+  if (auth.currentUser && normalizedEmail && activeCloudEmail === normalizedEmail) {
+    try {
+      const col = collection(db, 'letterheadPresets');
+      const q = query(col, where('userEmail', '==', normalizedEmail));
+      const snap = await getDocs(q);
+      cloudPresets = snap.docs.map((d) => d.data() as LetterheadPresetRecord);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'letterheadPresets');
+    }
+  }
+
+  let localPresets: LetterheadPresetRecord[] = [];
+  let allLocalPresets: LetterheadPresetRecord[] = [];
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY);
+    if (raw) {
+      allLocalPresets = JSON.parse(raw);
+      localPresets = normalizedEmail
+        ? allLocalPresets.filter((p) => !p.userEmail || p.userEmail === normalizedEmail)
+        : allLocalPresets.filter((p) => !p.userEmail);
+    }
+  } catch (err) {
+    console.warn('LetterheadPreset local read error:', err);
+  }
+
+  // Promote any guest/anonymous local presets to the signed-in Google account on first login
+  if (auth.currentUser && normalizedEmail && activeCloudEmail === normalizedEmail) {
+    const guestLocal = localPresets.filter((p) => !p.userEmail);
+    if (guestLocal.length > 0) {
+      const promotedMap = new Map<string, LetterheadPresetRecord>();
+      for (const guest of guestLocal) {
+        try {
+          const cleanGuest = await sanitizeLetterheadPreset({
+            ...guest,
+            userEmail: normalizedEmail,
+          });
+          await setDoc(
+            doc(db, 'letterheadPresets', cleanGuest.id),
+            sanitizeForFirestore(cleanGuest)
+          );
+          promotedMap.set(cleanGuest.id, cleanGuest);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `letterheadPresets/${guest.id}`);
+        }
+      }
+      if (promotedMap.size > 0) {
+        try {
+          const refreshedLocal = allLocalPresets.map((p) => promotedMap.get(p.id) || p);
+          localStorage.setItem(LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY, JSON.stringify(refreshedLocal));
+          localPresets = localPresets.map((p) => promotedMap.get(p.id) || p);
+        } catch {
+          // ignore localStorage refresh errors
+        }
+      }
+    }
+  }
+
+  const map = new Map<string, LetterheadPresetRecord>();
+  // Put local first, then cloud updates override unless local has strictly newer updatedAt
+  for (const p of localPresets) {
+    map.set(p.id, p);
+  }
+  for (const cp of cloudPresets) {
+    const existingLocal = map.get(cp.id);
+    if (!existingLocal || (cp.updatedAt || cp.createdAt) >= (existingLocal.updatedAt || existingLocal.createdAt)) {
+      map.set(cp.id, cp);
+    }
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)
+  );
+};
+
+export const deleteLetterheadPreset = async (presetId: string): Promise<void> => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY);
+    if (raw) {
+      const existing: LetterheadPresetRecord[] = JSON.parse(raw);
+      localStorage.setItem(
+        LOCAL_STORAGE_LETTERHEAD_PRESETS_KEY,
+        JSON.stringify(existing.filter((p) => p.id !== presetId))
+      );
+    }
+  } catch (err) {
+    console.warn('LetterheadPreset local delete error:', err);
+  }
+
+  if (auth.currentUser) {
+    try {
+      await deleteDoc(doc(db, 'letterheadPresets', presetId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `letterheadPresets/${presetId}`);
+    }
+  }
+};
+
+// ==========================================
 // Photo Batch Studio Presets Persistence
 // ==========================================
 const LOCAL_STORAGE_PHOTO_PRESETS_KEY = 'paperlink_photo_batch_presets';
@@ -614,6 +851,215 @@ export const deletePhotoBatchPreset = async (presetId: string): Promise<void> =>
       await deleteDoc(doc(db, 'photoBatchPresets', presetId));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `photoBatchPresets/${presetId}`);
+    }
+  }
+};
+
+// ==========================================
+// Custom PDF Stamp Library Presets Persistence
+// ==========================================
+const LOCAL_STORAGE_STAMP_PRESETS_KEY = 'paperlink_stamp_presets';
+
+const VALID_STAMP_POSITIONS = new Set<PdfStampPlacement>([
+  'top-left',
+  'top-center',
+  'top-right',
+  'center',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+]);
+
+const VALID_STAMP_SCOPES = new Set<PdfStampPageScope>([
+  'all-attached',
+  'all-including-cover',
+  'first-attached',
+  'cover-only',
+]);
+
+const VALID_STAMP_SHAPES = new Set<PdfStampShape>([
+  'rect',
+  'double-rect',
+  'round',
+  'solid-badge',
+]);
+
+async function sanitizeStampPreset(preset: CustomStampPreset): Promise<CustomStampPreset> {
+  const now = Date.now();
+  const kind: 'image' | 'text' = preset.kind === 'image' ? 'image' : 'text';
+  const safeImageUrl =
+    kind === 'image' && preset.imageUrl
+      ? await compressPresetAssetIfNeeded(preset.imageUrl, 170000, 480)
+      : undefined;
+
+  const scale = Math.min(50, Math.max(8, Math.round(Number(preset.scale) || 18)));
+  const opacity = Math.min(1, Math.max(0.1, Number((Number(preset.opacity) || 0.88).toFixed(2))));
+  const rotationDeg = Math.min(180, Math.max(-180, Math.round(Number(preset.rotationDeg) || 0)));
+
+  const clean: CustomStampPreset = {
+    id: sanitizePresetDocId(preset.id || `stamp_${now}`),
+    name: (String(preset.name || 'Custom Stamp').trim() || 'Custom Stamp').slice(0, 80),
+    kind,
+    position: VALID_STAMP_POSITIONS.has(preset.position) ? preset.position : 'bottom-right',
+    scale,
+    opacity,
+    rotationDeg,
+    pageScope: VALID_STAMP_SCOPES.has(preset.pageScope) ? preset.pageScope : 'all-attached',
+    userEmail: String(preset.userEmail || '').trim().slice(0, 254),
+    createdAt: typeof preset.createdAt === 'number' && preset.createdAt > 0 ? preset.createdAt : now,
+    updatedAt: typeof preset.updatedAt === 'number' && preset.updatedAt > 0 ? preset.updatedAt : now,
+  };
+
+  if (kind === 'image' && safeImageUrl) {
+    clean.imageUrl = safeImageUrl;
+  } else {
+    if (preset.text?.trim()) clean.text = preset.text.trim().slice(0, 48);
+    if (preset.subtext?.trim()) clean.subtext = preset.subtext.trim().slice(0, 48);
+    clean.shape = VALID_STAMP_SHAPES.has(preset.shape as PdfStampShape)
+      ? (preset.shape as PdfStampShape)
+      : 'rect';
+    clean.color = (String(preset.color || '#dc2626').trim() || '#dc2626').slice(0, 32);
+  }
+
+  return clean;
+}
+
+export const saveStampPreset = async (preset: CustomStampPreset): Promise<CustomStampPreset> => {
+  const clean = await sanitizeStampPreset(preset);
+
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_STAMP_PRESETS_KEY);
+    const existing: CustomStampPreset[] = raw ? JSON.parse(raw) : [];
+    const prevMatch = existing.find((p) => p.id === clean.id);
+    if (prevMatch && prevMatch.createdAt > 0) {
+      clean.createdAt = prevMatch.createdAt;
+    }
+    const updated = [clean, ...existing.filter((p) => p.id !== clean.id)];
+    localStorage.setItem(LOCAL_STORAGE_STAMP_PRESETS_KEY, JSON.stringify(updated));
+  } catch (err) {
+    console.warn('StampPreset local save warning:', err);
+  }
+
+  if (auth.currentUser && clean.userEmail && auth.currentUser.email === clean.userEmail) {
+    const path = `stampPresets/${clean.id}`;
+    try {
+      const docRef = doc(db, 'stampPresets', clean.id);
+      const existingSnap = await getDoc(docRef);
+      const cloudPayload = existingSnap.exists()
+        ? {
+            ...clean,
+            createdAt:
+              typeof existingSnap.data()?.createdAt === 'number'
+                ? existingSnap.data().createdAt
+                : clean.createdAt,
+          }
+        : clean;
+      await setDoc(docRef, sanitizeForFirestore(cloudPayload));
+      return cloudPayload;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  }
+
+  return clean;
+};
+
+export const getStampPresets = async (userEmail?: string): Promise<CustomStampPreset[]> => {
+  const normalizedEmail = String(userEmail || '').trim();
+  let cloudPresets: CustomStampPreset[] = [];
+  const activeCloudEmail = auth.currentUser?.email || '';
+
+  if (auth.currentUser && normalizedEmail && activeCloudEmail === normalizedEmail) {
+    try {
+      const col = collection(db, 'stampPresets');
+      const q = query(col, where('userEmail', '==', normalizedEmail));
+      const snap = await getDocs(q);
+      cloudPresets = snap.docs.map((d) => d.data() as CustomStampPreset);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.LIST, 'stampPresets');
+    }
+  }
+
+  let localPresets: CustomStampPreset[] = [];
+  let allLocalPresets: CustomStampPreset[] = [];
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_STAMP_PRESETS_KEY);
+    if (raw) {
+      allLocalPresets = JSON.parse(raw);
+      localPresets = normalizedEmail
+        ? allLocalPresets.filter((p) => !p.userEmail || p.userEmail === normalizedEmail)
+        : allLocalPresets.filter((p) => !p.userEmail);
+    }
+  } catch (err) {
+    console.warn('StampPreset local read error:', err);
+  }
+
+  if (auth.currentUser && normalizedEmail && activeCloudEmail === normalizedEmail) {
+    const guestLocal = localPresets.filter((p) => !p.userEmail);
+    if (guestLocal.length > 0) {
+      const promotedMap = new Map<string, CustomStampPreset>();
+      for (const guest of guestLocal) {
+        try {
+          const cleanGuest = await sanitizeStampPreset({
+            ...guest,
+            userEmail: normalizedEmail,
+          });
+          await setDoc(
+            doc(db, 'stampPresets', cleanGuest.id),
+            sanitizeForFirestore(cleanGuest)
+          );
+          promotedMap.set(cleanGuest.id, cleanGuest);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `stampPresets/${guest.id}`);
+        }
+      }
+      if (promotedMap.size > 0) {
+        try {
+          const refreshedLocal = allLocalPresets.map((p) => promotedMap.get(p.id) || p);
+          localStorage.setItem(LOCAL_STORAGE_STAMP_PRESETS_KEY, JSON.stringify(refreshedLocal));
+          localPresets = localPresets.map((p) => promotedMap.get(p.id) || p);
+        } catch {
+          // ignore localStorage refresh errors
+        }
+      }
+    }
+  }
+
+  const map = new Map<string, CustomStampPreset>();
+  for (const p of localPresets) {
+    map.set(p.id, p);
+  }
+  for (const cp of cloudPresets) {
+    const existingLocal = map.get(cp.id);
+    if (!existingLocal || (cp.updatedAt || cp.createdAt) >= (existingLocal.updatedAt || existingLocal.createdAt)) {
+      map.set(cp.id, cp);
+    }
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)
+  );
+};
+
+export const deleteStampPreset = async (presetId: string): Promise<void> => {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_STAMP_PRESETS_KEY);
+    if (raw) {
+      const existing: CustomStampPreset[] = JSON.parse(raw);
+      localStorage.setItem(
+        LOCAL_STORAGE_STAMP_PRESETS_KEY,
+        JSON.stringify(existing.filter((p) => p.id !== presetId))
+      );
+    }
+  } catch (err) {
+    console.warn('StampPreset local delete error:', err);
+  }
+
+  if (auth.currentUser) {
+    try {
+      await deleteDoc(doc(db, 'stampPresets', presetId));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `stampPresets/${presetId}`);
     }
   }
 };
@@ -863,4 +1309,266 @@ export const getSharedFeedbackSheetUrl = async (): Promise<string> => {
     return '';
   }
 };
+
+const LOCAL_PROFILE_PREFIX = 'paperlink_user_profile_v1_';
+
+export const createEmptyUserProfile = (
+  uid: string,
+  email: string,
+  displayName?: string | null
+): UserProfileData => {
+  const now = Date.now();
+  return {
+    uid,
+    userEmail: email,
+    fullName: displayName || '',
+    fatherName: '',
+    contactNumber: '',
+    email: email || '',
+    dateOfBirth: '',
+    nationalIdNumber: '',
+    passportNumber: '',
+    organization: '',
+    designation: '',
+    address: '',
+    bioNotes: '',
+    nationalIdFrontUrl: undefined,
+    nationalIdBackUrl: undefined,
+    passportImageUrl: undefined,
+    signatureUrl: undefined,
+    avatarUrl: undefined,
+    presets: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const compressDocumentImageDataUrl = async (
+  fileOrUrl: File | string,
+  opts?: { maxDim?: number; quality?: number; preservePngTransparency?: boolean; maxLength?: number }
+): Promise<string> => {
+  const maxDim = opts?.maxDim ?? 1080;
+  let quality = opts?.quality ?? 0.78;
+  const preservePng = !!opts?.preservePngTransparency;
+  const maxLen = opts?.maxLength ?? 220_000;
+
+  const dataUrl =
+    typeof fileOrUrl === 'string'
+      ? fileOrUrl
+      : await new Promise<string>((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result || ''));
+          r.onerror = () => reject(new Error('Failed to read image file'));
+          r.readAsDataURL(fileOrUrl);
+        });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('Invalid image format'));
+    i.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+  const w = Math.max(1, Math.round((img.width || 1) * scale));
+  const h = Math.max(1, Math.round((img.height || 1) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl.slice(0, maxLen);
+
+  if (!preservePng) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(img, 0, 0, w, h);
+
+  if (preservePng) {
+    const pngOut = canvas.toDataURL('image/png');
+    if (pngOut.length <= maxLen) return pngOut;
+    // Scale down slightly if signature PNG is unexpectedly huge
+    const shrinkCanvas = document.createElement('canvas');
+    shrinkCanvas.width = Math.max(120, Math.round(w * 0.65));
+    shrinkCanvas.height = Math.max(40, Math.round(h * 0.65));
+    const sCtx = shrinkCanvas.getContext('2d');
+    if (sCtx) {
+      sCtx.drawImage(canvas, 0, 0, shrinkCanvas.width, shrinkCanvas.height);
+      return shrinkCanvas.toDataURL('image/png');
+    }
+    return pngOut;
+  }
+
+  let out = canvas.toDataURL('image/jpeg', quality);
+  while (out.length > maxLen && quality > 0.42) {
+    quality -= 0.1;
+    out = canvas.toDataURL('image/jpeg', quality);
+  }
+  return out;
+};
+
+function sanitizePresetsList(list: UserBiodataPreset[] | undefined): UserBiodataPreset[] {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 20).map((p) => ({
+    id: String(p.id || `preset_${Date.now()}`).slice(0, 80),
+    name: String(p.name || 'Saved Preset').slice(0, 80),
+    fullName: String(p.fullName || '').slice(0, 160),
+    fatherName: String(p.fatherName || '').slice(0, 160),
+    contactNumber: String(p.contactNumber || '').slice(0, 48),
+    email: String(p.email || '').slice(0, 254),
+    organization: String(p.organization || '').slice(0, 200),
+    designation: String(p.designation || '').slice(0, 160),
+    nationalIdNumber: String(p.nationalIdNumber || '').slice(0, 64),
+    passportNumber: String(p.passportNumber || '').slice(0, 64),
+    address: String(p.address || '').slice(0, 400),
+    notes: String(p.notes || '').slice(0, 800),
+    coverTitle: String(p.coverTitle || '').slice(0, 200),
+    coverSubtitle: String(p.coverSubtitle || '').slice(0, 200),
+    updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : Date.now(),
+  }));
+}
+
+function toMillis(val: unknown, fallback = Date.now()): number {
+  if (typeof val === 'number') return val;
+  if (val && typeof val === 'object' && 'toMillis' in val && typeof (val as Timestamp).toMillis === 'function') {
+    return (val as Timestamp).toMillis();
+  }
+  return fallback;
+}
+
+export const getUserProfile = async (
+  user: User | null
+): Promise<UserProfileData | null> => {
+  if (!user?.uid) return null;
+  const fallback = createEmptyUserProfile(user.uid, user.email || '', user.displayName);
+  const path = `userProfiles/${user.uid}`;
+  try {
+    const snap = await getDoc(doc(db, 'userProfiles', user.uid));
+    if (snap.exists()) {
+      const d = snap.data() || {};
+      const hydrated: UserProfileData = {
+        uid: String(d.uid || user.uid),
+        userEmail: String(d.userEmail || user.email || ''),
+        fullName: String(d.fullName || user.displayName || ''),
+        fatherName: String(d.fatherName || ''),
+        contactNumber: String(d.contactNumber || ''),
+        email: String(d.email || user.email || ''),
+        dateOfBirth: String(d.dateOfBirth || ''),
+        nationalIdNumber: String(d.nationalIdNumber || ''),
+        passportNumber: String(d.passportNumber || ''),
+        organization: String(d.organization || ''),
+        designation: String(d.designation || ''),
+        address: String(d.address || ''),
+        bioNotes: String(d.bioNotes || ''),
+        nationalIdFrontUrl: typeof d.nationalIdFrontUrl === 'string' ? d.nationalIdFrontUrl : undefined,
+        nationalIdBackUrl: typeof d.nationalIdBackUrl === 'string' ? d.nationalIdBackUrl : undefined,
+        passportImageUrl: typeof d.passportImageUrl === 'string' ? d.passportImageUrl : undefined,
+        signatureUrl: typeof d.signatureUrl === 'string' ? d.signatureUrl : undefined,
+        avatarUrl: typeof d.avatarUrl === 'string' ? d.avatarUrl : undefined,
+        presets: sanitizePresetsList(d.presets as UserBiodataPreset[]),
+        createdAt: toMillis(d.createdAt, fallback.createdAt),
+        updatedAt: toMillis(d.updatedAt, fallback.updatedAt),
+      };
+      try {
+        localStorage.setItem(`${LOCAL_PROFILE_PREFIX}${user.uid}`, JSON.stringify(hydrated));
+      } catch {
+        // ignore cache error
+      }
+      return hydrated;
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+
+  try {
+    const raw = localStorage.getItem(`${LOCAL_PROFILE_PREFIX}${user.uid}`);
+    if (raw) {
+      return { ...fallback, ...(JSON.parse(raw) as Partial<UserProfileData>) };
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+};
+
+export const saveUserProfile = async (
+  profile: UserProfileData,
+  user: User | null
+): Promise<UserProfileData> => {
+  if (!user?.uid || !user.email) {
+    throw new Error('Sign in with Google to save your profile.');
+  }
+
+  const uid = user.uid;
+  const path = `userProfiles/${uid}`;
+  const docRef = doc(db, 'userProfiles', uid);
+
+  const basePayload: Record<string, unknown> = {
+    uid,
+    userEmail: user.email,
+    fullName: String(profile.fullName || '').slice(0, 160),
+    fatherName: String(profile.fatherName || '').slice(0, 160),
+    contactNumber: String(profile.contactNumber || '').slice(0, 48),
+    email: String(profile.email || user.email).slice(0, 254),
+    dateOfBirth: String(profile.dateOfBirth || '').slice(0, 40),
+    nationalIdNumber: String(profile.nationalIdNumber || '').slice(0, 64),
+    passportNumber: String(profile.passportNumber || '').slice(0, 64),
+    organization: String(profile.organization || '').slice(0, 200),
+    designation: String(profile.designation || '').slice(0, 160),
+    address: String(profile.address || '').slice(0, 400),
+    bioNotes: String(profile.bioNotes || '').slice(0, 1000),
+    presets: sanitizePresetsList(profile.presets),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (profile.nationalIdFrontUrl) {
+    basePayload.nationalIdFrontUrl = profile.nationalIdFrontUrl.slice(0, 255000);
+  }
+  if (profile.nationalIdBackUrl) {
+    basePayload.nationalIdBackUrl = profile.nationalIdBackUrl.slice(0, 255000);
+  }
+  if (profile.passportImageUrl) {
+    basePayload.passportImageUrl = profile.passportImageUrl.slice(0, 255000);
+  }
+  if (profile.signatureUrl) {
+    basePayload.signatureUrl = profile.signatureUrl.slice(0, 155000);
+  }
+  if (profile.avatarUrl) {
+    basePayload.avatarUrl = profile.avatarUrl.slice(0, 195000);
+  }
+
+  try {
+    const existingSnap = await getDoc(docRef);
+    if (existingSnap.exists()) {
+      const existingCreated = existingSnap.data()?.createdAt;
+      await setDoc(docRef, {
+        ...basePayload,
+        createdAt: existingCreated || serverTimestamp(),
+      });
+    } else {
+      await setDoc(docRef, {
+        ...basePayload,
+        createdAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+
+  const savedLocal: UserProfileData = {
+    ...profile,
+    uid,
+    userEmail: user.email,
+    presets: sanitizePresetsList(profile.presets),
+    updatedAt: Date.now(),
+  };
+  try {
+    localStorage.setItem(`${LOCAL_PROFILE_PREFIX}${uid}`, JSON.stringify(savedLocal));
+  } catch {
+    // ignore storage quota errors
+  }
+  return savedLocal;
+};
+
 

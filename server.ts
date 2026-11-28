@@ -14,6 +14,8 @@ import { executeCoverSuggestions } from './api/cover-suggestions.ts';
 import type { CoverSuggestionsStartRequest } from './api/cover-suggestions.ts';
 import { executeDocumentSolve } from './api/solve-document.ts';
 import type { SolveDocumentRequest } from './api/solve-document.ts';
+import { executeAnalyzeDocument } from './api/analyze-document.ts';
+import type { AnalyzeDocumentRequest } from './api/analyze-document.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +35,12 @@ async function createAppServer() {
   app.post('/api/solve-document', async (req: Request, res: Response) => {
     const body = (req.body || {}) as SolveDocumentRequest;
     const result = await executeDocumentSolve(body);
+    res.status(result.status).json(result.payload);
+  });
+
+  app.post('/api/analyze-document', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as AnalyzeDocumentRequest;
+    const result = await executeAnalyzeDocument(body);
     res.status(result.status).json(result.payload);
   });
 

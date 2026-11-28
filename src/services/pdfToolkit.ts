@@ -1197,10 +1197,16 @@ export interface PdfShapeEditElement extends PdfEditBase {
   opacity: number;
 }
 
+export type PdfStampShape = 'rect' | 'double-rect' | 'round' | 'solid-badge';
+
 export interface PdfStampEditElement extends PdfEditBase {
   kind: 'stamp';
   text: string;
   color: string;
+  subtext?: string;
+  shape?: PdfStampShape;
+  rotationDeg?: number;
+  opacity?: number;
 }
 
 export type PdfEditElement =
@@ -1432,32 +1438,143 @@ export async function applyPdfEdits(
         opacity: Math.min(1, Math.max(0.1, el.opacity)),
       });
     } else if (el.kind === 'stamp') {
-      const [r, g, b] = hexToRgbTuple(el.color || '#dc2626');
-      const borderW = Math.max(2, Math.min(4, boxH * 0.08));
-      page.drawRectangle({
-        x: pdfX,
-        y: pdfBottomY,
-        width: boxW,
-        height: boxH,
-        borderColor: rgb(r, g, b),
-        borderWidth: borderW,
-        color: rgb(1, 1, 1),
-        opacity: 0.9,
-      });
-      const stampFont = await getStdFont('helvetica', true, false);
-      const label = sanitizeWinAnsi(el.text || 'APPROVED').toUpperCase();
-      let stampSize = Math.max(10, Math.min(boxH * 0.52, 28));
-      while (stampSize > 8 && stampFont.widthOfTextAtSize(label, stampSize) > boxW - 12) {
-        stampSize -= 1;
+      const renderStampCanvasPng = () => {
+        const dpi = 3.2;
+        const c = document.createElement('canvas');
+        const cw = Math.max(48, Math.round(boxW * dpi));
+        const ch = Math.max(36, Math.round(boxH * dpi));
+        c.width = cw;
+        c.height = ch;
+        const sctx = c.getContext('2d');
+        if (!sctx) return null;
+
+        const shape = el.shape || 'rect';
+        const color = el.color || '#dc2626';
+        const label = sanitizeWinAnsi(el.text || 'APPROVED').toUpperCase();
+        const sub = el.subtext ? sanitizeWinAnsi(el.subtext).toUpperCase() : '';
+        const rotRad = ((el.rotationDeg ?? 0) * Math.PI) / 180;
+
+        sctx.save();
+        sctx.globalAlpha = Math.max(0.2, Math.min(1, el.opacity ?? 0.92));
+        sctx.translate(cw / 2, ch / 2);
+        if (Math.abs(rotRad) > 0.001) {
+          sctx.rotate(rotRad);
+        }
+
+        const scaleFit = Math.abs(rotRad) > 0.02 ? 0.84 : 0.94;
+        const rw = cw * scaleFit;
+        const rh = ch * scaleFit;
+
+        if (shape === 'round') {
+          const radius = Math.max(12, Math.min(rw, rh) * 0.46);
+          sctx.strokeStyle = color;
+          sctx.fillStyle = 'rgba(255,255,255,0.88)';
+          sctx.lineWidth = Math.max(2.5, radius * 0.09);
+          sctx.beginPath();
+          sctx.arc(0, 0, radius, 0, Math.PI * 2);
+          sctx.fill();
+          sctx.stroke();
+
+          sctx.lineWidth = Math.max(1.2, radius * 0.035);
+          sctx.beginPath();
+          sctx.arc(0, 0, radius * 0.84, 0, Math.PI * 2);
+          sctx.stroke();
+
+          let fs = Math.max(10, radius * 0.36);
+          sctx.font = `900 ${fs}px Inter, Arial, sans-serif`;
+          while (fs > 8 && sctx.measureText(label).width > radius * 1.56) {
+            fs -= 1;
+            sctx.font = `900 ${fs}px Inter, Arial, sans-serif`;
+          }
+          sctx.fillStyle = color;
+          sctx.textAlign = 'center';
+          sctx.textBaseline = 'middle';
+          sctx.fillText(label, 0, sub ? -fs * 0.25 : 0);
+          if (sub) {
+            sctx.font = `700 ${Math.max(7, fs * 0.48)}px "JetBrains Mono", monospace`;
+            sctx.fillText(sub, 0, fs * 0.56);
+          }
+        } else {
+          const r = 6 * dpi;
+          sctx.beginPath();
+          sctx.roundRect(-rw / 2, -rh / 2, rw, rh, r);
+          if (shape === 'solid-badge') {
+            sctx.fillStyle = color;
+            sctx.fill();
+          } else {
+            sctx.fillStyle = 'rgba(255,255,255,0.88)';
+            sctx.fill();
+            sctx.strokeStyle = color;
+            sctx.lineWidth = Math.max(2.5, rh * 0.085);
+            sctx.stroke();
+            if (shape === 'double-rect') {
+              sctx.lineWidth = Math.max(1.2, rh * 0.03);
+              sctx.beginPath();
+              sctx.roundRect(-rw / 2 + 5 * dpi, -rh / 2 + 5 * dpi, rw - 10 * dpi, rh - 10 * dpi, Math.max(2, r - 2));
+              sctx.stroke();
+            }
+          }
+
+          let fs = Math.max(12, Math.min(rh * (sub ? 0.38 : 0.48), 42));
+          sctx.font = `900 ${fs}px Inter, Arial, sans-serif`;
+          while (fs > 8 && sctx.measureText(label).width > rw * 0.86) {
+            fs -= 1;
+            sctx.font = `900 ${fs}px Inter, Arial, sans-serif`;
+          }
+          sctx.fillStyle = shape === 'solid-badge' ? '#ffffff' : color;
+          sctx.textAlign = 'center';
+          sctx.textBaseline = 'middle';
+          sctx.fillText(label, 0, sub ? -rh * 0.14 : 0);
+          if (sub) {
+            sctx.font = `700 ${Math.max(7, Math.min(fs * 0.45, 16))}px "JetBrains Mono", monospace`;
+            sctx.fillText(sub, 0, rh * 0.24);
+          }
+        }
+        sctx.restore();
+        const dataUrl = c.toDataURL('image/png');
+        const bin = atob(dataUrl.split(',')[1] || '');
+        const bytes = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        return bytes;
+      };
+
+      const stampPng = typeof document !== 'undefined' ? renderStampCanvasPng() : null;
+      if (stampPng && stampPng.byteLength > 0) {
+        const embedded = await pdfDoc.embedPng(stampPng);
+        page.drawImage(embedded, {
+          x: pdfX,
+          y: pdfBottomY,
+          width: boxW,
+          height: boxH,
+        });
+      } else {
+        const [r, g, b] = hexToRgbTuple(el.color || '#dc2626');
+        const borderW = Math.max(2, Math.min(4, boxH * 0.08));
+        page.drawRectangle({
+          x: pdfX,
+          y: pdfBottomY,
+          width: boxW,
+          height: boxH,
+          borderColor: rgb(r, g, b),
+          borderWidth: borderW,
+          color: rgb(1, 1, 1),
+          opacity: el.opacity ?? 0.9,
+        });
+        const stampFont = await getStdFont('helvetica', true, false);
+        const label = sanitizeWinAnsi(el.text || 'APPROVED').toUpperCase();
+        let stampSize = Math.max(10, Math.min(boxH * 0.52, 28));
+        while (stampSize > 8 && stampFont.widthOfTextAtSize(label, stampSize) > boxW - 12) {
+          stampSize -= 1;
+        }
+        const tw = stampFont.widthOfTextAtSize(label, stampSize);
+        page.drawText(label, {
+          x: pdfX + Math.max(4, (boxW - tw) / 2),
+          y: pdfBottomY + Math.max(4, (boxH - stampSize * 0.72) / 2),
+          size: stampSize,
+          font: stampFont,
+          color: rgb(r, g, b),
+        });
       }
-      const tw = stampFont.widthOfTextAtSize(label, stampSize);
-      page.drawText(label, {
-        x: pdfX + Math.max(4, (boxW - tw) / 2),
-        y: pdfBottomY + Math.max(4, (boxH - stampSize * 0.72) / 2),
-        size: stampSize,
-        font: stampFont,
-        color: rgb(r, g, b),
-      });
     } else if (el.kind === 'text') {
       if (!el.text.trim()) continue;
       if (hasNonWinAnsiChars(el.text)) {
@@ -2322,136 +2439,23 @@ export interface PdfScanCropResult {
  * so dark desk/camera margins are cropped away while preserving full document content.
  */
 export function detectDocumentCropRectFromImageData(imgData: ImageData): PdfCropRect {
-  const { width: w, height: h, data } = imgData;
+  const { width: w, height: h } = imgData;
   if (w < 24 || h < 24) {
     return { left: 0.01, top: 0.01, right: 0.99, bottom: 0.99 };
   }
 
-  const getLum = (x: number, y: number) => {
-    const idx = (y * w + x) * 4;
-    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-  };
+  const quad = detectDocumentQuadFromImageData(imgData);
+  const left = Math.min(quad.tl.x, quad.bl.x);
+  const right = Math.max(quad.tr.x, quad.br.x);
+  const top = Math.min(quad.tl.y, quad.tr.y);
+  const bottom = Math.max(quad.bl.y, quad.br.y);
 
-  // Sample average brightness of center paper vs outer 3% border ring
-  const cx0 = Math.floor(w * 0.25);
-  const cx1 = Math.floor(w * 0.75);
-  const cy0 = Math.floor(h * 0.25);
-  const cy1 = Math.floor(h * 0.75);
-  let centerSum = 0;
-  let centerN = 0;
-  for (let y = cy0; y < cy1; y += 4) {
-    for (let x = cx0; x < cx1; x += 4) {
-      centerSum += getLum(x, y);
-      centerN++;
-    }
-  }
-  const centerAvg = centerN > 0 ? centerSum / centerN : 225;
-
-  let edgeSum = 0;
-  let edgeN = 0;
-  const band = Math.max(2, Math.floor(Math.min(w, h) * 0.025));
-  for (let y = 0; y < h; y += 3) {
-    for (let x = 0; x < w; x += 3) {
-      if (x < band || x >= w - band || y < band || y >= h - band) {
-        edgeSum += getLum(x, y);
-        edgeN++;
-      }
-    }
-  }
-  const edgeAvg = edgeN > 0 ? edgeSum / edgeN : 225;
-
-  // Case A: Dark desk / phone border surrounding brighter paper sheet
-  const hasDarkOuterBorder = centerAvg - edgeAvg > 28 && edgeAvg < 185;
-  if (hasDarkOuterBorder) {
-    const paperThresh = edgeAvg + (centerAvg - edgeAvg) * 0.42;
-
-    const rowPaperFraction = (y: number) => {
-      let bright = 0;
-      let total = 0;
-      for (let x = Math.floor(w * 0.08); x < Math.floor(w * 0.92); x += 4) {
-        if (getLum(x, y) >= paperThresh) bright++;
-        total++;
-      }
-      return total > 0 ? bright / total : 0;
-    };
-
-    const colPaperFraction = (x: number, yStart: number, yEnd: number) => {
-      let bright = 0;
-      let total = 0;
-      for (let y = yStart; y < yEnd; y += 4) {
-        if (getLum(x, y) >= paperThresh) bright++;
-        total++;
-      }
-      return total > 0 ? bright / total : 0;
-    };
-
-    let topPx = 0;
-    while (topPx < Math.floor(h * 0.42) && rowPaperFraction(topPx) < 0.38) topPx += 2;
-
-    let bottomPx = h - 1;
-    while (bottomPx > Math.floor(h * 0.58) && rowPaperFraction(bottomPx) < 0.38) bottomPx -= 2;
-
-    const spanY0 = Math.min(bottomPx - 10, topPx + 6);
-    const spanY1 = Math.max(spanY0 + 10, bottomPx - 6);
-
-    let leftPx = 0;
-    while (leftPx < Math.floor(w * 0.42) && colPaperFraction(leftPx, spanY0, spanY1) < 0.38) {
-      leftPx += 2;
-    }
-
-    let rightPx = w - 1;
-    while (rightPx > Math.floor(w * 0.58) && colPaperFraction(rightPx, spanY0, spanY1) < 0.38) {
-      rightPx -= 2;
-    }
-
-    // Small inward clean trim so residual dark edge hairline doesn't remain
-    const trimX = Math.round(w * 0.008);
-    const trimY = Math.round(h * 0.008);
-    const l = Math.max(0, Math.min(0.42, (leftPx + trimX) / w));
-    const t = Math.max(0, Math.min(0.42, (topPx + trimY) / h));
-    const r = Math.min(1, Math.max(0.58, (rightPx - trimX) / w));
-    const b = Math.min(1, Math.max(0.58, (bottomPx - trimY) / h));
-
-    if (r - l >= 0.25 && b - t >= 0.25) {
-      return {
-        left: Number(l.toFixed(3)),
-        top: Number(t.toFixed(3)),
-        right: Number(r.toFixed(3)),
-        bottom: Number(b.toFixed(3)),
-      };
-    }
-  }
-
-  // Case B: Already light/white scan — auto-trim oversized blank outer margins cleanly
-  let minX = w;
-  let minY = h;
-  let maxX = 0;
-  let maxY = 0;
-  let inkHits = 0;
-  for (let y = 0; y < h; y += 3) {
-    for (let x = 0; x < w; x += 3) {
-      if (getLum(x, y) < 212) {
-        inkHits++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  if (inkHits > 25 && maxX - minX > w * 0.2 && maxY - minY > h * 0.2) {
-    const padX = Math.round(w * 0.025);
-    const padY = Math.round(h * 0.025);
-    const l = Math.max(0, (minX - padX) / w);
-    const t = Math.max(0, (minY - padY) / h);
-    const r = Math.min(1, (maxX + padX) / w);
-    const b = Math.min(1, (maxY + padY) / h);
+  if (right - left >= 0.25 && bottom - top >= 0.25) {
     return {
-      left: Number(l.toFixed(3)),
-      top: Number(t.toFixed(3)),
-      right: Number(r.toFixed(3)),
-      bottom: Number(b.toFixed(3)),
+      left: Number(Math.max(0, left).toFixed(3)),
+      top: Number(Math.max(0, top).toFixed(3)),
+      right: Number(Math.min(1, right).toFixed(3)),
+      bottom: Number(Math.min(1, bottom).toFixed(3)),
     };
   }
 
@@ -2773,118 +2777,243 @@ export interface PdfQuadCorners {
 
 /**
  * Automatically detects the 4 perspective corners (tl, tr, br, bl) of a physical document
- * photographed on a desk/table, or falls back to a clean slightly inset document quad.
+ * photographed on any desk/table using multi-signal analysis:
+ * 1) Border desk color profiling vs center paper color & luminance
+ * 2) Strongest edge boundary ray-marching from all 4 image edges (directional luminance gradient + color transition)
+ * 3) Outlier-rejected robust linear boundary fitting (trimmed least-squares) for skew & perspective accuracy
  */
 export function detectDocumentQuadFromImageData(imgData: ImageData): PdfQuadCorners {
   const { width: w, height: h, data } = imgData;
-  if (w < 40 || h < 40) {
-    return {
-      tl: { x: 0.04, y: 0.04 },
-      tr: { x: 0.96, y: 0.04 },
-      br: { x: 0.96, y: 0.96 },
-      bl: { x: 0.04, y: 0.96 },
-    };
-  }
-
-  const getLum = (x: number, y: number) => {
-    const cx = Math.max(0, Math.min(w - 1, Math.round(x)));
-    const cy = Math.max(0, Math.min(h - 1, Math.round(y)));
-    const idx = (cy * w + cx) * 4;
-    return 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+  const fallbackQuad: PdfQuadCorners = {
+    tl: { x: 0.03, y: 0.03 },
+    tr: { x: 0.97, y: 0.03 },
+    br: { x: 0.97, y: 0.97 },
+    bl: { x: 0.03, y: 0.97 },
   };
+  if (w < 40 || h < 40) return fallbackQuad;
 
-  // Measure center vs border luminance
-  let centerSum = 0;
-  let centerCnt = 0;
-  for (let y = Math.floor(h * 0.3); y < Math.floor(h * 0.7); y += 6) {
-    for (let x = Math.floor(w * 0.3); x < Math.floor(w * 0.7); x += 6) {
-      centerSum += getLum(x, y);
-      centerCnt++;
+  // Downsample to fast uniform working grid (~160px long side) for clean smoothed gradient detection
+  const gw = Math.min(160, w);
+  const gh = Math.min(200, h);
+  const lumGrid = new Float32Array(gw * gh);
+  const rGrid = new Float32Array(gw * gh);
+  const gGrid = new Float32Array(gw * gh);
+  const bGrid = new Float32Array(gw * gh);
+
+  for (let gy = 0; gy < gh; gy++) {
+    const sy = Math.min(h - 1, Math.round((gy / (gh - 1)) * (h - 1)));
+    for (let gx = 0; gx < gw; gx++) {
+      const sx = Math.min(w - 1, Math.round((gx / (gw - 1)) * (w - 1)));
+      const idx = (sy * w + sx) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const gi = gy * gw + gx;
+      rGrid[gi] = r;
+      gGrid[gi] = g;
+      bGrid[gi] = b;
+      lumGrid[gi] = 0.299 * r + 0.587 * g + 0.114 * b;
     }
   }
-  const centerAvg = centerCnt > 0 ? centerSum / centerCnt : 225;
 
-  let edgeSum = 0;
-  let edgeCnt = 0;
-  const band = Math.max(4, Math.floor(Math.min(w, h) * 0.03));
-  for (let y = 0; y < h; y += 5) {
-    for (let x = 0; x < w; x += 5) {
-      if (x < band || x >= w - band || y < band || y >= h - band) {
-        edgeSum += getLum(x, y);
+  // Smooth 3x3 luminance to ignore paper texture/carpet grain before gradient check
+  const smoothLum = new Float32Array(gw * gh);
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) {
+      let sum = 0;
+      let cnt = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const ny = Math.max(0, Math.min(gh - 1, y + dy));
+          const nx = Math.max(0, Math.min(gw - 1, x + dx));
+          sum += lumGrid[ny * gw + nx];
+          cnt++;
+        }
+      }
+      smoothLum[y * gw + x] = sum / cnt;
+    }
+  }
+
+  // Measure median-like background border color from outermost 4% frame vs paper center (32%..68%)
+  let edgeR = 0, edgeG = 0, edgeB = 0, edgeLum = 0, edgeCnt = 0;
+  const bandX = Math.max(2, Math.floor(gw * 0.04));
+  const bandY = Math.max(2, Math.floor(gh * 0.04));
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) {
+      if (x < bandX || x >= gw - bandX || y < bandY || y >= gh - bandY) {
+        const gi = y * gw + x;
+        edgeR += rGrid[gi];
+        edgeG += gGrid[gi];
+        edgeB += bGrid[gi];
+        edgeLum += smoothLum[gi];
         edgeCnt++;
       }
     }
   }
-  const edgeAvg = edgeCnt > 0 ? edgeSum / edgeCnt : 225;
+  edgeR /= Math.max(1, edgeCnt);
+  edgeG /= Math.max(1, edgeCnt);
+  edgeB /= Math.max(1, edgeCnt);
+  edgeLum /= Math.max(1, edgeCnt);
 
-  if (centerAvg - edgeAvg > 24 && edgeAvg < 190) {
-    const thresh = edgeAvg + (centerAvg - edgeAvg) * 0.42;
+  let paperR = 0, paperG = 0, paperB = 0, paperLum = 0, paperCnt = 0;
+  for (let y = Math.floor(gh * 0.34); y < Math.floor(gh * 0.66); y++) {
+    for (let x = Math.floor(gw * 0.34); x < Math.floor(gw * 0.66); x++) {
+      const gi = y * gw + x;
+      // Weight brighter clean paper pixels higher so dark printed text doesn't drag down paper color
+      if (smoothLum[gi] >= 120) {
+        paperR += rGrid[gi];
+        paperG += gGrid[gi];
+        paperB += bGrid[gi];
+        paperLum += smoothLum[gi];
+        paperCnt++;
+      }
+    }
+  }
+  if (paperCnt < 10) {
+    paperLum = 225;
+    paperR = 225;
+    paperG = 225;
+    paperB = 225;
+  } else {
+    paperR /= paperCnt;
+    paperG /= paperCnt;
+    paperB /= paperCnt;
+    paperLum /= paperCnt;
+  }
 
-    // Fit lines on top, bottom, left, right boundaries using sampled edge hits
+  const lumGap = paperLum - edgeLum;
+  const colorGap = Math.hypot(paperR - edgeR, paperG - edgeG, paperB - edgeB);
+  const hasVisibleBorder = Math.abs(lumGap) > 12 || colorGap > 24;
+
+  if (hasVisibleBorder) {
+    // Classify whether a grid cell is paper vs desk using both luminance & color proximity
+    const isPaperPixel = (x: number, y: number) => {
+      const gi = y * gw + x;
+      const dEdge = Math.hypot(rGrid[gi] - edgeR, gGrid[gi] - edgeG, bGrid[gi] - edgeB);
+      const dPaper = Math.hypot(rGrid[gi] - paperR, gGrid[gi] - paperG, bGrid[gi] - paperB);
+      if (colorGap > 34) {
+        return dPaper + 8 < dEdge;
+      }
+      if (lumGap > 0) {
+        return smoothLum[gi] >= edgeLum + lumGap * 0.42;
+      }
+      return smoothLum[gi] <= edgeLum + lumGap * 0.42;
+    };
+
+    const rayBoundary = (
+      startX: number,
+      startY: number,
+      dx: number,
+      dy: number,
+      steps: number
+    ): { x: number; y: number } | null => {
+      let bestGrad = 0;
+      let bestStep = -1;
+      let firstPaperStep = -1;
+
+      for (let step = 1; step < steps - 1; step++) {
+        const px = Math.round(startX + dx * step);
+        const py = Math.round(startY + dy * step);
+        const nx = Math.max(0, Math.min(gw - 1, Math.round(px + dx * 2)));
+        const ny = Math.max(0, Math.min(gh - 1, Math.round(py + dy * 2)));
+        const bx = Math.max(0, Math.min(gw - 1, Math.round(px - dx * 2)));
+        const by = Math.max(0, Math.min(gh - 1, Math.round(py - dy * 2)));
+
+        if (firstPaperStep === -1 && isPaperPixel(px, py) && isPaperPixel(nx, ny)) {
+          firstPaperStep = step;
+        }
+
+        const grad = Math.abs(smoothLum[ny * gw + nx] - smoothLum[by * gw + bx]);
+        if (grad > bestGrad && grad > 8) {
+          bestGrad = grad;
+          bestStep = step;
+        }
+      }
+
+      // Prefer the sharp paper entry point if edge & threshold transition agree closely
+      const chosenStep =
+        firstPaperStep > 0 && (bestStep < 0 || Math.abs(bestStep - firstPaperStep) <= steps * 0.14)
+          ? Math.round((firstPaperStep + (bestStep > 0 ? bestStep : firstPaperStep)) / 2)
+          : firstPaperStep > 0
+          ? firstPaperStep
+          : bestStep;
+
+      if (chosenStep <= 1) return null;
+      return { x: startX + dx * chosenStep, y: startY + dy * chosenStep };
+    };
+
     const topPts: { x: number; y: number }[] = [];
     const botPts: { x: number; y: number }[] = [];
-    for (let xi = 0.2; xi <= 0.8; xi += 0.06) {
-      const px = Math.round(xi * w);
-      let ty = 0;
-      while (ty < h * 0.48 && getLum(px, ty) < thresh) ty += 2;
-      if (ty < h * 0.46) topPts.push({ x: px, y: ty });
-
-      let by = h - 1;
-      while (by > h * 0.52 && getLum(px, by) < thresh) by -= 2;
-      if (by > h * 0.54) botPts.push({ x: px, y: by });
+    for (let xi = 0.18; xi <= 0.82; xi += 0.04) {
+      const px = Math.round(xi * (gw - 1));
+      const tp = rayBoundary(px, 0, 0, 1, Math.floor(gh * 0.46));
+      if (tp && tp.y < gh * 0.44) topPts.push(tp);
+      const bp = rayBoundary(px, gh - 1, 0, -1, Math.floor(gh * 0.46));
+      if (bp && bp.y > gh * 0.56) botPts.push(bp);
     }
 
     const leftPts: { x: number; y: number }[] = [];
     const rightPts: { x: number; y: number }[] = [];
-    for (let yi = 0.2; yi <= 0.8; yi += 0.06) {
-      const py = Math.round(yi * h);
-      let lx = 0;
-      while (lx < w * 0.48 && getLum(lx, py) < thresh) lx += 2;
-      if (lx < w * 0.46) leftPts.push({ x: lx, y: py });
-
-      let rx = w - 1;
-      while (rx > w * 0.52 && getLum(rx, py) < thresh) rx -= 2;
-      if (rx > w * 0.54) rightPts.push({ x: rx, y: py });
+    for (let yi = 0.18; yi <= 0.82; yi += 0.04) {
+      const py = Math.round(yi * (gh - 1));
+      const lp = rayBoundary(0, py, 1, 0, Math.floor(gw * 0.46));
+      if (lp && lp.x < gw * 0.44) leftPts.push(lp);
+      const rp = rayBoundary(gw - 1, py, -1, 0, Math.floor(gw * 0.46));
+      if (rp && rp.x > gw * 0.56) rightPts.push(rp);
     }
 
-    const fitHorizontal = (pts: { x: number; y: number }[], fallbackY: number) => {
+    const fitHorizontalRobust = (pts: { x: number; y: number }[], fallbackY: number) => {
       if (pts.length < 3) return { m: 0, b: fallbackY };
-      let sx = 0, sy = 0, sxx = 0, sxy = 0;
-      for (const p of pts) {
-        sx += p.x;
-        sy += p.y;
-        sxx += p.x * p.x;
-        sxy += p.x * p.y;
-      }
-      const n = pts.length;
-      const denom = n * sxx - sx * sx;
-      if (Math.abs(denom) < 1e-4) return { m: 0, b: sy / n };
-      const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sx * sy) / denom));
-      const b = (sy - m * sx) / n;
-      return { m, b };
+      const ols = (arr: { x: number; y: number }[]) => {
+        let sx = 0, sy = 0, sxx = 0, sxy = 0;
+        for (const p of arr) {
+          sx += p.x;
+          sy += p.y;
+          sxx += p.x * p.x;
+          sxy += p.x * p.y;
+        }
+        const n = arr.length;
+        const denom = n * sxx - sx * sx;
+        if (Math.abs(denom) < 1e-4) return { m: 0, b: sy / n };
+        const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sx * sy) / denom));
+        return { m, b: (sy - m * sx) / n };
+      };
+      const pass1 = ols(pts);
+      const residuals = pts.map((p) => Math.abs(p.y - (pass1.m * p.x + pass1.b)));
+      const sortedRes = [...residuals].sort((a, b) => a - b);
+      const medRes = Math.max(2.5, sortedRes[Math.floor(sortedRes.length * 0.6)]);
+      const inliers = pts.filter((_, i) => residuals[i] <= medRes * 1.45);
+      return inliers.length >= 3 ? ols(inliers) : pass1;
     };
 
-    const fitVertical = (pts: { x: number; y: number }[], fallbackX: number) => {
+    const fitVerticalRobust = (pts: { x: number; y: number }[], fallbackX: number) => {
       if (pts.length < 3) return { m: 0, b: fallbackX };
-      let sx = 0, sy = 0, syy = 0, sxy = 0;
-      for (const p of pts) {
-        sx += p.x;
-        sy += p.y;
-        syy += p.y * p.y;
-        sxy += p.x * p.y;
-      }
-      const n = pts.length;
-      const denom = n * syy - sy * sy;
-      if (Math.abs(denom) < 1e-4) return { m: 0, b: sx / n };
-      const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sy * sx) / denom));
-      const b = (sx - m * sy) / n;
-      return { m, b };
+      const ols = (arr: { x: number; y: number }[]) => {
+        let sx = 0, sy = 0, syy = 0, sxy = 0;
+        for (const p of arr) {
+          sx += p.x;
+          sy += p.y;
+          syy += p.y * p.y;
+          sxy += p.x * p.y;
+        }
+        const n = arr.length;
+        const denom = n * syy - sy * sy;
+        if (Math.abs(denom) < 1e-4) return { m: 0, b: sx / n };
+        const m = Math.max(-0.45, Math.min(0.45, (n * sxy - sy * sx) / denom));
+        return { m, b: (sx - m * sy) / n };
+      };
+      const pass1 = ols(pts);
+      const residuals = pts.map((p) => Math.abs(p.x - (pass1.m * p.y + pass1.b)));
+      const sortedRes = [...residuals].sort((a, b) => a - b);
+      const medRes = Math.max(2.5, sortedRes[Math.floor(sortedRes.length * 0.6)]);
+      const inliers = pts.filter((_, i) => residuals[i] <= medRes * 1.45);
+      return inliers.length >= 3 ? ols(inliers) : pass1;
     };
 
-    const topLine = fitHorizontal(topPts, h * 0.05);
-    const botLine = fitHorizontal(botPts, h * 0.95);
-    const leftLine = fitVertical(leftPts, w * 0.05);
-    const rightLine = fitVertical(rightPts, w * 0.95);
+    const topLine = fitHorizontalRobust(topPts, gh * 0.04);
+    const botLine = fitHorizontalRobust(botPts, gh * 0.96);
+    const leftLine = fitVerticalRobust(leftPts, gw * 0.04);
+    const rightLine = fitVerticalRobust(rightPts, gw * 0.96);
 
     const intersect = (
       hLine: { m: number; b: number },
@@ -2894,8 +3023,8 @@ export function detectDocumentQuadFromImageData(imgData: ImageData): PdfQuadCorn
       const y = Math.abs(denom) > 1e-4 ? (hLine.m * vLine.b + hLine.b) / denom : hLine.b;
       const x = vLine.m * y + vLine.b;
       return {
-        x: Number(Math.max(0.01, Math.min(0.99, x / w)).toFixed(3)),
-        y: Number(Math.max(0.01, Math.min(0.99, y / h)).toFixed(3)),
+        x: Number(Math.max(0.01, Math.min(0.99, x / (gw - 1))).toFixed(3)),
+        y: Number(Math.max(0.01, Math.min(0.99, y / (gh - 1))).toFixed(3)),
       };
     };
 
@@ -2904,19 +3033,50 @@ export function detectDocumentQuadFromImageData(imgData: ImageData): PdfQuadCorn
     const br = intersect(botLine, rightLine);
     const bl = intersect(botLine, leftLine);
 
-    if (tr.x - tl.x > 0.25 && br.x - bl.x > 0.25 && bl.y - tl.y > 0.25 && br.y - tr.y > 0.25) {
+    if (
+      tr.x - tl.x > 0.25 &&
+      br.x - bl.x > 0.25 &&
+      bl.y - tl.y > 0.25 &&
+      br.y - tr.y > 0.25
+    ) {
       return { tl, tr, br, bl };
     }
   }
 
-  // Fallback to clean tight box
-  const rect = detectDocumentCropRectFromImageData(imgData);
-  return {
-    tl: { x: rect.left, y: rect.top },
-    tr: { x: rect.right, y: rect.top },
-    br: { x: rect.right, y: rect.bottom },
-    bl: { x: rect.left, y: rect.bottom },
-  };
+  // Case B: Already clean white scan — return content-aware padded box if ink sits far inside
+  let minX = gw;
+  let minY = gh;
+  let maxX = 0;
+  let maxY = 0;
+  let inkHits = 0;
+  for (let y = 2; y < gh - 2; y++) {
+    for (let x = 2; x < gw - 2; x++) {
+      if (smoothLum[y * gw + x] < 210) {
+        inkHits++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (inkHits > 20 && maxX - minX > gw * 0.22 && maxY - minY > gh * 0.22) {
+    const padX = Math.max(2, gw * 0.03);
+    const padY = Math.max(2, gh * 0.03);
+    const l = Number(Math.max(0.01, (minX - padX) / (gw - 1)).toFixed(3));
+    const t = Number(Math.max(0.01, (minY - padY) / (gh - 1)).toFixed(3));
+    const r = Number(Math.min(0.99, (maxX + padX) / (gw - 1)).toFixed(3));
+    const b = Number(Math.min(0.99, (maxY + padY) / (gh - 1)).toFixed(3));
+    return {
+      tl: { x: l, y: t },
+      tr: { x: r, y: t },
+      br: { x: r, y: b },
+      bl: { x: l, y: b },
+    };
+  }
+
+  return fallbackQuad;
 }
 
 function solveLinear8x8(A: number[][], b: number[]): number[] {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
-import { LogOut, Menu, X, Settings, Bot, Search } from 'lucide-react';
+import { Menu, X, Settings, Bot, Search, User as UserIcon } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { MiniAiRobot, RobotExpression, RobotPromptItem } from './MiniAiRobot';
@@ -19,8 +19,11 @@ interface NavbarProps {
   onSelectPdfTool?: (tool: PdfToolTab) => void;
   onSelectImageTool?: (tool: ImageToolTab) => void;
   onLogin: () => void;
-  onLogout: () => void;
+  onLogout?: () => void;
   onOpenSettings: () => void;
+  onOpenProfile?: () => void;
+  hasSavedProfileData?: boolean;
+  profileAvatarUrl?: string;
   isLoggingIn: boolean;
   isChatbotMinimized?: boolean;
   onRestoreChatbot?: () => void;
@@ -170,8 +173,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectPdfTool,
   onSelectImageTool,
   onLogin,
-  onLogout,
+  onLogout: _onLogout,
   onOpenSettings,
+  onOpenProfile,
+  hasSavedProfileData = false,
+  profileAvatarUrl,
   isLoggingIn,
   isChatbotMinimized = false,
   onRestoreChatbot,
@@ -624,12 +630,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
-        {/* Desktop Tool Search Bar */}
+        {/* Mini Circular Tool Search Button */}
         <div
           data-robot-anchor="search"
-          className="relative z-30 hidden md:block w-36 lg:w-48 xl:w-56 shrink-0"
+          className="relative z-30 hidden md:flex items-center shrink-0"
         >
-          <TopToolSearch onSelectTool={handleSelectSearchTool} />
+          <TopToolSearch variant="mini" onSelectTool={handleSelectSearchTool} />
         </div>
 
         {/* Zone 3: Connection Status + Install + Settings + Logout + Mobile Toggle */}
@@ -653,17 +659,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <PWAInstallButton />
 
-          {isConnected ? (
-            <div
-              data-robot-anchor="google"
-              title={`Connected to Google Drive (${user?.email || 'Account'})`}
-              className="relative z-20 inline-flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border text-[11px] sm:text-xs font-semibold whitespace-nowrap shrink-0 bg-emerald-50/90 dark:bg-emerald-950/60 backdrop-blur-md text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/40"
-            >
-              <span aria-hidden="true" className="w-2 h-2 rounded-full shrink-0 bg-emerald-500 dark:bg-emerald-400" />
-              <span className="hidden sm:inline">Drive Connected</span>
-              <span className="sm:hidden">Drive</span>
-            </div>
-          ) : (
+          {!user && (
             <button
               type="button"
               data-robot-anchor="google"
@@ -732,17 +728,50 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Settings className="w-4 h-4" />
           </button>
 
-          {user && (
-            <button
-              type="button"
-              onClick={onLogout}
-              title={`Sign out (${user.email || 'Google account'})`}
-              className="relative z-20 p-2 text-zinc-600 dark:text-zinc-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
-              aria-label="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
+          {/* Profile Button (Top-Right Corner) */}
+          {onOpenProfile && (() => {
+            const avatarSrc = profileAvatarUrl || user?.photoURL || '';
+            const initial = (user?.displayName || user?.email || 'U').trim().charAt(0).toUpperCase();
+            return (
+              <button
+                type="button"
+                data-robot-anchor={user ? 'google' : undefined}
+                onClick={onOpenProfile}
+                title={
+                  user
+                    ? `Signed in (${user.displayName || user.email || 'Account'}) · Open Profile Vault & Logout`
+                    : 'Profile, Biodata, IDs & Signature Vault'
+                }
+                aria-label="Open User Profile Vault"
+                className={`relative z-20 inline-flex items-center justify-center rounded-full transition-all cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                  user
+                    ? 'w-8 h-8 sm:w-9 sm:h-9 p-0.5 border-2 border-emerald-500 dark:border-emerald-400 ring-2 ring-emerald-500/25 bg-[var(--pl-surface)] dark:bg-zinc-900 shadow-[0_0_12px_-2px_rgba(16,185,129,0.45)] hover:scale-105'
+                    : 'w-8 h-8 sm:w-9 sm:h-9 border border-slate-300/90 dark:border-zinc-700 bg-[var(--pl-surface)] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 hover:border-[var(--pl-accent)] hover:text-[var(--pl-accent-text)] dark:hover:text-[var(--pl-accent)] shadow-xs'
+                }`}
+              >
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt={user?.displayName || 'Profile'}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : user ? (
+                  <span className="w-full h-full rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-extrabold text-xs flex items-center justify-center">
+                    {initial}
+                  </span>
+                ) : (
+                  <UserIcon className="w-4 h-4" />
+                )}
+                {hasSavedProfileData && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-zinc-950"
+                  />
+                )}
+              </button>
+            );
+          })()}
 
           {/* Mobile Menu Trigger */}
           <button

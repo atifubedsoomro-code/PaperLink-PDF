@@ -36,6 +36,8 @@ import {
   ImagePlus,
   Stamp,
   ScanLine,
+  Building2,
+  Wand2,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppView } from './Navbar';
@@ -124,7 +126,8 @@ const PDF_OFFICE_TOOLS: Array<{
   { id: 'pdf-compress', title: 'PDF Compress', desc: 'Live size slider before shrinking.', icon: Minimize2 },
   { id: 'pdf-split', title: 'Split & Extract', desc: 'Extract custom ranges or burst pages.', icon: Scissors },
   { id: 'pdf-edit', title: 'PDF Editor', desc: 'Resizeable text, images, whiteout & ink.', icon: Edit3 },
-  { id: 'pdf-sign', title: 'Sign & Stamp', desc: 'Add signatures or approval stamps.', icon: PenTool },
+  { id: 'pdf-letterhead', title: 'Company Letterhead', desc: '12+ pro stationery templates & brand PDFs.', icon: Building2 },
+  { id: 'pdf-sign', title: 'Sign & Stamp', desc: 'Add signatures or official rubber stamps.', icon: PenTool },
   { id: 'pdf-protect', title: 'Protect / Unlock', desc: 'Lock with passwords or unlock PDFs.', icon: Lock },
   { id: 'pdf-organize', title: 'Organize Pages', desc: 'Rotate 90°, delete, and reorder sheets.', icon: LayoutGrid },
   { id: 'pdf-to-image', title: 'PDF to Image', desc: 'Up to 3× sharp PNG/JPG/WebP + ZIP.', icon: FileImage },
@@ -141,6 +144,7 @@ const DESIGNER_IMAGE_TOOLS: Array<{
   desc: string;
   icon: React.ComponentType<{ className?: string }>;
 }> = [
+  { id: 'quality-enhance', title: 'Vector & Photo Enhancer', desc: '2x/4x HD upscale, edge sharpen & denoise.', icon: Wand2 },
   { id: 'bg-remove', title: 'Background Remover', desc: 'Strip backgrounds cleanly with split preview.', icon: Eraser },
   { id: 'bulk-bg-remove', title: 'Bulk BG Remover', desc: 'Batch-cut product shots into one ZIP.', icon: Layers },
   { id: 'photo-batch', title: 'Photo Batch Studio', desc: 'Looks, presets, frames, watermarks & ZIP.', icon: Images },
@@ -234,16 +238,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={() => onOpenPdfTool('pdf-edit')}
                   icon={<Edit3 className="w-4 h-4" />}
                   text="PDF & Office"
-                  className="whitespace-nowrap shrink-0"
-                />
-
-                <TypewriterButton
-                  variant="dark"
-                  size="lg"
-                  alwaysExpanded
-                  onClick={() => onOpenPdfTool('pdf-scan-crop')}
-                  icon={<ScanLine className="w-4 h-4 text-amber-700 dark:text-yellow-400" />}
-                  text="Crop & Scan"
                   className="whitespace-nowrap shrink-0"
                 />
 

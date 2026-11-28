@@ -26,6 +26,7 @@ import {
   Palette,
   Copy,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { FeedbackSection } from './FeedbackSection';
 import { MiniAiRobot } from './MiniAiRobot';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../services/feedbackSheets';
@@ -203,8 +204,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [isOpen, initialTab]);
 
-  if (!isOpen) return null;
-
   const normalizedTheme: 'studio' | 'light' | 'dark' =
     themeMode === 'light' ? 'light' : themeMode === 'dark' ? 'dark' : 'studio';
 
@@ -225,22 +224,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/65 dark:bg-black/80 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-modal-title"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className={`bg-white dark:bg-[var(--pl-surface)] border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-h-[88vh] shadow-2xl flex flex-col overflow-hidden transition-all ${
-          activeTab === 'feedback' ? 'max-w-2xl' : 'max-w-[440px]'
-        }`}
-      >
-        {/* Compact Header */}
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/80 dark:bg-[var(--pl-surface-soft)] flex items-center justify-between gap-3">
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="no-print fixed inset-x-0 top-14 sm:top-16 bottom-0 z-50 bg-black/45 backdrop-blur-[2px] flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onClose();
+          }}
+        >
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+            className={`w-full h-full bg-white dark:bg-[var(--pl-surface)] border-l border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col overflow-hidden transition-[max-width] duration-200 ${
+              activeTab === 'feedback' ? 'max-w-md sm:max-w-xl lg:max-w-2xl' : 'max-w-md sm:max-w-lg'
+            }`}
+          >
+            {/* Compact Drawer Header */}
+            <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/90 dark:bg-zinc-950/90 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             {showMiniRobot ? (
               <MiniAiRobot
@@ -733,7 +742,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

@@ -79,14 +79,17 @@ Whenever anyone asks who built, developed, created, or leads PaperLink, state cl
    - Add Pictures to PDF (visual canvas to drop, resize, rotate, opacity-blend, round corners, and stamp photos/IDs onto existing PDF pages)
    - Watermark Remover (PDF) (clean vector watermark streams/annotations OR smart pixel-clean & corner badge eraser on scanned PDFs)
    - Watermark & Page # (PDF) (diagonal/tiled text or PNG logo watermarks + page numbering)
+   - Crop & Auto-Scan (automatic corner detection + perspective deskew + shadow flattening)
    - Rotate & Organize Pages (rotate 90°, delete, reorder thumbnails)
-   - Sign & Stamp (draw signature or APPROVED/CONFIDENTIAL stamps)
-   - Visual PDF Editor (add resizeable text boxes, resizeable pictures, highlights, whiteout, ink drawings)
+   - Sign & Stamp (draw signature, Profile Saved Signature, or custom Rubber Stamp Builder with 10+ presets & all-page stamping)
+   - Company Letterhead Studio (12 executive corporate/minimalist/creative/official letterhead templates + live PDF export)
+   - Visual PDF Editor (add resizeable text boxes, resizeable pictures, highlights, whiteout, ink drawings, rubber stamps)
    - Protect / Unlock PDF (AES-256 / AES-128 password encryption + print/copy permissions, or decrypt with password)
    - PDF to Image (render pages up to 3x sharpness into PNG, JPG, or WebP + ZIP)
-3. **Graphic Designer Image Studio** (11 local studio tools):
+3. **Graphic Designer Image Studio** (12 local studio tools):
    - Background Remover (AI neural subject segmentation + studio corner flood-fill + eyedropper color-key + split slider + transparent/solid/gradient fill + drop shadow)
    - Bulk BG Remover (process multiple images -> single ZIP)
+   - Vector & Photo Quality Enhancer (1x/2x/4x progressive upscaling + bilateral denoise + Vector Crisp / Photo Clarity / Document Crisp profiles)
    - Watermark Remover (Image) (brush or box-mask watermarks, logos, timestamps & glare with Photo Inpaint, Document Paper heal, or Soft Deblend)
    - Blur & Redact (interactive privacy blur, pixelate mosaic, or solid blackout bars for faces, plates & sensitive text)
    - Photo Grid & ID Front/Back Joiner (combine multiple photos or ID front & back into A4 ID sheets, 2x2/3x2 grids, or side-by-side layouts)
@@ -666,15 +669,33 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
         pdfTool: {
           type: Type.STRING,
           description:
-            'Optional PDF/Office sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "ppt-to-pdf", "ppt-to-image", "excel-to-pdf", "excel-to-image", "pdf-to-excel", "pdf-to-ppt", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-add-images", "pdf-watermark-remove", "pdf-watermark-add", "pdf-organize", "pdf-sign", "pdf-edit", "pdf-protect", "pdf-to-image").',
+            'Optional PDF/Office sub-tool ID when view is "tools" (e.g. "pdf-compress", "pdf-to-word", "word-to-pdf", "ppt-to-pdf", "ppt-to-image", "excel-to-pdf", "excel-to-image", "pdf-to-excel", "pdf-to-ppt", "pdf-merge", "pdf-split", "image-to-pdf", "pdf-add-images", "pdf-watermark-remove", "pdf-watermark-add", "pdf-scan-crop", "pdf-organize", "pdf-sign", "pdf-letterhead", "pdf-edit", "pdf-protect", "pdf-to-image").',
         },
         imageTool: {
           type: Type.STRING,
           description:
-            'Optional Image sub-tool ID when view is "image-tools" (e.g. "bg-remove", "bulk-bg-remove", "watermark-remove", "blur-redact", "grid-collage", "pdf-to-image", "resize", "convert", "crop", "compress", "filters").',
+            'Optional Image sub-tool ID when view is "image-tools" (e.g. "bg-remove", "bulk-bg-remove", "quality-enhance", "watermark-remove", "blur-redact", "grid-collage", "pdf-to-image", "resize", "convert", "crop", "compress", "filters").',
         },
       },
       required: ['view'],
+    },
+  },
+  {
+    name: 'enhance_image_quality',
+    description:
+      'Upscale and sharpen vector graphics, logos, documents, or photos using 1x/2x/4x edge-preserving enhancement.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        mode: {
+          type: Type.STRING,
+          description: '"vector-sharp" (for logos/vectors/diagrams), "photo-clarity" (for pictures), or "document-crisp" (for scans).',
+        },
+        upscaleFactor: {
+          type: Type.NUMBER,
+          description: 'Resolution multiplier: 1, 2, or 4. Defaults to 2.',
+        },
+      },
     },
   },
   {
@@ -704,6 +725,104 @@ const PAPERLINK_TOOL_DECLARATIONS: FunctionDeclaration[] = [
   },
 ];
 
+function buildServerBackupResponse(body: ChatRequestBody): {
+  reply: string;
+  functionCalls: Array<{ name: string; args: Record<string, any> }>;
+  modelUsed: string;
+} {
+  const text = (body.message || '').trim();
+  const low = text.toLowerCase();
+  const files = Array.isArray(body.attachedFilesSummary) ? body.attachedFilesSummary : [];
+  const prevFiles = Array.isArray(body.previousOutputsSummary) ? body.previousOutputsSummary : [];
+  const allFiles = files.length > 0 ? files : prevFiles;
+  const hasPdf = allFiles.some((f) => f.extension === 'pdf');
+  const hasWord = allFiles.some((f) => f.extension === 'docx' || f.extension === 'doc');
+  const hasPpt = allFiles.some((f) => f.extension === 'pptx' || f.extension === 'ppt');
+  const hasExcel = allFiles.some((f) => ['xlsx', 'xls', 'csv', 'ods'].includes(f.extension));
+  const hasImage = allFiles.some((f) =>
+    ['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(f.extension)
+  );
+  const calls: Array<{ name: string; args: Record<string, any> }> = [];
+
+  if (/\b(who\s+(built|created|made|developed|leads)|developer|team\s+terminators|atif\s*ubed)\b/i.test(low)) {
+    return {
+      reply:
+        'PaperLink was **developed by Team Terminators** (from Pakistan):\n- **Lead:** Atif Ubed\n- **2.** Sufyan Ali\n- **3.** Muhammad Bilal\n- **4.** Muhammad Arham\n- **5.** Manahil Shamsi',
+      functionCalls: [],
+      modelUsed: 'paperlink-backup',
+    };
+  }
+
+  if (/\b(letterhead|company\s+header|official\s+pad)\b/i.test(low)) {
+    calls.push({ name: 'navigate_workspace', args: { view: 'tools', pdfTool: 'pdf-letterhead' } });
+  } else if (/\b(crop\s*&?\s*scan|auto[-\s]?scan|deskew|corner\s+detect)\b/i.test(low)) {
+    calls.push({ name: 'navigate_workspace', args: { view: 'tools', pdfTool: 'pdf-scan-crop' } });
+  } else {
+    if (hasWord && /\b(pdf|convert)\b/i.test(low)) calls.push({ name: 'word_to_pdf', args: { paperSize: 'a4' } });
+    if (hasPpt && /\b(pdf|convert)\b/i.test(low)) calls.push({ name: 'ppt_to_pdf', args: { layout: 'slide-fit' } });
+    if (hasExcel && /\b(pdf|convert)\b/i.test(low)) calls.push({ name: 'excel_to_pdf', args: { orientation: 'landscape' } });
+    if (hasImage && /\b(pdf|convert\s+to\s+pdf)\b/i.test(low) && !/\bpdf\s+to\b/i.test(low)) {
+      calls.push({ name: 'images_to_pdf', args: { paperSize: 'a4' } });
+    }
+    if (hasPdf && /\b(word|docx)\b/i.test(low)) calls.push({ name: 'pdf_to_word', args: { mode: 'editable' } });
+    if (hasPdf && /\b(excel|csv|spreadsheet)\b/i.test(low)) calls.push({ name: 'pdf_to_excel', args: { format: 'xlsx' } });
+    if (hasPdf && /\b(ppt|powerpoint|slides)\b/i.test(low)) calls.push({ name: 'pdf_to_ppt', args: { scale: 1.5 } });
+    if (allFiles.filter((f) => f.extension === 'pdf').length >= 2 && /\b(merge|combine|join)\b/i.test(low)) {
+      calls.push({ name: 'merge_pdfs', args: { outputName: 'merged_document' } });
+    }
+    if ((hasPdf || calls.some((c) => c.name.endsWith('_to_pdf'))) && /\b(stamp|confidential|approved|draft|urgent|verified)\b/i.test(low)) {
+      const labelMatch = low.match(/\b(confidential|approved|draft|urgent|verified|final|copy|paid)\b/i);
+      calls.push({
+        name: 'stamp_pdf',
+        args: { text: (labelMatch?.[1] || 'APPROVED').toUpperCase(), pages: 'all', position: 'top-right' },
+      });
+    }
+    if ((hasPdf || calls.some((c) => c.name.endsWith('_to_pdf'))) && /\b(compress|reduce|smaller|shrink)\b/i.test(low)) {
+      calls.push({ name: 'compress_pdf', args: { level: 'balanced', qualityPercent: 60 } });
+    }
+    if (hasImage && /\b(remove\s*bg|remove\s*background|transparent|cutout)\b/i.test(low)) {
+      calls.push({ name: 'remove_image_background', args: { engine: 'ai', outputFormat: 'png' } });
+    }
+    if (hasImage && /\b(enhance|upscale|vector|hd|4k|clarify|sharpen)\b/i.test(low)) {
+      calls.push({
+        name: 'enhance_image_quality',
+        args: { mode: /vector|logo/i.test(low) ? 'vector-sharp' : 'photo-clarity', upscaleFactor: /4x|4k/i.test(low) ? 4 : 2 },
+      });
+    }
+    if (calls.length === 0 && /\b(cover\s*studio|open\s+cover)\b/i.test(low)) {
+      calls.push({ name: 'navigate_workspace', args: { view: 'studio' } });
+    } else if (calls.length === 0 && /\b(pdf\s*tools|office\s*tools)\b/i.test(low)) {
+      calls.push({ name: 'navigate_workspace', args: { view: 'tools' } });
+    } else if (calls.length === 0 && /\b(image\s*tools|image\s*studio)\b/i.test(low)) {
+      calls.push({ name: 'navigate_workspace', args: { view: 'image-tools' } });
+    }
+  }
+
+  if (calls.length > 0) {
+    return {
+      reply: 'Running your request directly using PaperLink’s local processing engine.',
+      functionCalls: calls,
+      modelUsed: 'paperlink-backup',
+    };
+  }
+
+  if (allFiles.length > 0) {
+    return {
+      reply:
+        `I see **${allFiles.map((f) => f.name).join(', ')}** ready to go! Tell me what you want to run — for example: *"compress PDF"*, *"convert to Word"*, *"stamp APPROVED"*, *"remove background"*, *"enhance quality"*, or *"solve this sheet"* — or use the quick action chips below.`,
+      functionCalls: [],
+      modelUsed: 'paperlink-backup',
+    };
+  }
+
+  return {
+    reply:
+      'PaperLink Workspace Assistant is active! You can attach a PDF, Word, PowerPoint, Excel, or image file with **+** and tell me to **compress, merge, split, convert, stamp, remove background, enhance quality, or build a cover** — or ask me to open **Company Letterhead**, **Cover Studio**, **PDF Tools**, or **Image Studio**.',
+    functionCalls: [],
+    modelUsed: 'paperlink-backup',
+  };
+}
+
 export async function executePaperLinkChat(
   body: ChatRequestBody
 ): Promise<{ status: number; payload: Record<string, any> }> {
@@ -714,11 +833,8 @@ export async function executePaperLinkChat(
   const ai = getGeminiClient();
   if (!ai) {
     return {
-      status: 500,
-      payload: {
-        error:
-          'GEMINI_API_KEY is not configured on the server yet. Add GEMINI_API_KEY to your environment variables (Vercel Project Settings -> Environment Variables or AI Studio Secrets).',
-      },
+      status: 200,
+      payload: buildServerBackupResponse(body),
     };
   }
 
@@ -834,58 +950,6 @@ export async function executePaperLinkChat(
       );
     };
 
-    const formatFriendlyGeminiError = (err: any): { status: number; message: string } => {
-      const code = getErrorStatus(err);
-      const raw = String(err?.message || '');
-      if (isFatalAuthError(err)) {
-        return {
-          status: 400,
-          message:
-            'Your Gemini API key is invalid or lacks permission. Please verify GEMINI_API_KEY in Settings > Secrets.',
-        };
-      }
-      if (code === 429 || /RESOURCE_EXHAUSTED|quota/i.test(raw)) {
-        const retryMatch = raw.match(/retry in\s+([0-9hms.]+)/i);
-        const retryNote = retryMatch ? ` Retry window: ${retryMatch[1]}.` : '';
-        return {
-          status: 429,
-          message: isDailyQuotaError(err)
-            ? `Free-tier daily Gemini API quota reached.${retryNote} You can use a billing-enabled API key in Settings > Secrets for higher limits.`
-            : `Gemini API rate limit reached momentarily.${retryNote} Please wait a few seconds and try again.`,
-        };
-      }
-      if (code === 503 || /UNAVAILABLE|high demand|overloaded/i.test(raw)) {
-        return {
-          status: 500,
-          message:
-            'Gemini AI servers are experiencing a brief traffic spike (HTTP 503). Please wait a few seconds and try again.',
-        };
-      }
-      if (code === 504 || /timed out/i.test(raw)) {
-        return {
-          status: 500,
-          message: 'The AI request timed out under load. Please try again in a moment.',
-        };
-      }
-      // Strip raw embedded JSON payloads from error messages
-      const jsonIdx = raw.indexOf('{');
-      if (jsonIdx >= 0) {
-        try {
-          const parsedErr = JSON.parse(raw.slice(jsonIdx));
-          const clean = parsedErr?.error?.message;
-          if (typeof clean === 'string' && clean.trim()) {
-            return { status: code === 400 ? 400 : 500, message: clean.trim() };
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-      return {
-        status: code === 400 ? 400 : 500,
-        message: raw || 'Unable to process chat request with Gemini.',
-      };
-    };
-
     const withChatTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
       new Promise<T>((resolve, reject) => {
         const timer = setTimeout(
@@ -969,10 +1033,12 @@ export async function executePaperLinkChat(
     }
 
     if (!response) {
-      const formatted = formatFriendlyGeminiError(lastErr);
+      if (lastErr) {
+        console.warn('Gemini attempts exhausted, using server backup:', (lastErr as Error)?.message || lastErr);
+      }
       return {
-        status: formatted.status,
-        payload: { error: formatted.message },
+        status: 200,
+        payload: buildServerBackupResponse(body),
       };
     }
 
@@ -992,20 +1058,10 @@ export async function executePaperLinkChat(
       },
     };
   } catch (err: any) {
-    console.error('Gemini /api/chat error:', err);
-    const msg = String(err?.message || '');
-    const isQuota = /\b429\b|RESOURCE_EXHAUSTED/i.test(msg);
-    const isDemand = /\b503\b|UNAVAILABLE|high demand|overloaded/i.test(msg);
-    const cleanMsg = isQuota
-      ? 'Free-tier daily Gemini API quota reached. Wait a moment for limits to reset or attach a billing-enabled API key in Settings > Secrets.'
-      : isDemand
-      ? 'Gemini AI servers are experiencing temporary high demand (HTTP 503). Please try again in a few seconds.'
-      : msg.includes('{')
-      ? 'Gemini AI request could not be completed right now. Please try again.'
-      : msg || 'Unable to process chat request with Gemini.';
+    console.warn('Gemini /api/chat fallback triggered cleanly:', err?.message || err);
     return {
-      status: isQuota ? 429 : err?.status === 400 ? 400 : 500,
-      payload: { error: cleanMsg },
+      status: 200,
+      payload: buildServerBackupResponse(body),
     };
   }
 }

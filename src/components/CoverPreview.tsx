@@ -1,6 +1,14 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CoverData, UploadedDocInfo } from '../types';
+import { AppliedPdfStamp, CoverData, CoverDraggableKey, PdfStampPlacement, UploadedDocInfo } from '../types';
 import { COVER_THEMES } from '../constants/themes';
+import {
+  getCoverFontCssFamily,
+  hasBannerHeaderLayout,
+  isCenteredCoverLayout,
+  parseSummaryLines,
+  resolveEffectiveColors,
+} from '../utils/coverFormatting';
+import { renderCustomTextStampDataUrl } from '../utils/stampRenderer';
 import {
   ExternalLink,
   QrCode,
@@ -15,6 +23,8 @@ import {
   Info,
   Eye,
   Loader2,
+  Move,
+  RotateCcw,
 } from 'lucide-react';
 import { EdgeGrabRobot } from './EdgeGrabRobot';
 
@@ -27,6 +37,7 @@ interface CoverPreviewProps {
   onFullPreview?: () => void;
   isPreparingFullPreview?: boolean;
   isDriveUploaded: boolean;
+  onUpdateCoverData?: (updater: (prev: CoverData) => CoverData) => void;
 }
 
 const PAPER_W = 500;
@@ -37,10 +48,11 @@ interface FitPageProps {
   width: number;
   height: number;
   mode: 'contain' | 'width';
+  onScaleChange?: (scale: number) => void;
   children: React.ReactNode;
 }
 
-const FitPage: React.FC<FitPageProps> = ({ width, height, mode, children }) => {
+const FitPage: React.FC<FitPageProps> = ({ width, height, mode, onScaleChange, children }) => {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -52,16 +64,19 @@ const FitPage: React.FC<FitPageProps> = ({ width, height, mode, children }) => {
       const rect = el.getBoundingClientRect();
       if (!rect.width) return;
       const byWidth = rect.width / width;
-      const next =
-        mode === 'width' ? byWidth : rect.height > 0 ? Math.min(byWidth, rect.height / height) * 0.97 : byWidth;
-      setScale(Math.max(0.05, next));
+      const next = Math.max(
+        0.05,
+        mode === 'width' ? byWidth : rect.height > 0 ? Math.min(byWidth, rect.height / height) * 0.97 : byWidth
+      );
+      setScale(next);
+      onScaleChange?.(next);
     };
 
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [width, height, mode]);
+  }, [width, height, mode, onScaleChange]);
 
   return (
     <div
@@ -88,43 +103,48 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   onFullPreview,
   isPreparingFullPreview = false,
   isDriveUploaded,
+  onUpdateCoverData,
 }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [viewMode, setViewMode] = useState<'single' | 'grid'>('single');
+  const [dragMode, setDragMode] = useState(false);
+  const [draggingKey, setDraggingKey] = useState<CoverDraggableKey | null>(null);
+  const [canvasScale, setCanvasScale] = useState(1);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const stageScrollRef = useRef<HTMLDivElement>(null);
+
+  const dragSessionRef = useRef<{
+    key: CoverDraggableKey;
+    startClientX: number;
+    startClientY: number;
+    origX: number;
+    origY: number;
+    scale: number;
+  } | null>(null);
 
   const theme = COVER_THEMES.find((t) => t.id === coverData.themeId) || COVER_THEMES[0];
   const paperH = paperHeightFor(coverData.paperSize);
   const includeQr = coverData.includeQr !== false;
 
-  const getFontStyle = (): React.CSSProperties => {
-    switch (coverData.font) {
-      case 'playfair':
-        return { fontFamily: '"Playfair Display", Georgia, serif' };
-      case 'merriweather':
-        return { fontFamily: '"Merriweather", Georgia, serif' };
-      case 'mono':
-        return { fontFamily: '"JetBrains Mono", monospace' };
-      case 'montserrat':
-        return { fontFamily: '"Montserrat", "Plus Jakarta Sans", sans-serif' };
-      case 'oswald':
-        return { fontFamily: '"Oswald", sans-serif', letterSpacing: '-0.01em' };
-      case 'space':
-      case 'inter':
-      default:
-        return { fontFamily: '"Plus Jakarta Sans", "DM Sans", sans-serif' };
-    }
-  };
+  const {
+    isDarkModeTheme,
+    effectiveTitleColor,
+    effectiveSubtitleColor,
+    effectiveTextColor,
+    effectiveBorderColor,
+    effectiveBorderWidth,
+  } = resolveEffectiveColors(coverData, theme);
 
-  const isDarkModeTheme = !!theme.isDark;
-  const isCentered = theme.layoutStyle === 'plain-centered' || theme.layoutStyle === 'card-centered';
+  const isCentered = isCenteredCoverLayout(theme.layoutStyle);
   const isLeftBar = theme.layoutStyle === 'plain-left-bar';
+  const isSplitCover = theme.layoutStyle === 'split-cover';
+  const hasTopBanner = hasBannerHeaderLayout(theme.layoutStyle, !!coverData.backgroundImageUrl);
 
-  const effectiveTitleColor = coverData.titleColor || (isDarkModeTheme ? '#ffffff' : coverData.primaryColor);
-  const effectiveSubtitleColor = coverData.subtitleColor || coverData.accentColor;
-  const effectiveTextColor = coverData.textColor || (isDarkModeTheme ? '#cbd5e1' : '#334155');
+  const fontCssStyle: React.CSSProperties = {
+    fontFamily: getCoverFontCssFamily(coverData.font),
+    letterSpacing: coverData.font === 'oswald' ? '-0.01em' : undefined,
+  };
 
   const originalPagesCount =
     currentDoc?.pageCount || (currentDoc?.renderedPagePreviews?.length ?? (currentDoc ? 1 : 0));
@@ -147,6 +167,94 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
     if (activePageIndex > totalPreviewPages - 1) setActivePageIndex(0);
   }, [totalPreviewPages, activePageIndex]);
 
+  // Pointer drag tracking on canvas
+  useEffect(() => {
+    const onPointerMove = (e: PointerEvent) => {
+      const ds = dragSessionRef.current;
+      if (!ds || !onUpdateCoverData) return;
+      const dx = Math.round((e.clientX - ds.startClientX) / ds.scale);
+      const dy = Math.round((e.clientY - ds.startClientY) / ds.scale);
+      const nx = Math.max(-240, Math.min(240, ds.origX + dx));
+      const ny = Math.max(-340, Math.min(340, ds.origY + dy));
+      onUpdateCoverData((prev) => ({
+        ...prev,
+        elementOffsets: {
+          ...(prev.elementOffsets || {}),
+          [ds.key]: { x: nx, y: ny },
+        },
+      }));
+    };
+
+    const onPointerUp = () => {
+      if (dragSessionRef.current) {
+        dragSessionRef.current = null;
+        setDraggingKey(null);
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [onUpdateCoverData]);
+
+  const hasAnyOffsets = !!(
+    coverData.elementOffsets &&
+    Object.values(coverData.elementOffsets).some((v) => v && (v.x !== 0 || v.y !== 0))
+  );
+
+  const getOffsetTransform = (key: CoverDraggableKey): React.CSSProperties => {
+    const off = coverData.elementOffsets?.[key];
+    if (!off || (off.x === 0 && off.y === 0)) return {};
+    return { transform: `translate(${off.x}px, ${off.y}px)` };
+  };
+
+  const getDragProps = (key: CoverDraggableKey, extraStyle?: React.CSSProperties) => {
+    const baseStyle: React.CSSProperties = {
+      ...extraStyle,
+      ...getOffsetTransform(key),
+    };
+    if (!onUpdateCoverData) {
+      return { style: baseStyle };
+    }
+    const interactive = dragMode || draggingKey === key;
+    return {
+      style: {
+        ...baseStyle,
+        touchAction: dragMode ? ('none' as const) : ('auto' as const),
+      },
+      onPointerDown: (e: React.PointerEvent) => {
+        if (e.button !== 0) return;
+        const targetEl = e.target as HTMLElement | null;
+        if (targetEl && targetEl.closest('button, a, input, textarea, select')) return;
+        if (!dragMode && !e.altKey) {
+          // Direct click-and-drag enabled by default on cover blocks! Track movement cleanly
+        }
+        e.stopPropagation();
+        const cur = coverData.elementOffsets?.[key] || { x: 0, y: 0 };
+        setDraggingKey(key);
+        dragSessionRef.current = {
+          key,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          origX: cur.x,
+          origY: cur.y,
+          scale: canvasScale || 1,
+        };
+      },
+      className: `${dragMode ? 'cursor-move' : 'hover:cursor-grab active:cursor-grabbing'} transition-shadow select-none ${
+        draggingKey === key
+          ? 'ring-2 ring-yellow-400 rounded-md bg-yellow-400/12'
+          : interactive
+          ? 'hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md'
+          : 'hover:ring-1 hover:ring-dotted hover:ring-yellow-400/60 rounded-md'
+      }`,
+      title: 'Drag with mouse to move this element anywhere on Cover',
+    };
+  };
+
   const syncStampText = coverData.showSyncTimestamp
     ? `Synced ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`
     : '';
@@ -158,7 +266,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   const verificationLine = verificationParts.join(' · ');
 
   const qrBlock = (
-    <div className="flex flex-col items-center flex-shrink-0">
+    <div {...getDragProps('qrBlock')} className={`flex flex-col items-center flex-shrink-0 ${dragMode ? 'cursor-move p-0.5 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md' : ''}`}>
       <div
         className="p-[8px] rounded-[10px] border shadow-md flex flex-col items-center"
         style={{ backgroundColor: coverData.qrBgColor || '#ffffff', borderColor: '#cbd5e1' }}
@@ -168,10 +276,10 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             src={qrDataUrl}
             alt="Drive Document QR Code"
             referrerPolicy="no-referrer"
-            className="w-[112px] h-[112px] object-contain rounded-[4px]"
+            className="w-[108px] h-[108px] object-contain rounded-[4px] pointer-events-none"
           />
         ) : (
-          <div className="w-[112px] h-[112px] bg-slate-100 rounded-[4px] flex flex-col items-center justify-center text-slate-400 p-[8px] text-center">
+          <div className="w-[108px] h-[108px] bg-slate-100 rounded-[4px] flex flex-col items-center justify-center text-slate-400 p-[8px] text-center">
             <QrCode className="w-8 h-8 mb-1" />
             <span className="text-[9px]">Preparing QR</span>
           </div>
@@ -192,7 +300,10 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
   );
 
   const metaBlock = (
-    <div className="space-y-[8px] text-[12px]" style={{ color: effectiveTextColor }}>
+    <div
+      {...getDragProps('metaBlock', { color: effectiveTextColor })}
+      className={`space-y-[7px] text-[12px] ${dragMode ? 'cursor-move p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md' : ''}`}
+    >
       {coverData.preparedBy && (
         <div>
           <span className="text-[10px] uppercase font-bold tracking-wider opacity-60 block leading-tight">
@@ -218,23 +329,137 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
       )}
 
       {includeQr && (
-        <div className="pt-[4px] text-[9px] opacity-60 font-mono">Official Soft Copy · Google Drive</div>
+        <div className="pt-[3px] text-[9px] opacity-60 font-mono">Official Soft Copy · Google Drive</div>
       )}
     </div>
   );
 
+  const signatureNode = coverData.signatureUrl ? (
+    <div
+      {...getDragProps('signature')}
+      className={`inline-flex flex-col items-center ${dragMode ? 'cursor-move p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md' : ''}`}
+    >
+      <img
+        src={coverData.signatureUrl}
+        alt="Authorized signature"
+        className="h-[36px] max-w-[125px] object-contain pointer-events-none"
+      />
+      <div
+        className="w-[115px] border-t mt-[2px] pt-[2px] text-center text-[9px] font-semibold opacity-80 truncate"
+        style={{ borderColor: effectiveTextColor, color: effectiveTextColor }}
+      >
+        {coverData.signatureLabel || coverData.preparedBy || 'Authorized Signature'}
+      </div>
+    </div>
+  ) : null;
+
+  const renderCustomBorderOverlay = () => {
+    const style = coverData.borderStyle || 'none';
+    if (style === 'none') return null;
+
+    if (style === 'solid') {
+      return (
+        <div
+          className="absolute inset-[14px] pointer-events-none z-20"
+          style={{
+            border: `${effectiveBorderWidth}px solid ${effectiveBorderColor}`,
+            borderRadius: coverData.borderRadius ?? 6,
+          }}
+        />
+      );
+    }
+    if (style === 'dashed') {
+      return (
+        <div
+          className="absolute inset-[14px] pointer-events-none z-20"
+          style={{
+            border: `${effectiveBorderWidth}px dashed ${effectiveBorderColor}`,
+            borderRadius: coverData.borderRadius ?? 6,
+          }}
+        />
+      );
+    }
+    if (style === 'double') {
+      return (
+        <div
+          className="absolute inset-[12px] pointer-events-none z-20"
+          style={{
+            border: `${effectiveBorderWidth}px solid ${effectiveBorderColor}`,
+            borderRadius: coverData.borderRadius ?? 4,
+          }}
+        >
+          <div
+            className="absolute inset-[5px] pointer-events-none"
+            style={{
+              border: `1px solid ${coverData.accentColor}`,
+              borderRadius: Math.max(0, (coverData.borderRadius ?? 4) - 2),
+            }}
+          />
+        </div>
+      );
+    }
+    if (style === 'corner-accents') {
+      const b = `${effectiveBorderWidth + 1}px`;
+      return (
+        <div className="absolute inset-[16px] pointer-events-none z-20">
+          <div className="absolute top-0 left-0 w-[26px] h-[26px]" style={{ borderTop: `${b} solid ${effectiveBorderColor}`, borderLeft: `${b} solid ${effectiveBorderColor}` }} />
+          <div className="absolute top-0 right-0 w-[26px] h-[26px]" style={{ borderTop: `${b} solid ${effectiveBorderColor}`, borderRight: `${b} solid ${effectiveBorderColor}` }} />
+          <div className="absolute bottom-0 left-0 w-[26px] h-[26px]" style={{ borderBottom: `${b} solid ${effectiveBorderColor}`, borderLeft: `${b} solid ${effectiveBorderColor}` }} />
+          <div className="absolute bottom-0 right-0 w-[26px] h-[26px]" style={{ borderBottom: `${b} solid ${effectiveBorderColor}`, borderRight: `${b} solid ${effectiveBorderColor}` }} />
+        </div>
+      );
+    }
+    if (style === 'inset-frame') {
+      return (
+        <>
+          <div
+            className="absolute inset-[10px] pointer-events-none z-20"
+            style={{ border: `${effectiveBorderWidth}px solid ${effectiveBorderColor}`, opacity: 0.9 }}
+          />
+          <div
+            className="absolute inset-[20px] pointer-events-none z-20"
+            style={{ border: `1px solid ${coverData.accentColor}`, opacity: 0.65 }}
+          />
+        </>
+      );
+    }
+    return null;
+  };
+
+  const summaryParsedLines = parseSummaryLines(coverData.summary || '');
+
   const renderCoverPage = (withId = true) => (
     <div
       id={withId ? 'printable-cover-sheet' : undefined}
-      className="rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 relative overflow-hidden flex flex-col justify-between"
+      onDragOver={(e) => {
+        if (onUpdateCoverData && e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault();
+        }
+      }}
+      onDrop={(e) => {
+        if (!onUpdateCoverData) return;
+        const file = e.dataTransfer?.files?.[0];
+        if (!file || !file.type.startsWith('image/')) return;
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const url = String(ev.target?.result || '');
+          if (url) {
+            onUpdateCoverData((prev) => ({ ...prev, logoUrl: url, logoPosition: prev.logoPosition || 'top-left' }));
+          }
+        };
+        reader.readAsDataURL(file);
+      }}
+      className="rounded-xl shadow-2xl border border-zinc-300 dark:border-zinc-800 relative overflow-hidden flex flex-col justify-between select-none"
       style={{
-        ...getFontStyle(),
+        ...fontCssStyle,
         width: PAPER_W,
         height: paperH,
         backgroundColor: theme.backgroundColor,
         color: isDarkModeTheme ? '#f8fafc' : '#0f172a',
       }}
     >
+      {/* Background Watermark / Art Image */}
       {coverData.backgroundImageUrl && (
         <div
           className="absolute inset-0 pointer-events-none bg-cover bg-center z-0"
@@ -245,9 +470,16 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
         />
       )}
 
-      {(theme.layoutStyle === 'banner-top' || theme.layoutStyle === 'split-vertical') && !coverData.backgroundImageUrl && (
+      {/* Top Banner Styles: banner-top, split-vertical, full-bleed-hero */}
+      {hasTopBanner && (
         <div className="relative z-10">
-          <div className="relative w-full h-[160px] overflow-hidden" style={{ backgroundColor: coverData.primaryColor }}>
+          <div
+            className="relative w-full overflow-hidden"
+            style={{
+              height: theme.layoutStyle === 'full-bleed-hero' ? 195 : 160,
+              backgroundColor: coverData.primaryColor,
+            }}
+          >
             {coverData.imageUrl && (
               <img
                 src={coverData.imageUrl}
@@ -269,6 +501,84 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
             <div className="absolute bottom-0 inset-x-0 h-[6px]" style={{ backgroundColor: coverData.accentColor }} />
           </div>
+        </div>
+      )}
+
+      {/* Split-Cover Vertical Color Panel */}
+      {isSplitCover && (
+        <div
+          className="absolute left-0 inset-y-0 w-[124px] pointer-events-none z-0 overflow-hidden"
+          style={{ backgroundColor: coverData.primaryColor }}
+        >
+          {coverData.imageUrl && (
+            <img
+              src={coverData.imageUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover opacity-35"
+            />
+          )}
+          <div className="absolute inset-y-0 right-0 w-[4px]" style={{ backgroundColor: coverData.accentColor }} />
+        </div>
+      )}
+
+      {/* Ribbon Crest Template */}
+      {theme.layoutStyle === 'ribbon-crest' && (
+        <div className="relative z-10 shrink-0">
+          <div className="h-[44px] w-full flex items-center justify-between px-[36px]" style={{ backgroundColor: coverData.primaryColor }}>
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/95 truncate">
+              {coverData.organization || 'Official Submission'}
+            </span>
+            {coverData.documentId && (
+              <span className="text-[10px] font-mono text-white/90">{coverData.documentId}</span>
+            )}
+          </div>
+          <div className="h-[4px] w-full" style={{ backgroundColor: coverData.accentColor }} />
+        </div>
+      )}
+
+      {/* Executive Memo Bar Template */}
+      {theme.layoutStyle === 'executive-memo' && (
+        <div className="relative z-10 px-[40px] pt-[28px] shrink-0">
+          <div
+            className="px-[16px] py-[10px] rounded-md flex items-center justify-between text-white"
+            style={{ backgroundColor: coverData.primaryColor }}
+          >
+            <span className="text-[11px] font-extrabold uppercase tracking-[0.14em] truncate">
+              {coverData.organization || 'Executive Dossier'}
+            </span>
+            <span className="text-[10px] font-mono opacity-90">{coverData.documentId || coverData.date}</span>
+          </div>
+          <div className="h-[3px] w-full mt-[4px]" style={{ backgroundColor: coverData.accentColor }} />
+        </div>
+      )}
+
+      {/* Certificate / Charter Filigree Frame */}
+      {theme.layoutStyle === 'certificate-frame' && (
+        <div
+          className="absolute inset-[14px] border-[3px] pointer-events-none z-10"
+          style={{ borderColor: coverData.primaryColor }}
+        >
+          <div className="absolute inset-[6px] border pointer-events-none" style={{ borderColor: coverData.accentColor }} />
+          <div className="absolute top-[6px] left-[6px] w-[14px] h-[14px] border-t-2 border-l-2" style={{ borderColor: coverData.accentColor }} />
+          <div className="absolute top-[6px] right-[6px] w-[14px] h-[14px] border-t-2 border-r-2" style={{ borderColor: coverData.accentColor }} />
+          <div className="absolute bottom-[6px] left-[6px] w-[14px] h-[14px] border-b-2 border-l-2" style={{ borderColor: coverData.accentColor }} />
+          <div className="absolute bottom-[6px] right-[6px] w-[14px] h-[14px] border-b-2 border-r-2" style={{ borderColor: coverData.accentColor }} />
+        </div>
+      )}
+
+      {/* Diagonal Modern Corner Accent */}
+      {theme.layoutStyle === 'diagonal-accent' && (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+          <div
+            className="absolute -top-[88px] -right-[88px] w-[240px] h-[240px] rotate-45"
+            style={{ backgroundColor: coverData.primaryColor }}
+          />
+          <div
+            className="absolute -top-[96px] -right-[76px] w-[240px] h-[240px] rotate-45 border-b-[6px]"
+            style={{ borderColor: coverData.accentColor }}
+          />
+          <div className="absolute bottom-0 inset-x-0 h-[5px]" style={{ backgroundColor: coverData.accentColor }} />
         </div>
       )}
 
@@ -328,29 +638,36 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
         </>
       )}
 
+      {/* User Custom Border Overlay */}
+      {renderCustomBorderOverlay()}
+
+      {/* Main Content Stage */}
       <div
-        className="flex-1 flex flex-col justify-between z-10 relative"
+        className="flex-1 flex flex-col justify-between z-10 relative min-h-0"
         style={{
           padding: 40,
-          paddingLeft: isLeftBar ? 56 : 40,
+          paddingTop: theme.layoutStyle === 'ribbon-crest' || theme.layoutStyle === 'executive-memo' ? 24 : 40,
+          paddingLeft: isSplitCover ? 148 : isLeftBar ? 56 : 40,
         }}
       >
         <div className={isCentered ? 'flex-1 flex flex-col justify-center' : ''}>
+          {/* Draggable Logo */}
           {coverData.logoUrl && coverData.logoPosition !== 'qr-center' && (
             <div
+              {...getDragProps('logo')}
               className={`mb-[16px] flex ${
                 coverData.logoPosition === 'top-center'
                   ? 'justify-center'
                   : coverData.logoPosition === 'top-right'
                   ? 'justify-end'
                   : 'justify-start'
-              }`}
+              } ${dragMode ? 'cursor-move p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md' : ''}`}
             >
               <img
                 src={coverData.logoUrl}
                 alt="Organization logo"
                 referrerPolicy="no-referrer"
-                className={`object-contain ${
+                className={`object-contain pointer-events-none ${
                   coverData.logoSize === 'large'
                     ? 'h-[56px] max-w-[200px]'
                     : coverData.logoSize === 'small'
@@ -361,12 +678,16 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             </div>
           )}
 
+          {/* Draggable Header Meta */}
           {(coverData.documentId || coverData.organization) &&
-            ((theme.layoutStyle !== 'banner-top' && theme.layoutStyle !== 'split-vertical') || coverData.backgroundImageUrl) && (
+            !hasTopBanner &&
+            theme.layoutStyle !== 'ribbon-crest' &&
+            theme.layoutStyle !== 'executive-memo' && (
               <div
-                className={`flex items-center text-[11px] mb-[20px] pb-[8px] border-b border-slate-200/60 ${
+                {...getDragProps('headerMeta')}
+                className={`flex items-center text-[11px] mb-[18px] pb-[8px] border-b border-slate-200/60 ${
                   isCentered ? 'justify-center gap-[16px]' : 'justify-between'
-                }`}
+                } ${dragMode ? 'cursor-move p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/80 rounded-md' : ''}`}
               >
                 {coverData.documentId ? (
                   <span className="font-mono font-semibold" style={{ color: coverData.accentColor }}>
@@ -381,16 +702,39 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               </div>
             )}
 
-          <div className={`mt-[8px] space-y-[10px] ${isCentered ? 'text-center' : ''}`}>
+          {/* Draggable Title & Subtitle Block */}
+          <div
+            {...getDragProps('titleBlock')}
+            className={`mt-[8px] space-y-[10px] ${isCentered ? 'text-center' : ''} ${
+              onUpdateCoverData ? 'cursor-grab active:cursor-grabbing p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/70 rounded-md' : ''
+            }`}
+          >
             <h1
-              className="text-[30px] font-extrabold leading-[1.2] tracking-tight break-words"
-              style={{ color: effectiveTitleColor }}
+              className="leading-[1.2] tracking-tight break-words"
+              style={{
+                fontSize: `${coverData.titleFontSize ?? 30}px`,
+                color: effectiveTitleColor,
+                fontWeight: coverData.titleBold === false ? 500 : 800,
+                fontStyle: coverData.titleItalic ? 'italic' : 'normal',
+                textDecoration: coverData.titleUnderline ? 'underline' : 'none',
+                textUnderlineOffset: '4px',
+              }}
             >
               {coverData.title || currentDoc?.extractedTitle || currentDoc?.name || 'Document Title'}
             </h1>
 
             {coverData.subtitle && (
-              <p className="text-[14px] font-medium leading-[1.35] opacity-90 break-words" style={{ color: effectiveSubtitleColor }}>
+              <p
+                className="leading-[1.35] opacity-90 break-words"
+                style={{
+                  fontSize: `${coverData.subtitleFontSize ?? 14}px`,
+                  color: effectiveSubtitleColor,
+                  fontWeight: coverData.subtitleBold ? 700 : 500,
+                  fontStyle: coverData.subtitleItalic ? 'italic' : 'normal',
+                  textDecoration: coverData.subtitleUnderline ? 'underline' : 'none',
+                  textUnderlineOffset: '3px',
+                }}
+              >
                 {coverData.subtitle}
               </p>
             )}
@@ -401,26 +745,73 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             />
           </div>
 
+          {/* Draggable Multiline / Bulleted Summary Description (Zero truncation) */}
           {coverData.summary && (
-            <div className={`mt-[14px] ${isCentered ? 'text-center' : ''}`}>
-              <p className="text-[12px] leading-[1.45] line-clamp-4" style={{ color: effectiveTextColor }}>
-                {coverData.summary}
-              </p>
+            <div
+              {...getDragProps('summary')}
+              className={`mt-[12px] space-y-[3px] leading-[1.45] ${isCentered ? 'text-center' : ''} ${
+                onUpdateCoverData ? 'cursor-grab active:cursor-grabbing p-1 hover:ring-1 hover:ring-dashed hover:ring-yellow-400/70 rounded-md' : ''
+              }`}
+              style={{
+                ...getOffsetTransform('summary'),
+                fontSize: `${coverData.summaryFontSize ?? 12}px`,
+                color: effectiveTextColor,
+                fontWeight: coverData.summaryBold ? 700 : 400,
+                fontStyle: coverData.summaryItalic ? 'italic' : 'normal',
+                textDecoration: coverData.summaryUnderline ? 'underline' : 'none',
+                textUnderlineOffset: '2px',
+              }}
+            >
+              {summaryParsedLines.map((item, idx) => {
+                if (item.kind === 'blank') {
+                  return <div key={idx} className="h-[6px]" />;
+                }
+                if (item.kind === 'bullet' || item.kind === 'numbered') {
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-[6px] ${isCentered ? 'justify-center' : ''}`}
+                      style={{ paddingLeft: isCentered ? 0 : item.indentLevel * 12 }}
+                    >
+                      <span
+                        className="font-bold shrink-0"
+                        style={{ color: coverData.accentColor }}
+                      >
+                        {item.marker}
+                      </span>
+                      <span className="whitespace-pre-wrap break-words text-left">{item.text}</span>
+                    </div>
+                  );
+                }
+                return (
+                  <p
+                    key={idx}
+                    className="whitespace-pre-wrap break-words"
+                    style={{ paddingLeft: isCentered ? 0 : item.indentLevel * 12 }}
+                  >
+                    {item.text}
+                  </p>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Bottom Footer arranged cleanly based on includeQr & qrPosition */}
+        {/* Bottom Footer arranged cleanly based on includeQr, signatureUrl & qrPosition */}
         {!includeQr ? (
           <div
-            className={`pt-[18px] border-t border-slate-200/60 flex ${
-              isCentered ? 'flex-col items-center text-center gap-[6px]' : 'items-end justify-between gap-[16px]'
+            className={`pt-[16px] border-t border-slate-200/60 flex ${
+              isCentered
+                ? 'flex-col items-center text-center gap-[10px]'
+                : 'items-end justify-between gap-[16px]'
             }`}
           >
             {metaBlock}
+            {signatureNode}
           </div>
         ) : coverData.qrPosition === 'bottom-center' ? (
-          <div className="pt-[18px] border-t border-slate-200/60 flex flex-col items-center gap-[8px] text-center">
+          <div className="pt-[16px] border-t border-slate-200/60 flex flex-col items-center gap-[8px] text-center">
+            {signatureNode && <div className="mb-1">{signatureNode}</div>}
             {qrBlock}
             {(coverData.preparedBy || coverData.date) && (
               <div className="flex items-center gap-[14px] text-[11px]" style={{ color: effectiveTextColor }}>
@@ -436,23 +827,108 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             )}
           </div>
         ) : coverData.qrPosition === 'bottom-left' ? (
-          <div className="pt-[18px] border-t border-slate-200/60 flex items-end justify-between gap-[16px]">
+          <div className="pt-[16px] border-t border-slate-200/60 flex items-end justify-between gap-[16px]">
             {qrBlock}
-            <div className="text-right">{metaBlock}</div>
+            <div className="flex flex-col items-end gap-[10px] text-right">
+              {signatureNode}
+              {metaBlock}
+            </div>
           </div>
         ) : (
-          <div className="pt-[18px] border-t border-slate-200/60 flex items-end justify-between gap-[16px]">
-            {metaBlock}
+          <div className="pt-[16px] border-t border-slate-200/60 flex items-end justify-between gap-[16px]">
+            <div className="flex flex-col items-start gap-[10px]">
+              {metaBlock}
+              {signatureNode}
+            </div>
             {qrBlock}
           </div>
         )}
       </div>
+
+      {/* Applied custom stamps targeting Cover Page */}
+      {renderAppliedStampsLayer(
+        (coverData.appliedStamps || []).filter(
+          (st) => st.pageScope === 'cover-only' || st.pageScope === 'all-including-cover'
+        )
+      )}
     </div>
   );
+
+  function getStampWrapperPositionStyle(
+    placement: PdfStampPlacement,
+    scalePercent: number
+  ): React.CSSProperties {
+    const safeWidth = `${Math.max(8, Math.min(50, scalePercent || 18))}%`;
+    switch (placement) {
+      case 'top-left':
+        return { width: safeWidth, left: '5.5%', top: '5.5%' };
+      case 'top-center':
+        return { width: safeWidth, left: '50%', top: '5.5%', transform: 'translateX(-50%)' };
+      case 'top-right':
+        return { width: safeWidth, right: '5.5%', top: '5.5%' };
+      case 'center':
+        return { width: safeWidth, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
+      case 'bottom-left':
+        return { width: safeWidth, left: '5.5%', bottom: '6.5%' };
+      case 'bottom-center':
+        return { width: safeWidth, left: '50%', bottom: '6.5%', transform: 'translateX(-50%)' };
+      case 'bottom-right':
+      default:
+        return { width: safeWidth, right: '5.5%', bottom: '6.5%' };
+    }
+  }
+
+  function renderAppliedStampsLayer(stamps: AppliedPdfStamp[]) {
+    if (!stamps.length) return null;
+    return (
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none overflow-hidden z-20">
+        {stamps.map((stamp) => {
+          const src =
+            stamp.kind === 'image'
+              ? stamp.imageUrl || ''
+              : renderCustomTextStampDataUrl(
+                  {
+                    text: stamp.text,
+                    subtext: stamp.subtext,
+                    shape: stamp.shape,
+                    color: stamp.color,
+                  },
+                  360
+                );
+          if (!src) return null;
+          return (
+            <div
+              key={stamp.id}
+              className="absolute pointer-events-none"
+              style={getStampWrapperPositionStyle(stamp.position, stamp.scale)}
+            >
+              <img
+                src={src}
+                alt={stamp.name}
+                className="w-full h-auto max-h-[45%] object-contain select-none"
+                style={{
+                  opacity: Math.min(1, Math.max(0.1, stamp.opacity ?? 0.88)),
+                  transform: `rotate(${stamp.rotationDeg || 0}deg)`,
+                  transformOrigin: 'center center',
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   const renderDocumentPage = (pageIndex: number) => {
     const origIndex = pageIndex - 1;
     const previewImg = currentDoc?.renderedPagePreviews?.[origIndex];
+
+    const attachedPageStamps = (coverData.appliedStamps || []).filter(
+      (st) =>
+        st.pageScope === 'all-attached' ||
+        st.pageScope === 'all-including-cover' ||
+        (st.pageScope === 'first-attached' && origIndex === 0)
+    );
 
     const watermarkOverlay = coverData.watermarkText?.trim() ? (
       <div
@@ -493,12 +969,13 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             />
           </div>
           {watermarkOverlay}
+          {renderAppliedStampsLayer(attachedPageStamps)}
           {docScalePercent !== 100 && (
             <div className="absolute top-3 left-3 px-2 py-0.5 rounded bg-yellow-400/90 text-black font-mono font-bold text-[10px] tabular-nums shadow-xs">
               Scale {docScalePercent}%
             </div>
           )}
-          {(coverData.stampPageNumbers || true) && (
+          {coverData.stampPageNumbers && (
             <div className="absolute bottom-3 right-4 px-2 py-0.5 rounded bg-black/75 text-white font-mono text-[10px] tabular-nums">
               Page {pageIndex + 1} of {totalExportPages}
             </div>
@@ -528,7 +1005,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               </h3>
 
               {currentDoc?.extractedText ? (
-                <p className="text-[12px] text-slate-700 leading-relaxed">{currentDoc.extractedText}</p>
+                <p className="text-[12px] text-slate-700 leading-relaxed whitespace-pre-wrap">{currentDoc.extractedText}</p>
               ) : (
                 <p className="text-[12px] text-slate-500 italic">
                   Original content from {currentDoc?.name}.
@@ -549,12 +1026,15 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
 
           <div className="border-t border-slate-200 pt-3 flex items-center justify-between text-[12px] text-slate-400 font-mono tabular-nums">
             <span>{coverData.organization || 'Document'}</span>
-            <span>
-              Page {pageIndex + 1} of {totalExportPages}
-            </span>
+            {coverData.stampPageNumbers && (
+              <span>
+                Page {pageIndex + 1} of {totalExportPages}
+              </span>
+            )}
           </div>
         </div>
         {watermarkOverlay}
+        {renderAppliedStampsLayer(attachedPageStamps)}
       </div>
     );
   };
@@ -573,7 +1053,9 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
         scrollRef={stageScrollRef}
         edge={isFullscreen ? 'top' : 'right'}
         idleTip={
-          viewMode === 'grid'
+          dragMode
+            ? 'Drag any element on the cover sheet!'
+            : viewMode === 'grid'
             ? 'Holding on while you browse pages!'
             : 'Holding onto Document Preview!'
         }
@@ -588,18 +1070,53 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
         onAction={onFullPreview}
         className={isFullscreen ? 'top-2' : 'hidden md:block'}
       />
+
       {/* Top Controls Bar */}
-      <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between pb-3 px-1 gap-2">
+      <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 px-1 gap-2">
         <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-          <span className="font-bold text-zinc-900 dark:text-white">Document Preview</span>
+          <span className="font-bold text-zinc-900 dark:text-white">Preview</span>
           <span aria-hidden="true">·</span>
           <span className="font-mono text-amber-600 dark:text-yellow-400 tabular-nums font-semibold">
-            {totalExportPages} {totalExportPages === 1 ? 'Page' : 'Pages'}
+            {totalExportPages} {totalExportPages === 1 ? 'Pg' : 'Pgs'}
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {viewMode === 'single' && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onUpdateCoverData && activePageIndex === 0 && viewMode === 'single' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setDragMode((d) => !d)}
+                className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+                  dragMode
+                    ? 'bg-yellow-400 text-black border-yellow-400 shadow-xs'
+                    : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:border-yellow-400'
+                }`}
+                title="Drag & drop text, logo, signature, or QR freely on Cover"
+              >
+                <Move className="w-3 h-3" />
+                <span>{dragMode ? 'Done' : 'Move Items'}</span>
+              </button>
+
+              {hasAnyOffsets && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateCoverData((prev) => ({
+                      ...prev,
+                      elementOffsets: undefined,
+                    }))
+                  }
+                  className="p-1 text-zinc-500 hover:text-amber-600 dark:hover:text-yellow-400 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 cursor-pointer"
+                  title="Reset dragged element positions"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </>
+          )}
+
+          {viewMode === 'single' && totalPreviewPages > 1 && (
             <div className="flex items-center bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-0.5 text-xs text-zinc-700 dark:text-zinc-300">
               <button
                 type="button"
@@ -611,8 +1128,8 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="px-2 font-mono font-bold text-amber-700 dark:text-yellow-300 text-[11px] whitespace-nowrap tabular-nums">
-                {activePageIndex === 0 ? 'Page 1 (Cover)' : `Page ${activePageIndex + 1} / ${totalPreviewPages}`}
+              <span className="px-1.5 font-mono font-bold text-amber-700 dark:text-yellow-300 text-[11px] whitespace-nowrap tabular-nums">
+                {activePageIndex === 0 ? 'P1' : `${activePageIndex + 1}/${totalPreviewPages}`}
               </span>
               <button
                 type="button"
@@ -630,13 +1147,13 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
           <button
             type="button"
             onClick={() => setViewMode(viewMode === 'single' ? 'grid' : 'single')}
-            className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
+            className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap ${
               viewMode === 'grid'
                 ? 'bg-yellow-400 text-black border-yellow-400'
                 : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:text-zinc-950 dark:hover:text-white'
             }`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <LayoutGrid className="w-3 h-3" />
             <span className="hidden sm:inline">{viewMode === 'grid' ? 'Single' : `All ${totalPreviewPages}`}</span>
           </button>
 
@@ -645,10 +1162,10 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               href={driveLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/40 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/40 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors whitespace-nowrap"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Drive Link</span>
+              <ExternalLink className="w-3 h-3" />
+              <span className="hidden sm:inline">Drive</span>
             </a>
           )}
 
@@ -657,15 +1174,15 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
               type="button"
               onClick={onFullPreview}
               disabled={isPreparingFullPreview}
-              className="px-2.5 py-1 text-xs font-bold rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 whitespace-nowrap shadow-xs"
+              className="px-2 py-1 text-[11px] font-bold rounded-lg bg-yellow-400 hover:bg-yellow-300 text-black transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center gap-1 whitespace-nowrap shadow-xs"
               title={`Open full ${totalExportPages}-page PDF preview`}
             >
               {isPreparingFullPreview ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
-                <Eye className="w-3.5 h-3.5" />
+                <Eye className="w-3 h-3" />
               )}
-              <span>{isPreparingFullPreview ? 'Preparing...' : 'Full Preview'}</span>
+              <span>{isPreparingFullPreview ? 'Preparing...' : 'PDF View'}</span>
             </button>
           )}
 
@@ -676,10 +1193,23 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Preview'}
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview'}
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
+
+      {dragMode && activePageIndex === 0 && viewMode === 'single' && (
+        <div className="mb-2 px-3 py-1.5 rounded-lg bg-yellow-400/15 border border-yellow-400/50 text-[11px] text-amber-800 dark:text-yellow-300 font-medium flex items-center justify-between gap-2 shrink-0">
+          <span>Drag any text, logo, signature, or QR block directly on Page 1.</span>
+          <button
+            type="button"
+            onClick={() => setDragMode(false)}
+            className="font-bold underline cursor-pointer shrink-0"
+          >
+            Finish
+          </button>
+        </div>
+      )}
 
       {/* Page Preview Cap Notice */}
       {isPreviewCapped && (
@@ -721,7 +1251,7 @@ export const CoverPreview: React.FC<CoverPreviewProps> = ({
             ))}
           </div>
         ) : (
-          <FitPage width={PAPER_W} height={paperH} mode="contain">
+          <FitPage width={PAPER_W} height={paperH} mode="contain" onScaleChange={setCanvasScale}>
             {activePageIndex === 0 ? renderCoverPage(true) : renderDocumentPage(activePageIndex)}
           </FitPage>
         )}

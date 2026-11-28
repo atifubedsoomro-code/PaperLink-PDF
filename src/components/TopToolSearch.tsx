@@ -30,6 +30,8 @@ import {
   Sliders,
   Stamp,
   Table2,
+  Building2,
+  Wand2,
   X,
 } from 'lucide-react';
 import { AppView } from './Navbar';
@@ -88,6 +90,15 @@ export const ALL_SEARCHABLE_TOOLS: SearchableToolItem[] = [
     keywords: 'editor annotate write draw whiteout insert picture',
     icon: Edit3,
     target: { kind: 'pdf', tool: 'pdf-edit' },
+  },
+  {
+    id: 'pdf-letterhead',
+    title: 'Company Letterhead Generator',
+    category: 'PDF Tools',
+    description: '12+ professional business letterhead templates & export',
+    keywords: 'letterhead stationery company template header logo footer official pad',
+    icon: Building2,
+    target: { kind: 'pdf', tool: 'pdf-letterhead' },
   },
   {
     id: 'pdf-merge',
@@ -274,6 +285,15 @@ export const ALL_SEARCHABLE_TOOLS: SearchableToolItem[] = [
 
   // Image Tools
   {
+    id: 'img-quality-enhance',
+    title: 'Vector & Photo Quality Enhancer',
+    category: 'Image Tools',
+    description: '2x/4x HD upscale, vector edge crispness & denoise',
+    keywords: 'enhance quality upscale vector logo sharpen crisp clarity denoise hd',
+    icon: Wand2,
+    target: { kind: 'image', tool: 'quality-enhance' },
+  },
+  {
     id: 'img-bg-remove',
     title: 'Background Remover',
     category: 'Image Tools',
@@ -389,6 +409,7 @@ interface TopToolSearchProps {
   className?: string;
   autoFocus?: boolean;
   onAfterSelect?: () => void;
+  variant?: 'inline' | 'mini';
 }
 
 export const TopToolSearch: React.FC<TopToolSearchProps> = ({
@@ -396,6 +417,7 @@ export const TopToolSearch: React.FC<TopToolSearchProps> = ({
   className = '',
   autoFocus = false,
   onAfterSelect,
+  variant = 'inline',
 }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -405,18 +427,21 @@ export const TopToolSearch: React.FC<TopToolSearchProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (autoFocus) {
-      inputRef.current?.focus();
+    if (autoFocus || (variant === 'mini' && isOpen)) {
+      const raf = window.requestAnimationFrame(() => inputRef.current?.focus());
+      return () => window.cancelAnimationFrame(raf);
     }
-  }, [autoFocus]);
+  }, [autoFocus, variant, isOpen]);
 
   // Global keyboard shortcuts: Cmd/Ctrl + K or "/" (when not typing in a field)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-        setIsOpen(true);
+        if (containerRef.current && containerRef.current.offsetParent !== null) {
+          e.preventDefault();
+          setIsOpen(true);
+          window.requestAnimationFrame(() => inputRef.current?.focus());
+        }
         return;
       }
       if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -426,10 +451,10 @@ export const TopToolSearch: React.FC<TopToolSearchProps> = ({
           activeTag === 'textarea' ||
           activeTag === 'select' ||
           (document.activeElement as HTMLElement | null)?.isContentEditable;
-        if (!isEditable && inputRef.current && inputRef.current.offsetParent !== null) {
+        if (!isEditable && containerRef.current && containerRef.current.offsetParent !== null) {
           e.preventDefault();
-          inputRef.current.focus();
           setIsOpen(true);
+          window.requestAnimationFrame(() => inputRef.current?.focus());
         }
       }
     };
@@ -514,6 +539,140 @@ export const TopToolSearch: React.FC<TopToolSearchProps> = ({
     }
   };
 
+  const resultsListNode = (
+    <>
+      <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-900 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+        <span className="font-medium">
+          {query.trim() ? `Matches for "${query.trim()}"` : 'Quick Jump Tools'}
+        </span>
+        <span className="tabular-nums font-mono">{filteredTools.length}</span>
+      </div>
+
+      {filteredTools.length === 0 ? (
+        <div className="px-3 py-5 text-center text-xs text-zinc-500 dark:text-zinc-400">
+          No matching tools found. Try &ldquo;merge&rdquo;, &ldquo;rearrange&rdquo;, &ldquo;word&rdquo;, or &ldquo;bg&rdquo;.
+        </div>
+      ) : (
+        <div className="max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900/80">
+          {filteredTools.map((tool, idx) => {
+            const Icon = tool.icon;
+            const active = idx === highlightIdx;
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onMouseEnter={() => setHighlightIdx(idx)}
+                onClick={() => handlePick(tool)}
+                className={`w-full px-3 py-2.5 text-left flex items-center gap-2.5 transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-zinc-100 dark:bg-zinc-900'
+                    : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/60'
+                }`}
+              >
+                <span className="w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center shrink-0 text-blue-700 dark:text-yellow-400">
+                  <Icon className="w-3.5 h-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900 dark:text-white truncate">
+                    <span className="truncate">{tool.title}</span>
+                    <span className="text-zinc-400 dark:text-zinc-500 font-normal shrink-0">·</span>
+                    <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 shrink-0">
+                      {tool.category}
+                    </span>
+                  </span>
+                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
+                    {tool.description}
+                  </span>
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+
+  if (variant === 'mini') {
+    return (
+      <div ref={containerRef} className={`relative ${className}`}>
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          aria-expanded={isOpen}
+          aria-controls="paperlink-tool-search-list"
+          aria-label="Search tools"
+          title="Search tools (/ or Cmd+K)"
+          className={`group relative w-8 h-8 sm:w-9 sm:h-9 rounded-full inline-flex items-center justify-center border transition-all duration-200 cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--pl-accent)] ${
+            isOpen
+              ? 'border-[var(--pl-accent)] bg-[var(--pl-surface)] dark:bg-zinc-950 text-[var(--pl-accent-text)] dark:text-[var(--pl-accent)] shadow-[0_0_20px_-2px_rgba(var(--pl-accent-rgb),0.7),0_0_10px_rgba(var(--pl-glow-rgb),0.38)]'
+              : 'border-[var(--pl-accent)]/60 bg-[var(--pl-surface)] dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 hover:border-[var(--pl-accent)] hover:text-[var(--pl-accent-text)] dark:hover:text-[var(--pl-accent)] shadow-[0_0_15px_-3px_rgba(var(--pl-accent-rgb),0.5),0_0_6px_rgba(var(--pl-glow-rgb),0.26)]'
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute -inset-[2px] rounded-full blur-[5px] transition-opacity duration-300 ${
+              isOpen ? 'opacity-95' : 'opacity-60 group-hover:opacity-90'
+            }`}
+            style={{
+              background:
+                'linear-gradient(125deg, rgba(var(--pl-accent-rgb), 0.58), rgba(var(--pl-glow-rgb), 0.48), rgba(var(--pl-accent-rgb), 0.58))',
+            }}
+          />
+          <Search className="w-4 h-4 relative z-10" />
+        </button>
+
+        {isOpen && (
+          <div
+            id="paperlink-tool-search-list"
+            role="listbox"
+            className="absolute right-0 mt-2.5 w-[330px] sm:w-[370px] rounded-2xl border border-[var(--pl-accent)]/40 bg-white dark:bg-zinc-950 shadow-[0_16px_38px_-10px_rgba(0,0,0,0.38),0_0_24px_-6px_rgba(var(--pl-accent-rgb),0.35)] z-50 overflow-hidden"
+          >
+            <div className="p-2.5 border-b border-zinc-100 dark:border-zinc-900 bg-zinc-50/70 dark:bg-zinc-900/50">
+              <div className="relative flex items-center rounded-full">
+                <Search className="w-3.5 h-3.5 absolute left-3 text-[var(--pl-accent-text)] dark:text-[var(--pl-accent)] pointer-events-none" />
+                <input
+                  ref={inputRef}
+                  type="text"
+                  role="combobox"
+                  aria-expanded={isOpen}
+                  aria-controls="paperlink-tool-search-list"
+                  aria-label="Search tools"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={handleInputKeyDown}
+                  placeholder="Search PDF, Image, Cover tools..."
+                  className="w-full h-9 pl-8.5 pr-9 rounded-full border border-[var(--pl-accent)]/55 bg-white dark:bg-zinc-950 text-xs text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:border-[var(--pl-accent)]"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery('');
+                      inputRef.current?.focus();
+                    }}
+                    aria-label="Clear search"
+                    className="absolute right-2.5 p-0.5 rounded-full text-zinc-400 hover:text-zinc-700 dark:hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <kbd className="inline-flex items-center justify-center px-1.5 h-5 text-[10px] font-mono text-zinc-400 border border-zinc-200 dark:border-zinc-800 rounded-full absolute right-2 pointer-events-none">
+                    /
+                  </kbd>
+                )}
+              </div>
+            </div>
+
+            {resultsListNode}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <div className="group relative flex items-center rounded-full">
@@ -579,57 +738,7 @@ export const TopToolSearch: React.FC<TopToolSearchProps> = ({
           role="listbox"
           className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-full sm:w-[360px] rounded-2xl border border-[var(--pl-accent)]/35 bg-white dark:bg-zinc-950 shadow-[0_14px_34px_-10px_rgba(0,0,0,0.35),0_0_20px_-6px_rgba(var(--pl-accent-rgb),0.3)] z-50 overflow-hidden"
         >
-          <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-900 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-            <span className="font-medium">
-              {query.trim() ? `Matches for "${query.trim()}"` : 'Quick Jump Tools'}
-            </span>
-            <span className="tabular-nums font-mono">{filteredTools.length}</span>
-          </div>
-
-          {filteredTools.length === 0 ? (
-            <div className="px-3 py-5 text-center text-xs text-zinc-500 dark:text-zinc-400">
-              No matching tools found. Try &ldquo;merge&rdquo;, &ldquo;rearrange&rdquo;, &ldquo;word&rdquo;, or &ldquo;bg&rdquo;.
-            </div>
-          ) : (
-            <div className="max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-900/80">
-              {filteredTools.map((tool, idx) => {
-                const Icon = tool.icon;
-                const active = idx === highlightIdx;
-                return (
-                  <button
-                    key={tool.id}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    onMouseEnter={() => setHighlightIdx(idx)}
-                    onClick={() => handlePick(tool)}
-                    className={`w-full px-3 py-2.5 text-left flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-zinc-100 dark:bg-zinc-900'
-                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/60'
-                    }`}
-                  >
-                    <span className="w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center shrink-0 text-blue-700 dark:text-yellow-400">
-                      <Icon className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900 dark:text-white truncate">
-                        <span className="truncate">{tool.title}</span>
-                        <span className="text-zinc-400 dark:text-zinc-500 font-normal shrink-0">·</span>
-                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 shrink-0">
-                          {tool.category}
-                        </span>
-                      </span>
-                      <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
-                        {tool.description}
-                      </span>
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {resultsListNode}
         </div>
       )}
     </div>
